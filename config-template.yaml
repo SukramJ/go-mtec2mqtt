@@ -1,0 +1,35 @@
+# M-TEC external MODBUS RTU server
+MODBUS_IP: 0.0.0.0 # IP address / hostname of "espressif" modbus server
+MODBUS_PORT: 502 # Port (usually no change required)
+MODBUS_SLAVE: 247 # Modbus slave id (usually no change required)
+MODBUS_TIMEOUT: 5 # Timeout for Modbus server (s)
+MODBUS_RETRIES: 3 # Retries
+MODBUS_FRAMER: socket # Modbus Framer (usually no change required; options: 'ascii', 'binary', 'rtu', 'socket', 'tls')
+
+# MQTT settings
+# NOTE: TLS/SSL is currently NOT supported natively (plain TCP only).
+# For TLS, either run a local broker with plain auth, or terminate TLS
+# via a reverse proxy (e.g. mosquitto with bridge). TLS support is
+# tracked in ROADMAP (P1). Credentials can also be provided via the
+# MTEC_MQTT_LOGIN / MTEC_MQTT_PASSWORD environment variables.
+MQTT_SERVER: localhost # MQTT server
+MQTT_PORT: 1883 # MQTT server port (typically 1883 plain, 8883 TLS — TLS not supported)
+MQTT_LOGIN: " " # MQTT Login (override: env MTEC_MQTT_LOGIN)
+MQTT_PASSWORD: "" # MQTT Password (override: env MTEC_MQTT_PASSWORD)
+MQTT_TOPIC: MTEC # MQTT topic name
+MQTT_FLOAT_FORMAT: "{:.3f}" # Defines how to format float values
+
+# Refresh interval  / override when needed
+# REFRESH_NOW: 10            # Refresh "now" data every N seconds
+# REFRESH_DAY: 300           # Refresh "day" statistic every N seconds
+# REFRESH_TOTAL: 300         # Refresh "total" statistic every N seconds
+# REFRESH_CONFIG: 30         # Refresh "config" data every N seconds
+# REFRESH_STATIC: 3600       # Refresh "static" data every N seconds
+
+# Home Assistant support
+HASS_ENABLE: false # Enable home assistant
+HASS_BASE_TOPIC: homeassistant # Basis MQTT topic of home assistant
+HASS_BIRTH_GRACETIME: 15 # Give HASS some time to get ready after the birth message was received
+
+# General
+DEBUG: false # Set to True to get verbose debug messages
