@@ -174,7 +174,7 @@ func TestDecodeSTRLatin1Fallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := v.(string)
-	if len(s) == 0 {
+	if s == "" {
 		t.Fatal("Latin-1 fallback produced empty string")
 	}
 }

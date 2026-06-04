@@ -22,7 +22,7 @@ import (
 //
 // Group → cadence mapping mirrors the Python coordinator exactly so
 // the on-the-wire request pattern is unchanged.
-func (c *Coordinator) spawnPolls(g *errgroup.Group, ctx context.Context) {
+func (c *Coordinator) spawnPolls(ctx context.Context, g *errgroup.Group) {
 	cfg := c.deps.Cfg
 	g.Go(func() error {
 		return c.pollLoop(ctx, "base", registers.GroupBase, cfg.RefreshNowDuration())

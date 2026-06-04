@@ -317,7 +317,7 @@ func TestReadGroupConcurrentCallersSerialiseOnClient(t *testing.T) {
 	const N = 4
 	var wg sync.WaitGroup
 	wg.Add(N)
-	for i := 0; i < N; i++ {
+	for range N {
 		go func() {
 			defer wg.Done()
 			_, _ = r.ReadGroup(context.Background(), registers.GroupBase)

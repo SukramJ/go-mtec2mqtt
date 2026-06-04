@@ -243,13 +243,13 @@ func TestConcurrentReadsAreSerialised(t *testing.T) {
 
 	const N = 6
 	errs := make(chan error, N)
-	for i := 0; i < N; i++ {
+	for range N {
 		go func() {
 			_, err := c.ReadHoldingRegisters(context.Background(), 11000, 1)
 			errs <- err
 		}()
 	}
-	for i := 0; i < N; i++ {
+	for i := range N {
 		if err := <-errs; err != nil {
 			t.Fatalf("goroutine %d: %v", i, err)
 		}

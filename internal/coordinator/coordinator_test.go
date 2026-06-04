@@ -5,6 +5,7 @@ package coordinator
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -331,7 +332,7 @@ func runFor(t *testing.T, c *Coordinator, d time.Duration) {
 	cancel()
 	select {
 	case err := <-done:
-		if err != nil && err != context.Canceled {
+		if err != nil && !errors.Is(err, context.Canceled) {
 			t.Fatalf("Run returned: %v", err)
 		}
 	case <-time.After(2 * time.Second):

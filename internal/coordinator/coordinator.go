@@ -18,7 +18,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -93,9 +92,6 @@ type Coordinator struct {
 	secondaryIdx  atomic.Int32
 	discoverySent atomic.Bool
 	writeQueue    chan writeReq
-
-	initOnce sync.Once
-	initErr  error
 
 	// hassStatusTopic caches "<hass_base>/status" so the message
 	// handler can compare topic strings without rebuilding it on
@@ -181,13 +177,11 @@ func (c *Coordinator) Run(ctx context.Context) error {
 
 	if c.deps.HASS != nil {
 		c.deps.HASS.Initialize(c.serialNo, c.firmware, c.equipmentInfo)
-		if err := c.publishDiscovery(ctx); err != nil {
-			log.Warn("coordinator.discovery_failed", slog.String("err", err.Error()))
-		}
+		c.publishDiscovery(ctx)
 	}
 
 	g, runCtx := errgroup.WithContext(ctx)
-	c.spawnPolls(g, runCtx)
+	c.spawnPolls(runCtx, g)
 	g.Go(func() error { return c.writeWorker(runCtx) })
 	g.Go(func() error { return c.modbusWatchdog(runCtx) })
 
@@ -279,12 +273,12 @@ func (c *Coordinator) waitForStatic(ctx context.Context) error {
 	log := c.deps.Logger
 	const retry = 10 * time.Second
 	for {
-		if err := c.tryInitFromStatic(ctx); err == nil {
+		err := c.tryInitFromStatic(ctx)
+		if err == nil {
 			return nil
-		} else {
-			log.Warn("coordinator.static_init_retry",
-				slog.String("err", err.Error()))
 		}
+		log.Warn("coordinator.static_init_retry",
+			slog.String("err", err.Error()))
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -326,9 +320,9 @@ func (c *Coordinator) tryInitFromStatic(ctx context.Context) error {
 // and subscribes to every writable entity's command topic so HA can
 // drive the inverter back. Existing command-topic subscriptions are
 // idempotent on the adapter — re-subscribing on reconnect is safe.
-func (c *Coordinator) publishDiscovery(ctx context.Context) error {
+func (c *Coordinator) publishDiscovery(ctx context.Context) {
 	if c.deps.HASS == nil {
-		return nil
+		return
 	}
 	log := c.deps.Logger
 	entries := c.deps.HASS.Entries()
@@ -341,7 +335,6 @@ func (c *Coordinator) publishDiscovery(ctx context.Context) error {
 	}
 	c.discoverySent.Store(true)
 	log.Info("coordinator.discovery_sent", slog.Int("entries", len(entries)))
-	return nil
 }
 
 // modbusWatchdog re-runs Connect when the transport reports a closed
@@ -405,7 +398,7 @@ func endsWith(s, suffix string) bool {
 func splitPath(s string) []string {
 	var out []string
 	start := 0
-	for i := 0; i < len(s); i++ {
+	for i := range len(s) {
 		if s[i] == '/' {
 			out = append(out, s[start:i])
 			start = i + 1

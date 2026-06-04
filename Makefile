@@ -11,6 +11,10 @@ SHELL := /usr/bin/env bash
 
 GO            ?= go
 GOFUMPT       ?= gofumpt
+GOIMPORTS     ?= goimports
+GOLANGCI_LINT ?= golangci-lint
+GOVULNCHECK   ?= govulncheck
+GOLICENSES    ?= go-licenses
 DOCKER        ?= docker
 
 export CGO_ENABLED := 0
@@ -47,6 +51,14 @@ RELEASE_PAYLOAD  := registers.yaml config-template.yaml README.md LICENSE change
 help: ## show this help
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
+.PHONY: setup
+setup: ## install developer tooling (gofumpt, goimports, golangci-lint, govulncheck, go-licenses)
+	$(GO) install mvdan.cc/gofumpt@latest
+	$(GO) install golang.org/x/tools/cmd/goimports@latest
+	$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+	$(GO) install golang.org/x/vuln/cmd/govulncheck@latest
+	$(GO) install github.com/google/go-licenses@latest
+
 .PHONY: build
 build: build-daemon build-util ## build both binaries into bin/
 
@@ -79,8 +91,9 @@ vet: ## run go vet
 	$(GO) vet ./...
 
 .PHONY: fmt
-fmt: ## format with gofumpt (writes in place)
+fmt: ## format with gofumpt + goimports (writes in place)
 	$(GOFUMPT) -w .
+	$(GOIMPORTS) -w -local $(MODULE) .
 
 .PHONY: fmt-check
 fmt-check: ## fail when sources are not gofumpt-clean
@@ -89,8 +102,24 @@ fmt-check: ## fail when sources are not gofumpt-clean
 	  echo "gofumpt would rewrite:"; echo "$$diff"; exit 1; \
 	fi
 
+.PHONY: lint
+lint: ## run golangci-lint
+	$(GOLANGCI_LINT) run ./...
+
+.PHONY: vuln
+vuln: ## scan dependencies + reachable code for known vulnerabilities (govulncheck)
+	$(GOVULNCHECK) ./...
+
+.PHONY: licenses
+licenses: ## fail on copyleft dependency licenses (GPL/AGPL/LGPL forbidden; MPL = reciprocal)
+	$(GOLICENSES) check ./... --disallowed_types=forbidden,restricted,reciprocal
+
+.PHONY: tidy
+tidy: ## sync go.mod / go.sum
+	$(GO) mod tidy
+
 .PHONY: check
-check: vet fmt-check test ## the pre-commit / pre-push gate
+check: vet fmt-check lint test ## the pre-commit / pre-push gate
 
 .PHONY: run
 run: build-daemon ## run the daemon against ./config.yaml + ./registers.yaml

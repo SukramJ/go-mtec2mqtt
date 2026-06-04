@@ -179,6 +179,10 @@ func (r *Reader) WriteRegisterByMQTT(ctx context.Context, name, value string) er
 	if reg.HassValueItems != nil {
 		for code, label := range reg.HassValueItems {
 			if label == value {
+				if code < 0 || code > 0xFFFF {
+					return fmt.Errorf("%w: mqtt=%q value_items code %d out of uint16 range",
+						ErrValueParse, name, code)
+				}
 				return r.client.WriteSingleRegister(ctx, reg.Address, uint16(code))
 			}
 		}
@@ -188,7 +192,7 @@ func (r *Reader) WriteRegisterByMQTT(ctx context.Context, name, value string) er
 	// 2/3) numeric parse + scale.
 	raw, err := parseWriteValue(value, reg.Scale)
 	if err != nil {
-		return fmt.Errorf("%w: mqtt=%q value=%q: %v", ErrValueParse, name, value, err)
+		return fmt.Errorf("%w: mqtt=%q value=%q: %w", ErrValueParse, name, value, err)
 	}
 	return r.client.WriteSingleRegister(ctx, reg.Address, raw)
 }

@@ -50,9 +50,9 @@ func Clusterize(regs []*Register) []Cluster {
 			continue
 		}
 		seen[r.Address] = true
-		length := uint16(r.Length)
-		if length == 0 {
-			length = 1
+		length := uint16(1)
+		if r.Length > 1 && r.Length <= 0xFFFF {
+			length = uint16(r.Length)
 		}
 		entries = append(entries, entry{
 			reg:    r,

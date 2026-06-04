@@ -5,7 +5,6 @@ package modbus
 
 import (
 	"encoding/binary"
-	"errors"
 	"io"
 	"net"
 	"sync"
@@ -91,9 +90,8 @@ func (s *mockServer) serve(conn net.Conn) {
 	for {
 		header := make([]byte, protocol.HeaderLen)
 		if _, err := io.ReadFull(conn, header); err != nil {
-			if !errors.Is(err, io.EOF) && !errors.Is(err, net.ErrClosed) {
-				// transient read error — just drop the connection
-			}
+			// EOF/closed on shutdown or a transient read error —
+			// either way, drop the connection.
 			return
 		}
 		h, err := protocol.DecodeHeader(header)

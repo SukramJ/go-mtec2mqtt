@@ -98,6 +98,9 @@ func signExtend32(v uint32) int {
 // rely on — the coordinator splits the resulting string on the double
 // space to recover the two firmware halves.
 func formatBYTE(raw []uint16, length int) (string, error) {
+	if len(raw) < length {
+		return "", fmt.Errorf("registers: BYTE length %d exceeds %d words read", length, len(raw))
+	}
 	switch length {
 	case 1:
 		return fmt.Sprintf("%02d %02d", raw[0]>>8, raw[0]&0xFF), nil
@@ -119,9 +122,12 @@ func formatBYTE(raw []uint16, length int) (string, error) {
 // formatBIT renders each register as a 16-bit binary string, joined
 // by single spaces (matches Python f"{r:016b}").
 func formatBIT(raw []uint16, length int) string {
+	if length > len(raw) {
+		length = len(raw)
+	}
 	parts := make([]string, length)
-	for i := 0; i < length; i++ {
-		parts[i] = fmt.Sprintf("%016b", raw[i])
+	for i, w := range raw[:length] {
+		parts[i] = fmt.Sprintf("%016b", w)
 	}
 	return strings.Join(parts, " ")
 }
