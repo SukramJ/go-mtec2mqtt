@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
-// Copyright (C) 2026 OpenCCU-Loom authors.
+// Copyright (C) 2026 SukramJ
 
+// Package mqtt provides the MQTT transport for the daemon: a TCP/TLS
+// adapter, publish/subscribe plumbing, and a reconnecting lifecycle
+// around an inverter-to-broker connection.
 package mqtt
 
 import (

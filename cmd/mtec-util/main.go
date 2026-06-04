@@ -72,7 +72,8 @@ func run(configPath, registersPath string, in io.Reader, out io.Writer) error {
 		reader:  optionalReader(client, catalog),
 	}
 	app.in.Buffer(make([]byte, 0, 8*1024), 64*1024)
-	return app.loop()
+	app.loop()
+	return nil
 }
 
 // session bundles the per-invocation state for the interactive menu.
@@ -85,7 +86,7 @@ type session struct {
 }
 
 // loop runs the menu until the user picks "x" or EOF on stdin.
-func (s *session) loop() error {
+func (s *session) loop() {
 	for {
 		s.println("=====================================")
 		s.println("Menu:")
@@ -98,7 +99,7 @@ func (s *session) loop() error {
 		choice, ok := s.prompt("Please select: ")
 		if !ok {
 			s.println("")
-			return nil
+			return
 		}
 		switch strings.ToLower(choice) {
 		case "1":
@@ -119,7 +120,7 @@ func (s *session) loop() error {
 			}
 		case "x", "q", "exit", "quit":
 			s.println("Bye!")
-			return nil
+			return
 		default:
 			s.printf("unknown option: %q\n", choice)
 		}
@@ -187,7 +188,7 @@ func (s *session) readGroup() error {
 	ctx := context.Background()
 	if choice == "" || choice == "all" {
 		for _, g := range s.catalog.Groups {
-			s.dumpGroup(ctx, registers.Group(g))
+			s.dumpGroup(ctx, g)
 		}
 		return nil
 	}
@@ -273,7 +274,7 @@ func (s *session) writeRegister() error {
 		}
 		s.printf("%-5s ; %-30s ; %-6s ; %s\n", r.Key, r.Name, display, r.Unit)
 	}
-	s.out.Flush()
+	_ = s.out.Flush()
 
 	key, ok := s.prompt("Register: ")
 	if !ok || key == "" {
@@ -309,7 +310,7 @@ func (s *session) writeRegister() error {
 		// Direct write path for registers without an MQTT suffix.
 		v, err := strconv.ParseUint(value, 10, 16)
 		if err != nil {
-			return fmt.Errorf("invalid uint16 %q: %v", value, err)
+			return fmt.Errorf("invalid uint16 %q: %w", value, err)
 		}
 		if err := s.client.WriteSingleRegister(ctx, reg.Address, uint16(v)); err != nil {
 			return err
@@ -323,7 +324,7 @@ func (s *session) writeRegister() error {
 
 func (s *session) prompt(label string) (string, bool) {
 	s.printf("%s", label)
-	s.out.Flush()
+	_ = s.out.Flush()
 	if !s.in.Scan() {
 		return "", false
 	}
@@ -386,13 +387,13 @@ func openModbus(explicit string, out io.Writer) *modbus.Client {
 		var ok bool
 		path, ok = config.Locate(config.OSEnv{})
 		if !ok {
-			fmt.Fprintln(out, "note: no config.yaml found — read/write menu options disabled")
+			_, _ = fmt.Fprintln(out, "note: no config.yaml found — read/write menu options disabled")
 			return nil
 		}
 	}
 	cfg, err := config.LoadFile(path, config.OSEnv{})
 	if err != nil {
-		fmt.Fprintf(out, "note: config %s: %v — read/write menu options disabled\n", path, err)
+		_, _ = fmt.Fprintf(out, "note: config %s: %v — read/write menu options disabled\n", path, err)
 		return nil
 	}
 	client := modbus.New(modbus.Config{
@@ -404,10 +405,10 @@ func openModbus(explicit string, out io.Writer) *modbus.Client {
 	if err := client.Connect(context.Background()); err != nil {
 		// Don't fail outright — listing options still work. The
 		// menu will refuse 3/4/5 with errNoConnection.
-		fmt.Fprintf(out, "note: modbus connect %s:%d: %v\n", cfg.ModbusIP, cfg.ModbusPort, err)
+		_, _ = fmt.Fprintf(out, "note: modbus connect %s:%d: %v\n", cfg.ModbusIP, cfg.ModbusPort, err)
 		var exc *protocol.ExceptionError
 		if errors.As(err, &exc) {
-			fmt.Fprintln(out, "  (inverter responded with an exception — connection up, request rejected)")
+			_, _ = fmt.Fprintln(out, "  (inverter responded with an exception — connection up, request rejected)")
 		}
 		return nil
 	}

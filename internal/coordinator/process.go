@@ -103,7 +103,7 @@ func stripLeadingZeros(s string) string {
 
 // parseEquipmentBytes splits "HH LL" (decimal) into (high, low).
 // Returns ok=false on malformed input rather than guessing.
-func parseEquipmentBytes(s string) (int, int, bool) {
+func parseEquipmentBytes(s string) (hi, lo int, ok bool) {
 	parts := strings.Fields(s)
 	if len(parts) != 2 {
 		return 0, 0, false

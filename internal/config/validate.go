@@ -41,7 +41,7 @@ var allowedFramers = map[string]bool{
 // precision, one of the float verbs (e/f/g/E/F/G). Anything fancier
 // (thousands separators, sign flags, padding chars) is rejected with a
 // clear error rather than silently ignored.
-var floatFormatPattern = regexp.MustCompile(`^(?:[0-9]+)?(?:\.[0-9]+)?[efgEFG]$`)
+var floatFormatPattern = regexp.MustCompile(`^(?:\d+)?(?:\.\d+)?[efgEFG]$`)
 
 // Validate checks the post-defaults config and returns a
 // [*ValidationError] aggregating every problem. On success, it also

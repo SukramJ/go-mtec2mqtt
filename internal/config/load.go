@@ -4,6 +4,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -41,7 +42,7 @@ func (OSEnv) Environ() []string { return os.Environ() }
 func Load(r io.Reader, env Env) (*Config, error) {
 	var raw map[string]any
 	if err := yaml.NewDecoder(r).Decode(&raw); err != nil {
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			raw = map[string]any{} // empty file is allowed; defaults kick in
 		} else {
 			return nil, fmt.Errorf("config: parse yaml: %w", err)
@@ -76,11 +77,11 @@ func Load(r io.Reader, env Env) (*Config, error) {
 // LoadFile is a convenience wrapper around [Load] that opens path
 // itself.
 func LoadFile(path string, env Env) (*Config, error) {
-	f, err := os.Open(path)
+	f, err := os.Open(path) //nolint:gosec // operator-supplied config path
 	if err != nil {
 		return nil, fmt.Errorf("config: open %s: %w", path, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	return Load(f, env)
 }
 

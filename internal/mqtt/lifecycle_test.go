@@ -309,7 +309,7 @@ func TestLifecycleJitterBounded(t *testing.T) {
 	cfg := DefaultLifecycle()
 	cfg.Jitter = 10 * time.Millisecond
 	l := NewLifecycle(cfg, &stubConnector{})
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		got := l.jittered(100 * time.Millisecond)
 		if got < 90*time.Millisecond || got > 110*time.Millisecond {
 			t.Fatalf("jittered=%v", got)

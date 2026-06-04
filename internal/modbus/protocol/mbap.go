@@ -121,7 +121,7 @@ func EncodeFrame(transactionID uint16, unitID byte, pdu []byte) ([]byte, error) 
 	out := make([]byte, HeaderLen+len(pdu))
 	binary.BigEndian.PutUint16(out[0:2], transactionID)
 	// out[2:4] protocol-id stays 0
-	binary.BigEndian.PutUint16(out[4:6], uint16(len(pdu)+1)) // +1 for unitID
+	binary.BigEndian.PutUint16(out[4:6], uint16(len(pdu)+1)) //nolint:gosec // len(pdu) bounded to [1, MaxPDULen] above, +1 fits uint16
 	out[6] = unitID
 	copy(out[HeaderLen:], pdu)
 	return out, nil
@@ -198,7 +198,7 @@ func DecodeReadHoldingResponse(pdu []byte) ([]uint16, error) {
 // DecodeWriteSingleResponse parses an FC06 response PDU. Returns the
 // echoed address and value or an *ExceptionError.
 func DecodeWriteSingleResponse(pdu []byte) (address, value uint16, err error) {
-	if err = requireFunction(pdu, FCWriteSingleRegister); err != nil {
+	if err := requireFunction(pdu, FCWriteSingleRegister); err != nil {
 		return 0, 0, err
 	}
 	if len(pdu) != 5 {
@@ -214,10 +214,10 @@ func requireFunction(pdu []byte, want byte) error {
 		return ErrEmptyPDU
 	}
 	got := pdu[0]
-	switch {
-	case got == want:
+	switch got {
+	case want:
 		return nil
-	case got == want|exceptionMask:
+	case want | exceptionMask:
 		if len(pdu) < 2 {
 			return ErrShortPDU
 		}

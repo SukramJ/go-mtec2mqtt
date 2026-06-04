@@ -151,6 +151,9 @@ func (d *Discovery) buildEntries() {
 		case PlatformSwitch:
 			d.appendSwitch(r)
 			d.appendBinarySensor(r)
+		case PlatformButton:
+			// Button has no read path and no builder yet — registers
+			// declaring it are intentionally not published as entities.
 		}
 	}
 }

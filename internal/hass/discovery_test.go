@@ -92,6 +92,7 @@ func loadCatalog(t *testing.T) *registers.Map {
 }
 
 func newDiscovery(t *testing.T) *Discovery {
+	t.Helper()
 	d := New("homeassistant", "MTEC", loadCatalog(t))
 	d.Initialize("SN12345", "V27.52.4.0", "8.0K-25A-3P")
 	return d

@@ -34,11 +34,11 @@ func LoadFromString(s string) (*Map, []string, error) {
 // for skipped entries are returned via the second result; the caller
 // can log them.
 func Load(path string) (*Map, []string, error) {
-	f, err := os.Open(path)
+	f, err := os.Open(path) //nolint:gosec // operator-supplied registers path
 	if err != nil {
 		return nil, nil, fmt.Errorf("registers: open %s: %w", path, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	return parse(f, path)
 }
 
