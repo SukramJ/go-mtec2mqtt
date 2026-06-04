@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -174,7 +175,13 @@ func TestLocateFallsBackToXDGOrHome(t *testing.T) {
 	// CWD does NOT contain a config.yaml — Locate must keep walking.
 	t.Chdir(dir)
 
-	env := fakeEnv{vars: map[string]string{"XDG_CONFIG_HOME": xdg}}
+	// Locate consults APPDATA on Windows and XDG_CONFIG_HOME elsewhere,
+	// so point the platform-appropriate variable at the same base dir.
+	cfgHomeVar := "XDG_CONFIG_HOME"
+	if runtime.GOOS == "windows" {
+		cfgHomeVar = "APPDATA"
+	}
+	env := fakeEnv{vars: map[string]string{cfgHomeVar: xdg}}
 	got, ok := Locate(env)
 	if !ok {
 		t.Fatal("expected Locate hit on XDG fallback")
