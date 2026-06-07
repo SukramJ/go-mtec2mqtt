@@ -24,13 +24,17 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/SukramJ/go-mtec2mqtt/internal/config"
 	"github.com/SukramJ/go-mtec2mqtt/internal/coordinator"
 	"github.com/SukramJ/go-mtec2mqtt/internal/hass"
 	"github.com/SukramJ/go-mtec2mqtt/internal/modbus"
 	"github.com/SukramJ/go-mtec2mqtt/internal/mqtt"
 	"github.com/SukramJ/go-mtec2mqtt/internal/registers"
+	"github.com/SukramJ/go-mtec2mqtt/internal/state"
 	"github.com/SukramJ/go-mtec2mqtt/internal/version"
+	"github.com/SukramJ/go-mtec2mqtt/internal/web"
 )
 
 const (
@@ -128,6 +132,15 @@ func run(configPath, registersPath string, logger *slog.Logger) error {
 		discovery = hass.New(cfg.HASSBaseTopic, cfg.MQTTTopic, catalog)
 	}
 
+	// --- web ui (optional) ---
+	// The store is only allocated when the UI is on; without it the
+	// coordinator skips value caching entirely and stays a pure MQTT
+	// bridge.
+	var store *state.Store
+	if cfg.WebEnable {
+		store = state.New()
+	}
+
 	// --- coordinator ---
 	c := coordinator.New(coordinator.Deps{
 		Cfg:     cfg,
@@ -137,9 +150,27 @@ func run(configPath, registersPath string, logger *slog.Logger) error {
 		MQTT:    mqttClient,
 		HASS:    discovery,
 		Logger:  logger,
+		Store:   store,
 	})
 
-	return c.Run(ctx)
+	if !cfg.WebEnable {
+		return c.Run(ctx)
+	}
+
+	// Run the coordinator and the web server together; either returning
+	// (a fatal coordinator error or a web bind failure) cancels the other
+	// via the shared context.
+	webSrv := web.New(web.Config{
+		Bind:     cfg.WebBind,
+		User:     cfg.WebUser,
+		Password: cfg.WebPassword,
+		Logger:   logger,
+	}, c)
+
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() error { return c.Run(gctx) })
+	g.Go(func() error { return webSrv.Run(gctx) })
+	return g.Wait()
 }
 
 // loadConfig finds and parses the daemon's YAML config. An explicit

@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<!--
+  SPDX-License-Identifier: MIT
+  Copyright (C) 2026 SukramJ
+  Embedded status/health dashboard for go-mtec2mqtt. Hand-written
+  vanilla SPA (no build step) — served verbatim via go:embed.
+-->
+<html lang="de" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
+    <title>M-TEC · mtec2mqtt</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ctext y='20' font-size='20'%3E%E2%9A%A1%3C/text%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="app.css" />
+  </head>
+  <body>
+    <div class="layout">
+      <!-- Sidebar -->
+      <aside class="sidebar">
+        <div class="brand">
+          <span class="brand-mark">⚡</span>
+          <div class="brand-text">
+            <strong>mtec2mqtt</strong>
+            <small>M-TEC Energybutler</small>
+          </div>
+        </div>
+        <nav class="nav" id="nav">
+          <a href="#sec-status" class="nav-item active" data-target="sec-status">Status</a>
+          <a href="#sec-live" class="nav-item" data-target="sec-live">Aktuell</a>
+          <a href="#sec-energy" class="nav-item" data-target="sec-energy">Energie</a>
+          <a href="#sec-control" class="nav-item" data-target="sec-control">Steuerung</a>
+          <a href="#sec-system" class="nav-item" data-target="sec-system">System</a>
+        </nav>
+        <div class="sidebar-foot">
+          <button id="theme-toggle" class="ghost-btn" title="Hell/Dunkel umschalten">◐ Theme</button>
+          <small id="version" class="muted"></small>
+        </div>
+      </aside>
+
+      <!-- Main -->
+      <main class="main">
+        <header class="topbar">
+          <div class="topbar-title">
+            <h1 id="device-title">M-TEC Inverter</h1>
+            <span id="device-sub" class="muted"></span>
+          </div>
+          <div class="topbar-status">
+            <span id="conn-badge" class="badge badge-neutral">verbinde…</span>
+            <span id="stream-dot" class="stream-dot" title="Live-Verbindung"></span>
+          </div>
+        </header>
+
+        <div id="toast" class="toast" hidden></div>
+
+        <!-- Status / Health -->
+        <section id="sec-status" class="section">
+          <h2 class="section-title">Status &amp; Health</h2>
+          <div class="card">
+            <div class="status-grid" id="health-grid"></div>
+          </div>
+        </section>
+
+        <!-- Live values -->
+        <section id="sec-live" class="section">
+          <h2 class="section-title">Aktuelle Werte</h2>
+          <div id="live-groups" class="group-stack"></div>
+        </section>
+
+        <!-- Energy -->
+        <section id="sec-energy" class="section">
+          <h2 class="section-title">Energie (Tag / Gesamt)</h2>
+          <div id="energy-groups" class="group-stack"></div>
+        </section>
+
+        <!-- Control (writable registers) -->
+        <section id="sec-control" class="section">
+          <h2 class="section-title">Steuerung</h2>
+          <p class="muted hint">Schreibbare Register — Änderungen gehen direkt per Modbus an den Inverter.</p>
+          <div class="card">
+            <div id="control-list" class="control-list"></div>
+          </div>
+        </section>
+
+        <!-- System / config -->
+        <section id="sec-system" class="section">
+          <h2 class="section-title">System &amp; Konfiguration</h2>
+          <div class="card">
+            <div class="status-grid" id="config-grid"></div>
+          </div>
+          <div id="system-groups" class="group-stack"></div>
+        </section>
+
+        <footer class="footer">
+          <span class="muted">go-mtec2mqtt · eingebettete UI</span>
+          <span id="last-update" class="muted"></span>
+        </footer>
+      </main>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>

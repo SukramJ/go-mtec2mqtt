@@ -27,6 +27,7 @@ import (
 	"github.com/SukramJ/go-mtec2mqtt/internal/hass"
 	"github.com/SukramJ/go-mtec2mqtt/internal/mqtt"
 	"github.com/SukramJ/go-mtec2mqtt/internal/registers"
+	"github.com/SukramJ/go-mtec2mqtt/internal/state"
 )
 
 // ModbusClient is the subset of [*modbus.Client] the coordinator needs
@@ -77,6 +78,10 @@ type Deps struct {
 	// Now returns the wall-clock time used for api_date. Defaults to
 	// time.Now; tests inject a fixed clock.
 	Now func() time.Time
+	// Store, when non-nil, receives a copy of every published group so
+	// the optional web UI can render live values. Nil disables caching
+	// (the pure-MQTT default path).
+	Store *state.Store
 }
 
 // Coordinator is the M-TEC → MQTT data-flow root.
@@ -88,6 +93,10 @@ type Coordinator struct {
 	firmware      string
 	equipmentInfo string
 	topicBase     string
+
+	// startedAt stamps construction so the web health view can report
+	// uptime. Set from Deps.Now in New.
+	startedAt time.Time
 
 	secondaryIdx  atomic.Int32
 	discoverySent atomic.Bool
@@ -116,6 +125,7 @@ func New(d Deps) *Coordinator {
 	}
 	return &Coordinator{
 		deps:            d,
+		startedAt:       d.Now(),
 		writeQueue:      make(chan writeReq, 32),
 		hassStatusTopic: d.Cfg.HASSBaseTopic + "/status",
 	}
@@ -308,6 +318,9 @@ func (c *Coordinator) tryInitFromStatic(ctx context.Context) error {
 	c.firmware = firmware
 	c.equipmentInfo = equip
 	c.topicBase = c.deps.Cfg.MQTTTopic + "/" + serial
+	if c.deps.Store != nil {
+		c.deps.Store.SetStatic(serial, firmware, equip, c.deps.Now())
+	}
 	c.deps.Logger.Info("coordinator.static_initialised",
 		slog.String("serial", serial),
 		slog.String("firmware", firmware),

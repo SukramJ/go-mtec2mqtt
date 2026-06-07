@@ -120,6 +120,12 @@ func (c *Coordinator) publishGroupOnce(ctx context.Context, log *slog.Logger, gr
 			processed[k] = v
 		}
 	}
+	// Mirror the processed values into the web cache (if enabled) before
+	// publishing — same data the UI and MQTT see, decoupled from broker
+	// availability.
+	if c.deps.Store != nil {
+		c.deps.Store.UpdateGroup(string(group), processed, c.deps.Now())
+	}
 	for key, val := range processed {
 		topic := fmt.Sprintf("%s/%s/%s/state", c.topicBase, group, key)
 		payload := formatValue(val, c.deps.Cfg.GoFloatVerb())
