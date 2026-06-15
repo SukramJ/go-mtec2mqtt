@@ -1,3 +1,20 @@
+# Version 1.1.1 (2026-06-15)
+
+## What's Changed
+
+### Fixed
+
+- **Localised enum/select round-trip.** With `LANGUAGE: de` the inverter
+  operation-mode select showed "unknown" and set-commands were silently
+  dropped: the published enum state and the write-side label→code lookup
+  still used the English value-items map while the Home Assistant select
+  options were German, so the state matched no option and a German option
+  sent back reverse-mapped to nothing. Published enum states now use the
+  localised label so they match the select options, and the write path
+  accepts the English **or** German label (`Register.CodeForLabel`), so a
+  translated option maps back to the device regardless of language (numeric
+  codes still work too).
+
 # Version 1.1.0 (2026-06-15)
 
 ## What's Changed
@@ -18,11 +35,6 @@ charge/discharge "active" switch entities.
   - Register names and enum value labels carry optional `name_de` /
     `hass_value_items_de` entries in `registers.yaml`, resolved per-entry
     with a fallback to English (`LocalizedName` / `LocalizedValueItems`).
-  - Enum/select round-trip is language-consistent: published state values
-    use the localised label so they match the (localised) HA select
-    options, and the write path accepts the English **or** German label
-    (`CodeForLabel`) so a translated select option maps back to the device
-    regardless of language.
 - **Stable Home Assistant entity_ids under translation.** Every discovery
   payload now emits an explicit `object_id` derived from the
   language-independent MQTT key, so changing `LANGUAGE` re-labels the
