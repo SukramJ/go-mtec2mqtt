@@ -48,7 +48,8 @@ func TestActiveValuesDefaultTo50(t *testing.T) {
 
 func TestActiveValuesCustom(t *testing.T) {
 	c, err := Load(strings.NewReader(
-		minimumYAML+"CHARGE_ACTIVE_VALUE: 30\nDISCHARGE_ACTIVE_VALUE: 25\n"), nil)
+		minimumYAML+"CHARGE_ACTIVE_VALUE: 30\nDISCHARGE_ACTIVE_VALUE: 25\n",
+	), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
