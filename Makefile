@@ -52,12 +52,17 @@ help: ## show this help
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 .PHONY: setup
-setup: ## install developer tooling (gofumpt, goimports, golangci-lint, govulncheck, go-licenses)
+setup: hooks ## install developer tooling (gofumpt, goimports, golangci-lint, govulncheck, go-licenses) + git hooks
 	$(GO) install mvdan.cc/gofumpt@latest
 	$(GO) install golang.org/x/tools/cmd/goimports@latest
 	$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
 	$(GO) install golang.org/x/vuln/cmd/govulncheck@latest
 	$(GO) install github.com/google/go-licenses@latest
+
+.PHONY: hooks
+hooks: ## point git at the tracked hooks in .githooks/ (blocks direct commits on main)
+	@git config core.hooksPath .githooks
+	@echo "git core.hooksPath -> .githooks (direct commits on main/master are now blocked)"
 
 .PHONY: build
 build: build-daemon build-util ## build both binaries into bin/
