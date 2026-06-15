@@ -52,7 +52,7 @@ func TestProcessOneFormatsFirmware(t *testing.T) {
 		r.Type = registers.DataBYTE
 		r.Length = 4
 	})
-	got := processOne(reg, "01 27 52 20  03 04 05 06")
+	got := processOne(reg, "01 27 52 20  03 04 05 06", "en")
 	if got != "V1.27.52.20-V3.4.5.6" {
 		t.Fatalf("processOne firmware: %v", got)
 	}
@@ -83,7 +83,7 @@ func TestProcessOneFormatsEquipment(t *testing.T) {
 	reg := newRegister(10008, "equipment_info", func(r *registers.Register) {
 		r.Type = registers.DataBYTE
 	})
-	got := processOne(reg, "30 03")
+	got := processOne(reg, "30 03", "en")
 	if got != "8.0K-25A-3P" {
 		t.Fatalf("processOne equipment: %v", got)
 	}
@@ -129,8 +129,25 @@ func TestProcessOneAppliesEnumConversion(t *testing.T) {
 		r.HassDeviceClass = "enum"
 		r.HassValueItems = map[int]string{0: "wait", 2: "on-grid"}
 	})
-	if got := processOne(reg, 2); got != "on-grid" {
+	if got := processOne(reg, 2, "en"); got != "on-grid" {
 		t.Fatalf("enum apply: %v", got)
+	}
+}
+
+func TestProcessOneEnumIsLocalised(t *testing.T) {
+	// The published enum label must follow the configured language so it
+	// matches the (localised) HA select options instead of showing as
+	// "unknown".
+	reg := newRegister(50000, "mode", func(r *registers.Register) {
+		r.HassDeviceClass = "enum"
+		r.HassValueItems = map[int]string{257: "General mode"}
+		r.HassValueItemsDE = map[int]string{257: "Allgemeiner Modus"}
+	})
+	if got := processOne(reg, 257, "de"); got != "Allgemeiner Modus" {
+		t.Errorf("de enum = %v, want Allgemeiner Modus", got)
+	}
+	if got := processOne(reg, 257, "en"); got != "General mode" {
+		t.Errorf("en enum = %v, want General mode", got)
 	}
 }
 
@@ -138,7 +155,7 @@ func TestProcessOnePassesThroughWhenNoTransform(t *testing.T) {
 	reg := newRegister(11000, "grid_power", func(r *registers.Register) {
 		r.Type = registers.DataS32
 	})
-	if got := processOne(reg, -500); got != -500 {
+	if got := processOne(reg, -500, "en"); got != -500 {
 		t.Fatalf("pass-through: %v", got)
 	}
 }
@@ -281,7 +298,7 @@ func TestProcessValuesBatch(t *testing.T) {
 		"grid_power":     -500,
 		"unknown_key":    "leave-me",
 	}
-	got := processValues(m, raw)
+	got := processValues(m, raw, "en")
 	if got["equipment_info"] != "8.0K-25A-3P" {
 		t.Errorf("equipment_info: %v", got["equipment_info"])
 	}

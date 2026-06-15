@@ -327,7 +327,7 @@ func (c *Coordinator) tryInitFromStatic(ctx context.Context) error {
 	}
 	// Apply the same value processing so firmware/equipment land in
 	// the same shape downstream consumers see.
-	processed := processValues(c.deps.Catalog, data)
+	processed := processValues(c.deps.Catalog, data, c.deps.Cfg.Language)
 	serial, _ := processed["serial_no"].(string)
 	firmware, _ := processed["firmware_version"].(string)
 	equip, _ := processed["equipment_info"].(string)

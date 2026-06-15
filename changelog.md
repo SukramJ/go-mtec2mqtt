@@ -18,6 +18,11 @@ charge/discharge "active" switch entities.
   - Register names and enum value labels carry optional `name_de` /
     `hass_value_items_de` entries in `registers.yaml`, resolved per-entry
     with a fallback to English (`LocalizedName` / `LocalizedValueItems`).
+  - Enum/select round-trip is language-consistent: published state values
+    use the localised label so they match the (localised) HA select
+    options, and the write path accepts the English **or** German label
+    (`CodeForLabel`) so a translated select option maps back to the device
+    regardless of language.
 - **Stable Home Assistant entity_ids under translation.** Every discovery
   payload now emits an explicit `object_id` derived from the
   language-independent MQTT key, so changing `LANGUAGE` re-labels the

@@ -114,6 +114,25 @@ func (r *Register) LocalizedName(lang string) string {
 	return r.Name
 }
 
+// CodeForLabel reverse-maps a value-items label to its integer code,
+// accepting either the English (HassValueItems) or the German
+// (HassValueItemsDE) label. The write path uses this so a localised Home
+// Assistant select option round-trips back to the device regardless of
+// the configured language. Returns ok=false when no label matches.
+func (r *Register) CodeForLabel(label string) (int, bool) {
+	for code, l := range r.HassValueItems {
+		if l == label {
+			return code, true
+		}
+	}
+	for code, l := range r.HassValueItemsDE {
+		if l == label {
+			return code, true
+		}
+	}
+	return 0, false
+}
+
 // LocalizedValueItems returns the enum code→label map in the given
 // language. For "de" each code prefers its German label and falls back
 // to the English one per-code; any other language yields the English

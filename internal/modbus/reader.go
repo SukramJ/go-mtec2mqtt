@@ -175,19 +175,17 @@ func (r *Reader) WriteRegisterByMQTT(ctx context.Context, name, value string) er
 		return fmt.Errorf("%w: mqtt=%q is a pseudo-register", ErrPseudoUnsupported, name)
 	}
 
-	// 1) value_items reverse lookup (HA select payload → modbus code)
-	if reg.HassValueItems != nil {
-		for code, label := range reg.HassValueItems {
-			if label == value {
-				if code < 0 || code > 0xFFFF {
-					return fmt.Errorf("%w: mqtt=%q value_items code %d out of uint16 range",
-						ErrValueParse, name, code)
-				}
-				return r.client.WriteSingleRegister(ctx, reg.Address, uint16(code))
-			}
+	// 1) value_items reverse lookup (HA select payload → modbus code).
+	// Accept the English or the localised (German) label so a translated
+	// select option round-trips regardless of the configured language.
+	if code, ok := reg.CodeForLabel(value); ok {
+		if code < 0 || code > 0xFFFF {
+			return fmt.Errorf("%w: mqtt=%q value_items code %d out of uint16 range",
+				ErrValueParse, name, code)
 		}
-		// Fall through — caller may have sent the numeric code directly.
+		return r.client.WriteSingleRegister(ctx, reg.Address, uint16(code))
 	}
+	// Fall through — caller may have sent the numeric code directly.
 
 	// 2/3) numeric parse + scale.
 	raw, err := parseWriteValue(value, reg.Scale)

@@ -24,7 +24,11 @@ import (
 // The input is a map keyed by MQTT suffix (Name fallback) as returned
 // by modbus.Reader.ReadGroup; the returned map has the same keys but
 // the values may have changed type (raw int → label string).
-func processValues(catalog *registers.Map, raw map[string]any) map[string]any {
+//
+// lang selects the enum label language ("en"/"de"); the published label
+// must match the HA select options (which are localised) so a German
+// state value lands on a German option instead of showing as "unknown".
+func processValues(catalog *registers.Map, raw map[string]any, lang string) map[string]any {
 	out := make(map[string]any, len(raw))
 	for key, val := range raw {
 		reg := findRegisterByOutputKey(catalog, key)
@@ -32,14 +36,14 @@ func processValues(catalog *registers.Map, raw map[string]any) map[string]any {
 			out[key] = val
 			continue
 		}
-		out[key] = processOne(reg, val)
+		out[key] = processOne(reg, val, lang)
 	}
 	return out
 }
 
 // processOne applies the single-register transformations. Exposed for
 // targeted tests; ProcessValues batches it across the whole group.
-func processOne(reg *registers.Register, val any) any {
+func processOne(reg *registers.Register, val any, lang string) any {
 	switch reg.Address {
 	case 10011:
 		if s, ok := val.(string); ok {
@@ -56,7 +60,7 @@ func processOne(reg *registers.Register, val any) any {
 	}
 
 	if reg.HassDeviceClass == "enum" && reg.HassValueItems != nil {
-		return convertCode(val, reg.HassValueItems)
+		return convertCode(val, reg.LocalizedValueItems(lang))
 	}
 	return val
 }

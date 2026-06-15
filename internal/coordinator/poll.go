@@ -114,7 +114,7 @@ func (c *Coordinator) publishGroupOnce(ctx context.Context, log *slog.Logger, gr
 	if len(raw) == 0 {
 		return
 	}
-	processed := processValues(c.deps.Catalog, raw)
+	processed := processValues(c.deps.Catalog, raw, c.deps.Cfg.Language)
 	if pseudo := PseudoRegisters(string(group), processed, c.deps.Now()); pseudo != nil {
 		for k, v := range pseudo {
 			processed[k] = v

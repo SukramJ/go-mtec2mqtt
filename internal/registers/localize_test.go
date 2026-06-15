@@ -23,6 +23,26 @@ func TestLocalizedNameFallback(t *testing.T) {
 	}
 }
 
+func TestCodeForLabelAcceptsBothLanguages(t *testing.T) {
+	r := &Register{
+		HassValueItems:   map[int]string{257: "General mode", 512: "Off grid"},
+		HassValueItemsDE: map[int]string{257: "Allgemeiner Modus"}, // 512 untranslated
+	}
+	cases := map[string]int{
+		"General mode":      257, // English label
+		"Allgemeiner Modus": 257, // German label → same code
+		"Off grid":          512, // English-only label still works
+	}
+	for label, want := range cases {
+		if got, ok := r.CodeForLabel(label); !ok || got != want {
+			t.Errorf("CodeForLabel(%q) = (%d,%v), want (%d,true)", label, got, ok, want)
+		}
+	}
+	if _, ok := r.CodeForLabel("does not exist"); ok {
+		t.Error("unknown label must not match")
+	}
+}
+
 func TestLocalizedValueItemsPerCodeFallback(t *testing.T) {
 	r := &Register{
 		HassValueItems:   map[int]string{0: "General", 1: "Eco"},
