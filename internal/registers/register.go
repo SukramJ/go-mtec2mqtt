@@ -62,8 +62,14 @@ type Register struct {
 	Address uint16 `yaml:"-"`
 
 	// Name is the human-readable label used as the MQTT field name in
-	// the coordinator. Mandatory in the legacy YAML.
+	// the coordinator. Mandatory in the legacy YAML. This is the
+	// canonical English label and the language-independent fallback.
 	Name string `yaml:"name"`
+
+	// NameDE is the optional German label. Empty entries fall back to
+	// Name. Only the friendly name is localised — MQTT suffixes,
+	// entity_ids and unique_ids stay language-independent.
+	NameDE string `yaml:"name_de"`
 
 	// Length is the number of 16-bit Modbus registers this entry spans
 	// (1 = single register, 2 = U32/S32/I32, N = STR/BYTE/BIT bundles).
@@ -91,8 +97,43 @@ type Register struct {
 	HassStateClass    string         `yaml:"hass_state_class"`
 	HassValueTemplate string         `yaml:"hass_value_template"`
 	HassValueItems    map[int]string `yaml:"hass_value_items"`
-	HassPayloadOn     string         `yaml:"hass_payload_on"`
-	HassPayloadOff    string         `yaml:"hass_payload_off"`
+	// HassValueItemsDE is the optional German translation of the enum
+	// labels. Codes missing here fall back to the English HassValueItems.
+	HassValueItemsDE map[int]string `yaml:"hass_value_items_de"`
+	HassPayloadOn    string         `yaml:"hass_payload_on"`
+	HassPayloadOff   string         `yaml:"hass_payload_off"`
+}
+
+// LocalizedName returns the register's friendly name in the given
+// language ("de" → NameDE when set), falling back to the canonical
+// English Name. Any unknown language yields Name.
+func (r *Register) LocalizedName(lang string) string {
+	if lang == "de" && r.NameDE != "" {
+		return r.NameDE
+	}
+	return r.Name
+}
+
+// LocalizedValueItems returns the enum code→label map in the given
+// language. For "de" each code prefers its German label and falls back
+// to the English one per-code; any other language yields the English
+// map unchanged. Returns nil when the register has no value items.
+func (r *Register) LocalizedValueItems(lang string) map[int]string {
+	if r.HassValueItems == nil {
+		return nil
+	}
+	if lang != "de" || len(r.HassValueItemsDE) == 0 {
+		return r.HassValueItems
+	}
+	out := make(map[int]string, len(r.HassValueItems))
+	for code, en := range r.HassValueItems {
+		if de, ok := r.HassValueItemsDE[code]; ok && de != "" {
+			out[code] = de
+			continue
+		}
+		out[code] = en
+	}
+	return out
 }
 
 // IsModbus reports whether the register represents a real Modbus

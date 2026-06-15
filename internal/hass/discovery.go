@@ -54,6 +54,60 @@ type Entry struct {
 	CommandTopic string
 }
 
+// VirtualSwitch describes a synthetic HA switch entity that is not
+// backed by its own Modbus register but instead toggles another
+// register between a configured "on" value and 0. The coordinator owns
+// the toggle/restore logic; this struct is the shared definition both
+// the discovery builder and the coordinator read from, so the entity's
+// identity (key, names, group) lives in one place.
+type VirtualSwitch struct {
+	// Key is the MQTT suffix and the stable object_id — never localised.
+	Key string
+	// Name / NameDE are the friendly labels (English / German).
+	Name   string
+	NameDE string
+	// Group is the publication bucket, e.g. "config".
+	Group string
+	// TargetMQTT is the writable register this switch drives.
+	TargetMQTT string
+	// OnValue is the value written to the target when switched on with no
+	// previously cached value.
+	OnValue int
+}
+
+// LocalizedName returns the switch's friendly name in lang, falling
+// back to the English Name.
+func (v VirtualSwitch) LocalizedName(lang string) string {
+	if lang == "de" && v.NameDE != "" {
+		return v.NameDE
+	}
+	return v.Name
+}
+
+// DefaultVirtualSwitches returns the built-in "charge active" /
+// "discharge active" switches wired to the charge/discharge limit
+// registers, using the supplied on-values.
+func DefaultVirtualSwitches(chargeOnValue, dischargeOnValue int) []VirtualSwitch {
+	return []VirtualSwitch{
+		{
+			Key:        "charge_active",
+			Name:       "Charge active",
+			NameDE:     "Laden aktiv",
+			Group:      "config",
+			TargetMQTT: "charge_limit",
+			OnValue:    chargeOnValue,
+		},
+		{
+			Key:        "discharge_active",
+			Name:       "Discharge active",
+			NameDE:     "Entladen aktiv",
+			Group:      "config",
+			TargetMQTT: "discharge_limit",
+			OnValue:    dischargeOnValue,
+		},
+	}
+}
+
 // Discovery walks the register catalog and emits HA discovery entries.
 // Zero-value is not usable — construct with [New], then call
 // [Discovery.Initialize] once the inverter's serial number and
@@ -62,6 +116,8 @@ type Discovery struct {
 	hassBaseTopic string
 	mqttTopic     string
 	catalog       *registers.Map
+	lang          string
+	virtual       []VirtualSwitch
 
 	serialNo      string
 	firmware      string
@@ -73,12 +129,18 @@ type Discovery struct {
 
 // New constructs a Discovery for the given topic roots and catalog.
 // hassBaseTopic is usually "homeassistant"; mqttTopic is the MTEC
-// publish root (e.g. "MTEC").
-func New(hassBaseTopic, mqttTopic string, catalog *registers.Map) *Discovery {
+// publish root (e.g. "MTEC"). lang ("en"/"de") localises entity friendly
+// names; virtual adds synthetic switch entities (may be nil).
+func New(hassBaseTopic, mqttTopic string, catalog *registers.Map, lang string, virtual []VirtualSwitch) *Discovery {
+	if lang == "" {
+		lang = "en"
+	}
 	return &Discovery{
 		hassBaseTopic: hassBaseTopic,
 		mqttTopic:     mqttTopic,
 		catalog:       catalog,
+		lang:          lang,
+		virtual:       virtual,
 	}
 }
 
@@ -156,6 +218,32 @@ func (d *Discovery) buildEntries() {
 			// declaring it are intentionally not published as entities.
 		}
 	}
+	// Synthetic switches come after the catalog so their output stays
+	// deterministic and grouped at the tail.
+	for _, v := range d.virtual {
+		d.appendVirtualSwitch(v)
+	}
+}
+
+// appendVirtualSwitch emits a switch entity for a [VirtualSwitch]. Its
+// state/command topics live under the configured group keyed by the
+// stable Key (also the object_id), and its friendly name is localised.
+// payload_on/off are "1"/"0" to match the coordinator-published state.
+func (d *Discovery) appendVirtualSwitch(v VirtualSwitch) {
+	uid := uniqueIDPrefix + v.Key
+	command := fmt.Sprintf("%s/%s/%s/%s/set", d.mqttTopic, d.serialNo, v.Group, v.Key)
+	payload := map[string]any{
+		"command_topic":      command,
+		"device":             d.device,
+		"enabled_by_default": true,
+		"name":               v.LocalizedName(d.lang),
+		"object_id":          v.Key,
+		"payload_off":        "0",
+		"payload_on":         "1",
+		"state_topic":        fmt.Sprintf("%s/%s/%s/%s/state", d.mqttTopic, d.serialNo, v.Group, v.Key),
+		"unique_id":          uid,
+	}
+	d.appendEntry(PlatformSwitch, uid, payload, command)
 }
 
 // --- per-platform builders --------------------------------------------------
@@ -165,7 +253,8 @@ func (d *Discovery) appendSensor(r *registers.Register) {
 	payload := map[string]any{
 		"device":              d.device,
 		"enabled_by_default":  true,
-		"name":                r.Name,
+		"name":                r.LocalizedName(d.lang),
+		"object_id":           r.MQTT,
 		"state_topic":         d.stateTopic(r),
 		"unique_id":           uid,
 		"unit_of_measurement": r.Unit,
@@ -187,7 +276,8 @@ func (d *Discovery) appendBinarySensor(r *registers.Register) {
 	payload := map[string]any{
 		"device":             d.device,
 		"enabled_by_default": true,
-		"name":               r.Name,
+		"name":               r.LocalizedName(d.lang),
+		"object_id":          r.MQTT,
 		"state_topic":        d.stateTopic(r),
 		"unique_id":          uid,
 	}
@@ -211,7 +301,8 @@ func (d *Discovery) appendNumber(r *registers.Register) {
 		"device":              d.device,
 		"enabled_by_default":  false,
 		"mode":                "box",
-		"name":                r.Name,
+		"name":                r.LocalizedName(d.lang),
+		"object_id":           r.MQTT,
 		"state_topic":         d.stateTopic(r),
 		"unique_id":           uid,
 		"unit_of_measurement": r.Unit,
@@ -229,8 +320,9 @@ func (d *Discovery) appendSelect(r *registers.Register) {
 		"command_topic":      command,
 		"device":             d.device,
 		"enabled_by_default": false,
-		"name":               r.Name,
-		"options":            valueItemsValues(r.HassValueItems),
+		"name":               r.LocalizedName(d.lang),
+		"object_id":          r.MQTT,
+		"options":            valueItemsValues(r.LocalizedValueItems(d.lang)),
 		"state_topic":        d.stateTopic(r),
 		"unique_id":          uid,
 	}
@@ -244,7 +336,8 @@ func (d *Discovery) appendSwitch(r *registers.Register) {
 		"command_topic":      command,
 		"device":             d.device,
 		"enabled_by_default": false,
-		"name":               r.Name,
+		"name":               r.LocalizedName(d.lang),
+		"object_id":          r.MQTT,
 		"state_topic":        d.stateTopic(r),
 		"unique_id":          uid,
 	}

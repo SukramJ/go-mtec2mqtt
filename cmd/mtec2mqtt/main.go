@@ -127,9 +127,13 @@ func run(configPath, registersPath string, logger *slog.Logger) error {
 	}()
 
 	// --- hass discovery (optional) ---
+	// The synthetic charge/discharge "active" switches are defined once
+	// and shared: the discovery builder advertises them to HA while the
+	// coordinator implements their toggle/restore write logic.
+	virtualSwitches := hass.DefaultVirtualSwitches(cfg.ChargeActiveValue, cfg.DischargeActiveValue)
 	var discovery *hass.Discovery
 	if cfg.HASSEnable {
-		discovery = hass.New(cfg.HASSBaseTopic, cfg.MQTTTopic, catalog)
+		discovery = hass.New(cfg.HASSBaseTopic, cfg.MQTTTopic, catalog, cfg.Language, virtualSwitches)
 	}
 
 	// --- web ui (optional) ---
@@ -151,6 +155,7 @@ func run(configPath, registersPath string, logger *slog.Logger) error {
 		HASS:    discovery,
 		Logger:  logger,
 		Store:   store,
+		Virtual: virtualSwitches,
 	})
 
 	if !cfg.WebEnable {

@@ -18,6 +18,7 @@
 
 "consumption":
   name: Household consumption
+  name_de: "Hausverbrauch"
   unit: W
   mqtt: consumption
   group: now-base
@@ -27,6 +28,7 @@
 
 "consumption-day":
   name: Household consumption (day)
+  name_de: "Hausverbrauch (Tag)"
   unit: kWh
   mqtt: consumption_day
   group: day
@@ -36,6 +38,7 @@
 
 "autarky-day":
   name: Household autarky (day)
+  name_de: "Autarkie (Tag)"
   unit: "%"
   mqtt: autarky_rate_day
   group: day
@@ -45,6 +48,7 @@
 
 "ownconsumption-day":
   name: Own consumption rate (day)
+  name_de: "Eigenverbrauchsquote (Tag)"
   unit: "%"
   mqtt: own_consumption_day
   group: day
@@ -54,6 +58,7 @@
 
 "consumption-total":
   name: Household consumption (total)
+  name_de: "Hausverbrauch (Gesamt)"
   unit: kWh
   mqtt: consumption_total
   group: total
@@ -63,6 +68,7 @@
 
 "autarky-total":
   name: Household autarky (total)
+  name_de: "Autarkie (Gesamt)"
   unit: "%"
   mqtt: autarky_rate_total
   group: total
@@ -72,6 +78,7 @@
 
 "ownconsumption-total":
   name: Own consumption rate (total)
+  name_de: "Eigenverbrauchsquote (Gesamt)"
   unit: "%"
   mqtt: own_consumption_total
   group: total
@@ -81,6 +88,7 @@
 
 "api-date":
   name: API date
+  name_de: "API-Datum"
   mqtt: api_date
   group: now-base
 
@@ -88,6 +96,7 @@
 # Modbus registers
 "10000":
   name: Inverter serial number
+  name_de: "Wechselrichter-Seriennummer"
   length: 8
   type: STR
   mqtt: serial_no
@@ -95,6 +104,7 @@
 
 "10008":
   name: Equipment info
+  name_de: "Geräteinformation"
   length: 1
   type: BYTE
   mqtt: equipment_info
@@ -102,6 +112,7 @@
 
 "10011":
   name: Firmware version
+  name_de: "Firmware-Version"
   length: 4
   type: BYTE
   mqtt: firmware_version
@@ -109,6 +120,7 @@
 
 "10100":
   name: Inverter date
+  name_de: "Wechselrichter-Datum"
   length: 3
   type: DAT
   mqtt: inverter_date
@@ -116,6 +128,7 @@
 
 "10105":
   name: Inverter status
+  name_de: "Wechselrichter-Status"
   length: 1
   type: U16
   mqtt: inverter_status
@@ -130,9 +143,19 @@
       4: "firmware update",
       5: "off grid",
     }
+  hass_value_items_de:
+    {
+      0: "Warte auf Netzbetrieb",
+      1: "Selbsttest",
+      2: "Netzbetrieb",
+      3: "Fehler",
+      4: "Firmware-Update",
+      5: "Inselbetrieb",
+    }
 
 "10112":
   name: Fault flag1
+  name_de: "Fehler-Flag 1"
   length: 2
   type: BIT
   mqtt: fault_flag_1
@@ -148,10 +171,22 @@
       64: "PV Over Voltage",
       128: "Bus Voltage Fault",
     }
+  hass_value_items_de:
+    {
+      1: "Netzausfall",
+      2: "Netzspannungsfehler",
+      4: "Netzfrequenzfehler",
+      8: "DCI-Fehler",
+      16: "ISO-Grenzwertüberschreitung",
+      32: "GFCI-Fehler",
+      64: "PV-Überspannung",
+      128: "Bus-Spannungsfehler",
+    }
   hass_device_class: enum
 
 "10114":
   name: Fault flag2
+  name_de: "Fehler-Flag 2"
   length: 2
   type: BIT
   mqtt: fault_flag_2
@@ -165,6 +200,15 @@
       32: "Relay Check Fail",
       64: "Iternal Fan Fault",
     }
+  hass_value_items_de:
+    {
+      2: "SPI-Fehler",
+      4: "E2-Fehler",
+      8: "GFCI-Gerätefehler",
+      16: "AC-Wandler-Fehler",
+      32: "Relais-Prüfung fehlgeschlagen",
+      64: "Interner Lüfterfehler",
+    }
   hass_device_class: enum
 
 # "10120":
@@ -177,6 +221,7 @@
 
 "10994":
   name: Grid power phase A
+  name_de: "Netzleistung Phase A"
   length: 2
   type: I32
   unit: W
@@ -188,6 +233,7 @@
 
 "10996":
   name: Grid power phase B
+  name_de: "Netzleistung Phase B"
   length: 2
   type: I32
   unit: W
@@ -199,6 +245,7 @@
 
 "10998":
   name: Grid power phase C
+  name_de: "Netzleistung Phase C"
   length: 2
   type: I32
   unit: W
@@ -210,6 +257,7 @@
 
 "11000":
   name: Grid power
+  name_de: "Netzleistung"
   length: 2
   type: I32
   unit: W
@@ -221,6 +269,7 @@
 
 "11006":
   name: Inverter AC voltage lines A/B
+  name_de: "Wechselrichter-AC-Spannung Leiter A/B"
   length: 1
   type: U16
   unit: V
@@ -233,6 +282,7 @@
 
 "11007":
   name: Inverter AC voltage lines B/C
+  name_de: "Wechselrichter-AC-Spannung Leiter B/C"
   length: 1
   type: U16
   unit: V
@@ -245,6 +295,7 @@
 
 "11008":
   name: Inverter AC voltage lines C/A
+  name_de: "Wechselrichter-AC-Spannung Leiter C/A"
   length: 1
   type: U16
   unit: V
@@ -257,6 +308,7 @@
 
 "11009":
   name: Inverter AC voltage phase A
+  name_de: "Wechselrichter-AC-Spannung Phase A"
   length: 1
   type: U16
   unit: V
@@ -269,6 +321,7 @@
 
 "11010":
   name: Inverter AC current phase A
+  name_de: "Wechselrichter-AC-Strom Phase A"
   length: 1
   type: U16
   unit: A
@@ -281,6 +334,7 @@
 
 "11011":
   name: Inverter AC voltage phase B
+  name_de: "Wechselrichter-AC-Spannung Phase B"
   length: 1
   type: U16
   unit: V
@@ -293,6 +347,7 @@
 
 "11012":
   name: Inverter AC current phase B
+  name_de: "Wechselrichter-AC-Strom Phase B"
   length: 1
   type: U16
   unit: A
@@ -305,6 +360,7 @@
 
 "11013":
   name: Inverter AC voltage phase C
+  name_de: "Wechselrichter-AC-Spannung Phase C"
   length: 1
   type: U16
   unit: V
@@ -317,6 +373,7 @@
 
 "11014":
   name: Inverter AC current phase C
+  name_de: "Wechselrichter-AC-Strom Phase C"
   length: 1
   type: U16
   unit: A
@@ -329,6 +386,7 @@
 
 "11015":
   name: Grid frequency
+  name_de: "Netzfrequenz"
   length: 1
   type: U16
   unit: Hz
@@ -341,6 +399,7 @@
 
 "11016":
   name: Inverter AC power
+  name_de: "Wechselrichter-AC-Leistung"
   length: 2
   type: I32
   unit: W
@@ -366,6 +425,7 @@
 
 "11022":
   name: PV generation time total
+  name_de: "PV-Erzeugungszeit gesamt"
   length: 2
   type: U32
   unit: h
@@ -377,6 +437,7 @@
 
 "11028":
   name: PV power
+  name_de: "PV-Leistung"
   length: 2
   type: U32
   unit: W
@@ -389,6 +450,7 @@
 
 "11032":
   name: Inverter temperature sensor 1
+  name_de: "Wechselrichter-Temperatursensor 1"
   length: 1
   type: I16
   unit: "°C"
@@ -401,6 +463,7 @@
 
 "11033":
   name: Inverter temperature sensor 2
+  name_de: "Wechselrichter-Temperatursensor 2"
   length: 1
   type: I16
   unit: "°C"
@@ -413,6 +476,7 @@
 
 "11034":
   name: Inverter temperature sensor 3
+  name_de: "Wechselrichter-Temperatursensor 3"
   length: 1
   type: I16
   unit: "°C"
@@ -425,6 +489,7 @@
 
 "11035":
   name: Inverter temperature sensor 4
+  name_de: "Wechselrichter-Temperatursensor 4"
   length: 1
   type: I16
   unit: "°C"
@@ -437,6 +502,7 @@
 
 "11038":
   name: PV1 voltage
+  name_de: "PV1-Spannung"
   length: 1
   type: U16
   unit: V
@@ -449,6 +515,7 @@
 
 "11039":
   name: PV1 current
+  name_de: "PV1-Strom"
   length: 1
   type: U16
   unit: A
@@ -461,6 +528,7 @@
 
 "11040":
   name: PV2 voltage
+  name_de: "PV2-Spannung"
   length: 1
   type: U16
   unit: V
@@ -473,6 +541,7 @@
 
 "11041":
   name: PV2 current
+  name_de: "PV2-Strom"
   length: 1
   type: U16
   unit: A
@@ -485,6 +554,7 @@
 
 "11062":
   name: PV1 power
+  name_de: "PV1-Leistung"
   length: 2
   type: U32
   unit: W
@@ -496,6 +566,7 @@
 
 "11064":
   name: PV2 power
+  name_de: "PV2-Leistung"
   length: 2
   type: U32
   unit: W
@@ -507,6 +578,7 @@
 
 "30200":
   name: Backup voltage phase A
+  name_de: "Notstrom-Spannung Phase A"
   length: 1
   type: U16
   unit: V
@@ -519,6 +591,7 @@
 
 "30201":
   name: Backup current phase A
+  name_de: "Notstrom-Strom Phase A"
   length: 1
   type: U16
   unit: A
@@ -531,6 +604,7 @@
 
 "30202":
   name: Backup frequency phase A
+  name_de: "Notstrom-Frequenz Phase A"
   length: 1
   type: U16
   unit: Hz
@@ -543,6 +617,7 @@
 
 "30204":
   name: Backup power phase A
+  name_de: "Notstrom-Leistung Phase A"
   length: 2
   type: I32
   unit: W
@@ -554,6 +629,7 @@
 
 "30210":
   name: Backup voltage phase B
+  name_de: "Notstrom-Spannung Phase B"
   length: 1
   type: U16
   unit: V
@@ -566,6 +642,7 @@
 
 "30211":
   name: Backup current phase B
+  name_de: "Notstrom-Strom Phase B"
   length: 1
   type: U16
   unit: A
@@ -578,6 +655,7 @@
 
 "30212":
   name: Backup frequency phase B
+  name_de: "Notstrom-Frequenz Phase B"
   length: 1
   type: U16
   unit: Hz
@@ -590,6 +668,7 @@
 
 "30214":
   name: Backup power phase B
+  name_de: "Notstrom-Leistung Phase B"
   length: 2
   type: I32
   unit: W
@@ -601,6 +680,7 @@
 
 "30220":
   name: Backup voltage phase C
+  name_de: "Notstrom-Spannung Phase C"
   length: 1
   type: U16
   unit: V
@@ -613,6 +693,7 @@
 
 "30221":
   name: Backup current phase C
+  name_de: "Notstrom-Strom Phase C"
   length: 1
   type: U16
   unit: A
@@ -625,6 +706,7 @@
 
 "30222":
   name: Backup frequency phase C
+  name_de: "Notstrom-Frequenz Phase C"
   length: 1
   type: U16
   unit: Hz
@@ -637,6 +719,7 @@
 
 "30224":
   name: Backup power phase C
+  name_de: "Notstrom-Leistung Phase C"
   length: 2
   type: I32
   unit: W
@@ -648,6 +731,7 @@
 
 "30230":
   name: Backup power total
+  name_de: "Notstrom-Leistung gesamt"
   length: 2
   type: I32
   unit: W
@@ -659,6 +743,7 @@
 
 "30236":
   name: Inverter power phase A
+  name_de: "Wechselrichter-Leistung Phase A"
   length: 2
   type: I32
   unit: W
@@ -670,6 +755,7 @@
 
 "30242":
   name: Inverter power phase B
+  name_de: "Wechselrichter-Leistung Phase B"
   length: 2
   type: I32
   unit: W
@@ -681,6 +767,7 @@
 
 "30248":
   name: Inverter power phase C
+  name_de: "Wechselrichter-Leistung Phase C"
   length: 2
   type: I32
   unit: W
@@ -692,6 +779,7 @@
 
 "30254":
   name: Battery voltage
+  name_de: "Batteriespannung"
   length: 1
   type: U16
   unit: V
@@ -704,6 +792,7 @@
 
 "30255":
   name: Battery current
+  name_de: "Batteriestrom"
   length: 1
   type: I16
   unit: A
@@ -716,15 +805,18 @@
 
 "30256":
   name: Battery mode
+  name_de: "Batteriemodus"
   length: 1
   type: U16
   mqtt: battery_mode
   group: now-base
   hass_device_class: enum
   hass_value_items: { 0: "Discharge", 1: "Charge" }
+  hass_value_items_de: { 0: "Entladen", 1: "Laden" }
 
 "30258":
   name: Battery power
+  name_de: "Batterieleistung"
   length: 2
   type: I32
   unit: W
@@ -736,6 +828,7 @@
 
 "31000":
   name: Grid injection energy (day)
+  name_de: "Netzeinspeisung (Tag)"
   length: 1
   type: U16
   unit: kWh
@@ -748,6 +841,7 @@
 
 "31001":
   name: Grid purchased energy (day)
+  name_de: "Netzbezug (Tag)"
   length: 1
   type: U16
   unit: kWh
@@ -760,6 +854,7 @@
 
 "31002":
   name: Backup energy (day)
+  name_de: "Notstrom-Energie (Tag)"
   length: 1
   type: U16
   unit: kWh
@@ -772,6 +867,7 @@
 
 "31003":
   name: Battery charge energy (day)
+  name_de: "Batterie-Ladeenergie (Tag)"
   length: 1
   type: U16
   unit: kWh
@@ -784,6 +880,7 @@
 
 "31004":
   name: Battery discharge energy (day)
+  name_de: "Batterie-Entladeenergie (Tag)"
   length: 1
   type: U16
   unit: kWh
@@ -796,6 +893,7 @@
 
 "31005":
   name: PV energy generated (day)
+  name_de: "PV-Energieertrag (Tag)"
   length: 1
   type: U16
   unit: kWh
@@ -822,6 +920,7 @@
 
 "31102":
   name: Grid energy injected (total)
+  name_de: "Netzeinspeisung (Gesamt)"
   length: 2
   type: U32
   unit: kWh
@@ -834,6 +933,7 @@
 
 "31104":
   name: Grid energy purchased (total)
+  name_de: "Netzbezug (Gesamt)"
   length: 2
   type: U32
   unit: kWh
@@ -846,6 +946,7 @@
 
 "31106":
   name: Backup energy (total)
+  name_de: "Notstrom-Energie (Gesamt)"
   length: 2
   type: U32
   unit: kWh
@@ -858,6 +959,7 @@
 
 "31108":
   name: Battery energy charged (total)
+  name_de: "Batterie-Ladeenergie (Gesamt)"
   length: 2
   type: U32
   unit: kWh
@@ -870,6 +972,7 @@
 
 "31110":
   name: Battery energy discharged (total)
+  name_de: "Batterie-Entladeenergie (Gesamt)"
   length: 2
   type: U32
   unit: kWh
@@ -882,6 +985,7 @@
 
 "31112":
   name: PV energy generated (total)
+  name_de: "PV-Energieertrag (Gesamt)"
   length: 2
   type: U32
   unit: kWh
@@ -908,6 +1012,7 @@
 
 "33000":
   name: Battery SOC
+  name_de: "Batterie-SOC"
   length: 1
   type: U16
   unit: "%"
@@ -920,6 +1025,7 @@
 
 "33001":
   name: Battery SOH
+  name_de: "Batterie-SOH"
   length: 1
   type: U16
   unit: "%"
@@ -932,6 +1038,7 @@
 
 "33002":
   name: BMS Status
+  name_de: "BMS-Status"
   length: 1
   type: U16
   mqtt: bms_status
@@ -946,9 +1053,19 @@
       4: "firmware update",
       5: "off grid",
     }
+  hass_value_items_de:
+    {
+      0: "Warte auf Netzbetrieb",
+      1: "Selbsttest",
+      2: "Netzbetrieb",
+      3: "Fehler",
+      4: "Firmware-Update",
+      5: "Inselbetrieb",
+    }
 
 "33003":
   name: Battery temperature
+  name_de: "Batterietemperatur"
   length: 1
   type: U16
   unit: "°C"
@@ -961,6 +1078,7 @@
 
 "33009":
   name: Battery cell temperature max.
+  name_de: "Batteriezellen-Temperatur max."
   length: 1
   type: U16
   unit: "°C"
@@ -973,6 +1091,7 @@
 
 "33011":
   name: Battery cell temperature min.
+  name_de: "Batteriezellen-Temperatur min."
   length: 1
   type: U16
   unit: "°C"
@@ -985,6 +1104,7 @@
 
 "33013":
   name: Battery cell voltage max.
+  name_de: "Batteriezellen-Spannung max."
   length: 1
   type: U16
   unit: V
@@ -997,6 +1117,7 @@
 
 "33015":
   name: Battery cell voltage min.
+  name_de: "Batteriezellen-Spannung min."
   length: 1
   type: U16
   unit: V
@@ -1009,6 +1130,7 @@
 
 "50000":
   name: Inverter operation mode
+  name_de: "Wechselrichter-Betriebsmodus"
   length: 1
   type: U16
   writable: true
@@ -1023,9 +1145,17 @@
       259: "UPS mode",
       512: "Off grid",
     }
+  hass_value_items_de:
+    {
+      257: "Allgemeiner Modus",
+      258: "Sparmodus",
+      259: "USV-Modus",
+      512: "Inselbetrieb",
+    }
 
 "25100":
   name: Grid injection limit switch
+  name_de: "Netzeinspeisung-Begrenzung (Schalter)"
   length: 1
   type: U16
   writable: true
@@ -1037,6 +1167,7 @@
 
 "25103":
   name: Grid injection power limit
+  name_de: "Netzeinspeisung-Leistungslimit"
   length: 1
   type: U16
   unit: "%"
@@ -1102,6 +1233,7 @@
 
 "52502":
   name: On-grid SOC limit switch
+  name_de: "On-Grid-SOC-Limit (Schalter)"
   length: 1
   type: U16
   writable: true
@@ -1113,6 +1245,7 @@
 
 "52503":
   name: On-grid SOC limit
+  name_de: "On-Grid-SOC-Limit"
   length: 1
   type: U16
   unit: "%"
@@ -1126,6 +1259,7 @@
 
 "52504":
   name: Off-grid SOC limit switch
+  name_de: "Off-Grid-SOC-Limit (Schalter)"
   length: 1
   type: U16
   writable: true
@@ -1137,6 +1271,7 @@
 
 "52505":
   name: Off-grid SOC limit
+  name_de: "Off-Grid-SOC-Limit"
   length: 1
   type: U16
   unit: "%"
@@ -1150,6 +1285,7 @@
 
 "52601":
   name: Charge limit
+  name_de: "Ladestrombegrenzung"
   length: 1
   type: U16
   unit: "A"
@@ -1163,6 +1299,7 @@
 
 "52603":
   name: Discharge limit
+  name_de: "Entladestrombegrenzung"
   length: 1
   type: U16
   unit: "A"
@@ -1176,6 +1313,7 @@
 
 "53509":
   name: BMS Error Code
+  name_de: "BMS-Fehlercode"
   length: 2
   type: BIT
   mqtt: bms_error_code
@@ -1188,10 +1326,19 @@
       8: "Relay Fault",
       16: "Cells Damage Fault",
     }
+  hass_value_items_de:
+    {
+      1: "Interner COM-Fehler",
+      2: "Spannungssensor-Fehler",
+      4: "Temperatursensor-Fehler",
+      8: "Relais-Fehler",
+      16: "Zellschaden-Fehler",
+    }
   hass_device_class: enum
 
 "53511":
   name: BMS Protection Code
+  name_de: "BMS-Schutzcode"
   length: 2
   type: BIT
   mqtt: bms_protection_code
@@ -1214,10 +1361,29 @@
       16384: "Ambient High Temperature Protection",
       32768: "Leakage Current Protection",
     }
+  hass_value_items_de:
+    {
+      2: "Zellen-Überspannungsschutz",
+      4: "Batteriemodul Entlade-Unterspannungsschutz",
+      8: "Batteriemodul Lade-Überspannungsschutz",
+      16: "Lade-Untertemperaturschutz",
+      32: "Lade-Übertemperaturschutz",
+      64: "Entlade-Untertemperaturschutz",
+      128: "Entlade-Übertemperaturschutz",
+      256: "Batteriemodul Lade-Überstromschutz",
+      512: "Batteriemodul Entlade-Überstromschutz",
+      1024: "Batteriemodul Unterspannungsschutz",
+      2048: "Batteriemodul Überspannungsschutz",
+      4096: "Anschluss-Übertemperaturschutz",
+      8192: "Umgebungs-Untertemperaturschutz",
+      16384: "Umgebungs-Übertemperaturschutz",
+      32768: "Fehlerstromschutz",
+    }
   hass_device_class: enum
 
 "53513":
   name: BMS Alarm Code
+  name_de: "BMS-Alarmcode"
   length: 2
   type: BIT
   mqtt: bms_alarm_code
@@ -1238,5 +1404,22 @@
       4096: "Power Terminal Over Temperature Warning",
       8192: "Ambient Low Temperature Warning",
       16384: "Ambient Over Temperature Warning",
+    }
+  hass_value_items_de:
+    {
+      2: "Zellen-Überspannungswarnung",
+      4: "Batteriemodul Entlade-Unterspannungswarnung",
+      8: "Batteriemodul Lade-Überspannungswarnung",
+      16: "Lade-Untertemperaturwarnung",
+      32: "Lade-Übertemperaturwarnung",
+      64: "Entlade-Untertemperaturwarnung",
+      128: "Entlade-Übertemperaturwarnung",
+      256: "Batteriemodul Lade-Überstromwarnung",
+      512: "Batteriemodul Entlade-Überstromwarnung",
+      1024: "Batteriemodul Unterspannungswarnung",
+      2048: "Batteriemodul Überspannungswarnung",
+      4096: "Anschluss-Übertemperaturwarnung",
+      8192: "Umgebungs-Untertemperaturwarnung",
+      16384: "Umgebungs-Übertemperaturwarnung",
     }
   hass_device_class: enum

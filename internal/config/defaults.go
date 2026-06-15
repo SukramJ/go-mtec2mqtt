@@ -28,6 +28,15 @@ const (
 	// DefaultWebBind binds the optional UI to localhost only. Operators
 	// who want LAN access set WEB_BIND: 0.0.0.0:8080 explicitly.
 	DefaultWebBind = "127.0.0.1:8080"
+
+	// DefaultLanguage is the fallback UI / HA display language.
+	DefaultLanguage = "en"
+
+	// DefaultChargeActiveValue / DefaultDischargeActiveValue is the
+	// amperage the charge/discharge "active" switch writes when first
+	// switched on with no cached value. Matches a typical M-TEC inverter.
+	DefaultChargeActiveValue    = 50
+	DefaultDischargeActiveValue = 50
 )
 
 // applyDefaults fills in any field whose YAML+env round left it at its
@@ -70,5 +79,14 @@ func applyDefaults(c *Config) {
 	}
 	if c.WebBind == "" {
 		c.WebBind = DefaultWebBind
+	}
+	if c.Language == "" {
+		c.Language = DefaultLanguage
+	}
+	if c.ChargeActiveValue == 0 {
+		c.ChargeActiveValue = DefaultChargeActiveValue
+	}
+	if c.DischargeActiveValue == 0 {
+		c.DischargeActiveValue = DefaultDischargeActiveValue
 	}
 }

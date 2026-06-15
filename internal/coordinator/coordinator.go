@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -82,6 +83,11 @@ type Deps struct {
 	// the optional web UI can render live values. Nil disables caching
 	// (the pure-MQTT default path).
 	Store *state.Store
+	// Virtual lists synthetic switch entities the coordinator implements
+	// (charge/discharge "active"). Their on/off state is derived from the
+	// target register on every poll and their writes toggle that register
+	// between the configured value and 0. Empty disables the feature.
+	Virtual []hass.VirtualSwitch
 }
 
 // Coordinator is the M-TEC → MQTT data-flow root.
@@ -106,6 +112,14 @@ type Coordinator struct {
 	// handler can compare topic strings without rebuilding it on
 	// every inbound publish.
 	hassStatusTopic string
+
+	// virtualByKey indexes the synthetic switches by their MQTT key for
+	// write routing. lastActive remembers the last non-zero value seen on
+	// each target register so a switch can restore it when toggled on;
+	// guarded by lastActiveMu.
+	virtualByKey map[string]hass.VirtualSwitch
+	lastActiveMu sync.Mutex
+	lastActive   map[string]float64
 }
 
 // writeReq is one HA → device command pending dispatch.
@@ -123,11 +137,17 @@ func New(d Deps) *Coordinator {
 	if d.Now == nil {
 		d.Now = time.Now
 	}
+	vbk := make(map[string]hass.VirtualSwitch, len(d.Virtual))
+	for _, v := range d.Virtual {
+		vbk[v.Key] = v
+	}
 	return &Coordinator{
 		deps:            d,
 		startedAt:       d.Now(),
 		writeQueue:      make(chan writeReq, 32),
 		hassStatusTopic: d.Cfg.HASSBaseTopic + "/status",
+		virtualByKey:    vbk,
+		lastActive:      make(map[string]float64),
 	}
 }
 
@@ -383,7 +403,7 @@ func (c *Coordinator) writeWorker(ctx context.Context) error {
 		case <-ctx.Done():
 			return nil
 		case req := <-c.writeQueue:
-			err := c.deps.Reader.WriteRegisterByMQTT(ctx, req.mqttKey, req.value)
+			err := c.dispatchWrite(ctx, req.mqttKey, req.value)
 			if err != nil {
 				log.Warn("coordinator.write_failed",
 					slog.String("mqtt_key", req.mqttKey),

@@ -41,5 +41,20 @@ WEB_BIND: 127.0.0.1:8080 # Listen address host:port (use 0.0.0.0:8080 for LAN ac
 WEB_USER: "" # HTTP Basic auth user (leave empty + WEB_PASSWORD empty to disable auth)
 WEB_PASSWORD: "" # HTTP Basic auth password (override: env MTEC_WEB_PASSWORD)
 
+# Localisation
+# Display language for the web dashboard and the friendly names of Home
+# Assistant entities. Entity_ids stay language-independent, so switching
+# language never re-creates HA entities. Options: 'en' (default), 'de'.
+LANGUAGE: en
+
+# Charge / discharge "active" switches
+# Two extra Home Assistant switch entities ("Charge active" / "Discharge
+# active"). Turning one on writes the configured amperage to the charge/
+# discharge limit register; turning it off writes 0. The last active value
+# is remembered and restored on the next "on"; these settings are the
+# initial fallback. Plain numbers (the register's native unit, default 50).
+CHARGE_ACTIVE_VALUE: 50
+DISCHARGE_ACTIVE_VALUE: 50
+
 # General
 DEBUG: false # Set to True to get verbose debug messages

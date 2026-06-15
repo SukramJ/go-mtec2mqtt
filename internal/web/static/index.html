@@ -4,8 +4,10 @@
   Copyright (C) 2026 SukramJ
   Embedded status/health dashboard for go-mtec2mqtt. Hand-written
   vanilla SPA (no build step) — served verbatim via go:embed.
+  Static strings carry data-i18n keys; app.js fills them from the
+  translation bundle for the configured LANGUAGE (default English).
 -->
-<html lang="de" data-theme="dark">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -26,14 +28,14 @@
           </div>
         </div>
         <nav class="nav" id="nav">
-          <a href="#sec-status" class="nav-item active" data-target="sec-status">Status</a>
-          <a href="#sec-live" class="nav-item" data-target="sec-live">Aktuell</a>
-          <a href="#sec-energy" class="nav-item" data-target="sec-energy">Energie</a>
-          <a href="#sec-control" class="nav-item" data-target="sec-control">Steuerung</a>
-          <a href="#sec-system" class="nav-item" data-target="sec-system">System</a>
+          <a href="#sec-status" class="nav-item active" data-target="sec-status" data-i18n="nav.status">Status</a>
+          <a href="#sec-live" class="nav-item" data-target="sec-live" data-i18n="nav.live">Live</a>
+          <a href="#sec-energy" class="nav-item" data-target="sec-energy" data-i18n="nav.energy">Energy</a>
+          <a href="#sec-control" class="nav-item" data-target="sec-control" data-i18n="nav.control">Control</a>
+          <a href="#sec-system" class="nav-item" data-target="sec-system" data-i18n="nav.system">System</a>
         </nav>
         <div class="sidebar-foot">
-          <button id="theme-toggle" class="ghost-btn" title="Hell/Dunkel umschalten">◐ Theme</button>
+          <button id="theme-toggle" class="ghost-btn" data-i18n-title="theme.toggle" title="Toggle light/dark">◐ <span data-i18n="theme.label">Theme</span></button>
           <small id="version" class="muted"></small>
         </div>
       </aside>
@@ -46,8 +48,8 @@
             <span id="device-sub" class="muted"></span>
           </div>
           <div class="topbar-status">
-            <span id="conn-badge" class="badge badge-neutral">verbinde…</span>
-            <span id="stream-dot" class="stream-dot" title="Live-Verbindung"></span>
+            <span id="conn-badge" class="badge badge-neutral" data-i18n="badge.connecting">connecting…</span>
+            <span id="stream-dot" class="stream-dot" data-i18n-title="live.title" title="Live connection"></span>
           </div>
         </header>
 
@@ -55,7 +57,7 @@
 
         <!-- Status / Health -->
         <section id="sec-status" class="section">
-          <h2 class="section-title">Status &amp; Health</h2>
+          <h2 class="section-title" data-i18n="section.status">Status &amp; Health</h2>
           <div class="card">
             <div class="status-grid" id="health-grid"></div>
           </div>
@@ -63,20 +65,20 @@
 
         <!-- Live values -->
         <section id="sec-live" class="section">
-          <h2 class="section-title">Aktuelle Werte</h2>
+          <h2 class="section-title" data-i18n="section.live">Live values</h2>
           <div id="live-groups" class="group-stack"></div>
         </section>
 
         <!-- Energy -->
         <section id="sec-energy" class="section">
-          <h2 class="section-title">Energie (Tag / Gesamt)</h2>
+          <h2 class="section-title" data-i18n="section.energy">Energy (day / total)</h2>
           <div id="energy-groups" class="group-stack"></div>
         </section>
 
         <!-- Control (writable registers) -->
         <section id="sec-control" class="section">
-          <h2 class="section-title">Steuerung</h2>
-          <p class="muted hint">Schreibbare Register — Änderungen gehen direkt per Modbus an den Inverter.</p>
+          <h2 class="section-title" data-i18n="section.control">Control</h2>
+          <p class="muted hint" data-i18n="control.hint">Writable registers — changes go straight to the inverter via Modbus.</p>
           <div class="card">
             <div id="control-list" class="control-list"></div>
           </div>
@@ -84,7 +86,7 @@
 
         <!-- System / config -->
         <section id="sec-system" class="section">
-          <h2 class="section-title">System &amp; Konfiguration</h2>
+          <h2 class="section-title" data-i18n="section.system">System &amp; configuration</h2>
           <div class="card">
             <div class="status-grid" id="config-grid"></div>
           </div>
@@ -92,7 +94,7 @@
         </section>
 
         <footer class="footer">
-          <span class="muted">go-mtec2mqtt · eingebettete UI</span>
+          <span class="muted" data-i18n="footer.app">go-mtec2mqtt · embedded UI</span>
           <span id="last-update" class="muted"></span>
         </footer>
       </main>

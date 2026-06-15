@@ -93,7 +93,7 @@ func loadCatalog(t *testing.T) *registers.Map {
 
 func newDiscovery(t *testing.T) *Discovery {
 	t.Helper()
-	d := New("homeassistant", "MTEC", loadCatalog(t))
+	d := New("homeassistant", "MTEC", loadCatalog(t), "en", nil)
 	d.Initialize("SN12345", "V27.52.4.0", "8.0K-25A-3P")
 	return d
 }
@@ -145,7 +145,7 @@ func TestDiscoveryEntryCountAndSkipping(t *testing.T) {
 }
 
 func TestDiscoveryIsInitialized(t *testing.T) {
-	d := New("homeassistant", "MTEC", loadCatalog(t))
+	d := New("homeassistant", "MTEC", loadCatalog(t), "en", nil)
 	if d.IsInitialized() {
 		t.Fatal("must report uninitialised before Initialize")
 	}
@@ -308,7 +308,7 @@ func TestDiscoveryAgainstRealCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := New("homeassistant", "MTEC", m)
+	d := New("homeassistant", "MTEC", m, "en", nil)
 	d.Initialize("SN12345", "V27.52.4.0", "8.0K-25A-3P")
 
 	if len(d.Entries()) < 50 {
@@ -324,6 +324,105 @@ func TestDiscoveryAgainstRealCatalog(t *testing.T) {
 		if _, has := m["unique_id"]; !has {
 			t.Errorf("entry %d (%s) missing unique_id", i, e.ConfigTopic)
 		}
+	}
+}
+
+// --- object_id + localisation + virtual switches ---------------------------
+
+// localisedCatalog carries German names + enum labels so the de-language
+// assertions have something to translate.
+const localisedCatalogYAML = `
+"11000":
+  name: Grid power
+  name_de: "Netzleistung"
+  length: 2
+  type: I32
+  unit: W
+  mqtt: grid_power
+  group: now-base
+  hass_device_class: power
+
+"52000":
+  name: Operation mode
+  name_de: "Betriebsmodus"
+  length: 1
+  type: U16
+  writable: true
+  mqtt: mode
+  group: config
+  hass_component_type: select
+  hass_value_items:
+    0: "General"
+    1: "Eco"
+  hass_value_items_de:
+    0: "Allgemein"
+    1: "Sparmodus"
+`
+
+func TestEntriesCarryStableObjectID(t *testing.T) {
+	d := newDiscovery(t)
+	// object_id must equal the language-independent mqtt suffix so the
+	// HA entity_id never changes when the friendly name is translated.
+	e := findEntry(t, d, "number/MTEC_grid_inject_limit/config")
+	p := unmarshalEntry(t, e)
+	if p["object_id"] != "grid_inject_limit" {
+		t.Errorf("object_id = %v, want grid_inject_limit", p["object_id"])
+	}
+}
+
+func TestGermanNamesAndOptions(t *testing.T) {
+	m, _, err := registers.LoadFromString(localisedCatalogYAML)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := New("homeassistant", "MTEC", m, "de", nil)
+	d.Initialize("SN", "V1", "model")
+
+	sensor := unmarshalEntry(t, findEntry(t, d, "sensor/MTEC_grid_power/config"))
+	if sensor["name"] != "Netzleistung" {
+		t.Errorf("de sensor name = %v, want Netzleistung", sensor["name"])
+	}
+	if sensor["object_id"] != "grid_power" {
+		t.Errorf("object_id = %v, want grid_power", sensor["object_id"])
+	}
+	sel := unmarshalEntry(t, findEntry(t, d, "select/MTEC_mode/config"))
+	if sel["name"] != "Betriebsmodus" {
+		t.Errorf("de select name = %v, want Betriebsmodus", sel["name"])
+	}
+	opts, _ := sel["options"].([]any)
+	want := []any{"Allgemein", "Sparmodus"}
+	if len(opts) != 2 || opts[0] != want[0] || opts[1] != want[1] {
+		t.Errorf("de options = %v, want %v", opts, want)
+	}
+}
+
+func TestVirtualSwitchEntities(t *testing.T) {
+	vs := DefaultVirtualSwitches(50, 40)
+	d := New("homeassistant", "MTEC", loadCatalog(t), "de", vs)
+	d.Initialize("SN12345", "V1", "model")
+
+	e, ok := findEntryOK(d, "switch/MTEC_charge_active/config")
+	if !ok {
+		t.Fatalf("charge_active switch entry missing\n%s", dumpTopics(d))
+	}
+	if e.CommandTopic != "MTEC/SN12345/config/charge_active/set" {
+		t.Errorf("command topic = %q", e.CommandTopic)
+	}
+	p := unmarshalEntry(t, e)
+	if p["name"] != "Laden aktiv" {
+		t.Errorf("de name = %v, want 'Laden aktiv'", p["name"])
+	}
+	if p["object_id"] != "charge_active" {
+		t.Errorf("object_id = %v, want charge_active", p["object_id"])
+	}
+	if p["payload_on"] != "1" || p["payload_off"] != "0" {
+		t.Errorf("payloads = %v/%v, want 1/0", p["payload_on"], p["payload_off"])
+	}
+	if p["state_topic"] != "MTEC/SN12345/config/charge_active/state" {
+		t.Errorf("state topic = %v", p["state_topic"])
+	}
+	if _, ok := findEntryOK(d, "switch/MTEC_discharge_active/config"); !ok {
+		t.Error("discharge_active switch entry missing")
 	}
 }
 
