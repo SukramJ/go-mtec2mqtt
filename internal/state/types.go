@@ -93,4 +93,7 @@ type ConfigView struct {
 	RefreshStatic int    `json:"refresh_static"`
 	RefreshTotal  int    `json:"refresh_total"`
 	Debug         bool   `json:"debug"`
+	// Language is the UI / HA display language ("en"/"de"). The SPA reads
+	// it to pick its translation bundle and locale.
+	Language string `json:"language"`
 }

@@ -77,6 +77,20 @@ type Config struct {
 	WebUser     string `yaml:"WEB_USER"`
 	WebPassword string `yaml:"WEB_PASSWORD"`
 
+	// --- Localisation ---
+	// Language selects the UI / Home-Assistant display language. "en"
+	// (default) or "de". It localises the web dashboard chrome and the
+	// friendly names of HA entities; entity_ids stay language-independent.
+	Language string `yaml:"LANGUAGE"`
+
+	// --- Charge/discharge "active" switches ---
+	// ChargeActiveValue / DischargeActiveValue are the amperage written to
+	// the charge/discharge limit register when the corresponding "active"
+	// switch is turned on for the first time (no previous value cached).
+	// Plain numbers (the register's native unit), default 50.
+	ChargeActiveValue    int `yaml:"CHARGE_ACTIVE_VALUE"`
+	DischargeActiveValue int `yaml:"DISCHARGE_ACTIVE_VALUE"`
+
 	// --- Misc ---
 	Debug bool `yaml:"DEBUG"`
 

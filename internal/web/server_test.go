@@ -203,8 +203,9 @@ func TestServesSPA(t *testing.T) {
 		t.Error("index.html not served at /")
 	}
 
-	// The embedded asset tree must also be reachable.
-	for _, asset := range []string{"/app.js", "/app.css"} {
+	// The embedded asset tree must also be reachable, including the
+	// localisation bundles served from the i18n subdirectory.
+	for _, asset := range []string{"/app.js", "/app.css", "/i18n/en.json", "/i18n/de.json"} {
 		r, err := http.Get(ts.URL + asset)
 		if err != nil {
 			t.Fatalf("GET %s: %v", asset, err)

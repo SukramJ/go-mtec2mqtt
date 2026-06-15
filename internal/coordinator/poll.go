@@ -120,6 +120,10 @@ func (c *Coordinator) publishGroupOnce(ctx context.Context, log *slog.Logger, gr
 			processed[k] = v
 		}
 	}
+	// Derive the synthetic charge/discharge "active" switch states from
+	// the freshly processed limits so they ride the same store + MQTT
+	// publish path as a real register.
+	c.applyVirtualSwitches(string(group), processed)
 	// Mirror the processed values into the web cache (if enabled) before
 	// publishing — same data the UI and MQTT see, decoupled from broker
 	// availability.

@@ -38,6 +38,13 @@ var allowedFramers = map[string]bool{
 	"tls":    true,
 }
 
+// allowedLanguages is the set of UI / HA display languages the daemon
+// ships translations for. English is the canonical fallback.
+var allowedLanguages = map[string]bool{
+	"en": true,
+	"de": true,
+}
+
 // floatFormatPattern accepts the Python format specs the daemon
 // actually uses for MQTT_FLOAT_FORMAT: optional width, optional
 // precision, one of the float verbs (e/f/g/E/F/G). Anything fancier
@@ -135,6 +142,22 @@ func Validate(c *Config) error {
 		if (c.WebUser == "") != (c.WebPassword == "") {
 			add("WEB_USER and WEB_PASSWORD must both be set or both be empty")
 		}
+	}
+
+	// --- Localisation ---
+	if !allowedLanguages[c.Language] {
+		add("LANGUAGE must be one of [de en], got %q", c.Language)
+	}
+
+	// --- Charge/discharge "active" switch values ---
+	// The on-value is written through the same scaled uint16 path as a
+	// manual limit edit, so cap it well inside that range. Zero would make
+	// "on" indistinguishable from "off", so require at least 1.
+	if c.ChargeActiveValue < 1 || c.ChargeActiveValue > 6000 {
+		add("CHARGE_ACTIVE_VALUE must be 1..6000, got %d", c.ChargeActiveValue)
+	}
+	if c.DischargeActiveValue < 1 || c.DischargeActiveValue > 6000 {
+		add("DISCHARGE_ACTIVE_VALUE must be 1..6000, got %d", c.DischargeActiveValue)
 	}
 
 	if len(issues) > 0 {

@@ -1,3 +1,53 @@
+# Version 1.1.0 (2026-06-15)
+
+## What's Changed
+
+Adds full internationalisation (English default, German optional) across
+the web dashboard and Home Assistant entity names, plus two new
+charge/discharge "active" switch entities.
+
+### Added
+
+- **Internationalisation (i18n).** New `LANGUAGE` config key (`en` default
+  / `de`) localises both the embedded web dashboard and the friendly names
+  of Home Assistant entities.
+  - Web UI strings come from embedded translation bundles
+    (`internal/web/static/i18n/en.json`, `de.json`); the SPA loads the
+    bundle for the configured language and formats numbers/timestamps for
+    the matching locale. Static markup is keyed via `data-i18n` attributes.
+  - Register names and enum value labels carry optional `name_de` /
+    `hass_value_items_de` entries in `registers.yaml`, resolved per-entry
+    with a fallback to English (`LocalizedName` / `LocalizedValueItems`).
+- **Stable Home Assistant entity_ids under translation.** Every discovery
+  payload now emits an explicit `object_id` derived from the
+  language-independent MQTT key, so changing `LANGUAGE` re-labels the
+  friendly name only and never re-creates an entity.
+- **Charge/discharge "active" switches.** Two new HA `switch` entities
+  (`charge_active` / `discharge_active`). "On" writes the configured
+  amperage to the charge/discharge limit register, "off" writes 0. The last
+  non-zero value is remembered on every config poll and restored on the next
+  "on"; `CHARGE_ACTIVE_VALUE` / `DISCHARGE_ACTIVE_VALUE` (default 50) are the
+  initial fallback. The switches are also rendered as toggles in the web UI,
+  and their write path is shared between the HA command queue and the web
+  API.
+
+### Changed
+
+- The web dashboard default language is now English (was German); German is
+  available via `LANGUAGE: de`.
+
+### Test coverage
+
+- Config: `LANGUAGE` validation + defaulting, `CHARGE_ACTIVE_VALUE` /
+  `DISCHARGE_ACTIVE_VALUE` range and defaults.
+- Registers: localisation fallback (`name_de`, per-code enum fallback).
+- HA discovery: stable `object_id`, German names/options, virtual-switch
+  entities (topics, payloads, localised names).
+- Coordinator: virtual-switch state derivation, off→restore and
+  default-fallback writes, write routing, payload parsing, localised
+  `Registers()`.
+- Web: localisation bundles are served from the embedded asset tree.
+
 # Version 1.0.0 (2026-05-25)
 
 ## What's Changed

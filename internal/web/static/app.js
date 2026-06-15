@@ -2,24 +2,30 @@
 // Copyright (C) 2026 SukramJ
 //
 // Embedded dashboard logic for go-mtec2mqtt. Plain ES module-free
-// vanilla JS: load catalog + config once, then live-update from the SSE
-// stream. No framework, no build step.
+// vanilla JS: load language + catalog + config once, then live-update
+// from the SSE stream. No framework, no build step.
+//
+// Localisation: the server reports the configured LANGUAGE via
+// /api/config; the matching bundle in i18n/<lang>.json drives all static
+// chrome (data-i18n attributes) and the dynamic strings via t()/tf().
+// Register names and enum labels are localised server-side, so they
+// arrive ready to render.
 "use strict";
 
-// Group metadata: display order, German label, and which page section
-// the group's card belongs to. Groups not listed here still render under
+// Group → page-section mapping. Labels are resolved from the i18n bundle
+// under "group.<key>"; groups not listed here still render under
 // "System" with a prettified name.
 const GROUPS = {
-  "now-base": { label: "Basis", section: "live" },
-  "now-grid": { label: "Netz", section: "live" },
-  "now-inverter": { label: "Wechselrichter", section: "live" },
-  "now-backup": { label: "Backup / Notstrom", section: "live" },
-  "now-battery": { label: "Batterie", section: "live" },
-  "now-pv": { label: "PV / Solar", section: "live" },
-  day: { label: "Heute", section: "energy" },
-  total: { label: "Gesamt", section: "energy" },
-  config: { label: "Geräte-Konfiguration", section: "system" },
-  static: { label: "Geräte-Info", section: "system" },
+  "now-base": "live",
+  "now-grid": "live",
+  "now-inverter": "live",
+  "now-backup": "live",
+  "now-battery": "live",
+  "now-pv": "live",
+  day: "energy",
+  total: "energy",
+  config: "system",
+  static: "system",
 };
 
 const SECTION_EL = {
@@ -28,10 +34,50 @@ const SECTION_EL = {
   system: () => document.getElementById("system-groups"),
 };
 
-// Catalog state, loaded once.
+// i18n + catalog state, loaded once.
+let I18N = {};
+let LANG = "en";
+let LOCALE = "en-US";
 let registersByKey = {}; // output key (mqtt||name) -> register info
 let writables = []; // register infos with writable=true
 let latestSnapshot = { groups: {} };
+
+// ---------- i18n ----------
+function t(key) {
+  return key in I18N ? I18N[key] : key;
+}
+
+// tf looks up key and substitutes {name} placeholders from params.
+function tf(key, params) {
+  let s = t(key);
+  for (const k in params) s = s.replace("{" + k + "}", params[k]);
+  return s;
+}
+
+async function loadI18n(lang) {
+  LANG = lang === "de" ? "de" : "en";
+  LOCALE = LANG === "de" ? "de-DE" : "en-US";
+  document.documentElement.lang = LANG;
+  try {
+    I18N = await fetchJSON("i18n/" + LANG + ".json");
+  } catch (e) {
+    I18N = {}; // fall back to raw keys / English HTML defaults
+  }
+  applyStaticI18n();
+}
+
+// applyStaticI18n fills every element carrying a data-i18n / data-i18n-title
+// attribute from the loaded bundle. Missing keys leave the HTML default.
+function applyStaticI18n() {
+  document.querySelectorAll("[data-i18n]").forEach((el) => {
+    const key = el.dataset.i18n;
+    if (key in I18N) el.textContent = I18N[key];
+  });
+  document.querySelectorAll("[data-i18n-title]").forEach((el) => {
+    const key = el.dataset.i18nTitle;
+    if (key in I18N) el.title = I18N[key];
+  });
+}
 
 // ---------- bootstrap ----------
 document.addEventListener("DOMContentLoaded", init);
@@ -39,18 +85,23 @@ document.addEventListener("DOMContentLoaded", init);
 async function init() {
   initTheme();
   initNav();
+  // Language first so all subsequent rendering is localised. Config is
+  // otherwise non-critical, so a failure just leaves English defaults.
+  let config = null;
+  try {
+    config = await fetchJSON("/api/config");
+  } catch (e) {
+    /* non-critical */
+  }
+  await loadI18n((config && config.language) || "en");
   try {
     const regs = await fetchJSON("/api/registers");
     indexRegisters(regs);
     buildControlList();
   } catch (e) {
-    toast("Register konnten nicht geladen werden: " + e.message, "err");
+    toast(t("toast.regsFail") + e.message, "err");
   }
-  try {
-    renderConfig(await fetchJSON("/api/config"));
-  } catch (e) {
-    /* config is non-critical */
-  }
+  if (config) renderConfig(config);
   connectSSE();
 }
 
@@ -88,7 +139,7 @@ function render(view) {
   updateControlValues(latestSnapshot);
   const ts = new Date();
   document.getElementById("last-update").textContent =
-    "Stand: " + ts.toLocaleTimeString("de-DE");
+    t("footer.updated") + ts.toLocaleTimeString(LOCALE);
 }
 
 function renderHeader(h) {
@@ -102,9 +153,9 @@ function renderHeader(h) {
 
   const badge = document.getElementById("conn-badge");
   const map = {
-    ok: ["badge-ok", "Verbunden"],
-    degraded: ["badge-warn", "Modbus getrennt"],
-    starting: ["badge-neutral", "Initialisiere…"],
+    ok: ["badge-ok", t("status.ok")],
+    degraded: ["badge-warn", t("status.degraded")],
+    starting: ["badge-neutral", t("status.starting")],
   };
   const [cls, text] = map[h.status] || ["badge-neutral", h.status || "—"];
   badge.className = "badge " + cls;
@@ -113,15 +164,15 @@ function renderHeader(h) {
 
 function renderHealth(h) {
   const items = [
-    tile("Status", capitalise(h.status || "—"), statusTone(h.status)),
-    tile("Modbus", h.modbus_connected ? "verbunden" : "getrennt",
+    tile(t("health.status"), capitalise(h.status || "—"), statusTone(h.status)),
+    tile(t("health.modbus"), h.modbus_connected ? t("val.connected") : t("val.disconnected"),
       h.modbus_connected ? "ok" : "err", h.modbus_addr),
-    tile("MQTT-Broker", h.mqtt_server || "—", null),
-    tile("Topic", h.mqtt_topic || "—", null),
-    tile("Home Assistant", h.hass_enabled ? "aktiv" : "aus", h.hass_enabled ? "ok" : null),
-    tile("Laufzeit", formatUptime(h.uptime_seconds), null),
-    tile("Seriennummer", h.serial || "—", null),
-    tile("Firmware", h.firmware || "—", null),
+    tile(t("health.mqtt"), h.mqtt_server || "—", null),
+    tile(t("health.topic"), h.mqtt_topic || "—", null),
+    tile(t("health.hass"), h.hass_enabled ? t("val.active") : t("val.off"), h.hass_enabled ? "ok" : null),
+    tile(t("health.uptime"), formatUptime(h.uptime_seconds), null),
+    tile(t("health.serial"), h.serial || "—", null),
+    tile(t("health.firmware"), h.firmware || "—", null),
   ];
   setGrid("health-grid", items);
 }
@@ -137,15 +188,20 @@ function renderGroups(snapshot, health) {
   for (const g of Object.keys(groups)) if (!order.includes(g)) order.push(g);
 
   for (const g of order) {
-    const meta = GROUPS[g] || { label: prettify(g), section: "system" };
-    const card = groupCard(g, meta.label, groups[g], ghealth[g]);
-    SECTION_EL[meta.section]().appendChild(card);
+    const section = GROUPS[g] || "system";
+    const card = groupCard(g, groupLabel(g), groups[g], ghealth[g]);
+    SECTION_EL[section]().appendChild(card);
   }
-  for (const [sec, fn] of Object.entries(SECTION_EL)) {
+  for (const [, fn] of Object.entries(SECTION_EL)) {
     if (!fn().children.length) {
-      fn().innerHTML = `<div class="card empty">Noch keine Daten für „${sec}“.</div>`;
+      fn().innerHTML = `<div class="card empty">${t("group.empty")}</div>`;
     }
   }
+}
+
+function groupLabel(g) {
+  const key = "group." + g;
+  return key in I18N ? I18N[key] : prettify(g);
 }
 
 function groupCard(groupKey, label, view, gh) {
@@ -153,14 +209,14 @@ function groupCard(groupKey, label, view, gh) {
   const head = el("div", "group-head");
   head.appendChild(el("h3", null, label));
   if (gh && Number.isFinite(gh.age_seconds)) {
-    head.appendChild(el("span", "group-age", "aktualisiert vor " + formatAge(gh.age_seconds)));
+    head.appendChild(el("span", "group-age", tf("group.age", { age: formatAge(gh.age_seconds) })));
   }
   card.appendChild(head);
 
   const grid = el("div", "status-grid");
   const values = (view && view.values) || {};
   const keys = Object.keys(values).sort((a, b) =>
-    labelFor(a).localeCompare(labelFor(b), "de"));
+    labelFor(a).localeCompare(labelFor(b), LOCALE));
   if (!keys.length) {
     grid.appendChild(el("div", "empty", "—"));
   }
@@ -194,7 +250,7 @@ function buildControlList() {
   const host = document.getElementById("control-list");
   host.innerHTML = "";
   if (!writables.length) {
-    host.innerHTML = `<div class="empty">Keine schreibbaren Register im Katalog.</div>`;
+    host.innerHTML = `<div class="empty">${t("ctl.none")}</div>`;
     return;
   }
   for (const r of writables) {
@@ -213,6 +269,27 @@ function controlRow(r) {
   name.appendChild(el("small", null, sub.join(" · ")));
   row.appendChild(name);
 
+  const current = el("span", "c-current");
+  current.dataset.key = key;
+  current.textContent = "—";
+
+  // A synthetic / catalog switch renders as an immediate on/off toggle.
+  if (r.component === "switch") {
+    row.appendChild(current);
+    const toggle = el("input");
+    toggle.type = "checkbox";
+    toggle.className = "c-switch";
+    toggle.dataset.key = key;
+    toggle.addEventListener("change", () =>
+      writeValue(key, toggle.checked ? "1" : "0"));
+    const ctrls = el("div");
+    ctrls.style.display = "flex";
+    ctrls.style.gap = "8px";
+    ctrls.appendChild(toggle);
+    row.appendChild(ctrls);
+    return row;
+  }
+
   let input;
   if (r.value_items && Object.keys(r.value_items).length) {
     input = el("select");
@@ -225,15 +302,12 @@ function controlRow(r) {
     input = el("input");
     input.type = "number";
     input.step = "any";
-    input.placeholder = r.unit ? "Wert (" + r.unit + ")" : "Wert";
+    input.placeholder = r.unit ? tf("ctl.placeholderUnit", { unit: r.unit }) : t("ctl.placeholder");
   }
 
-  const current = el("span", "c-current");
-  current.dataset.key = key;
-  current.textContent = "—";
   row.appendChild(current);
 
-  const btn = el("button", "btn", "Setzen");
+  const btn = el("button", "btn", t("btn.set"));
   btn.addEventListener("click", () => writeRegister(key, input.value, btn));
 
   const ctrls = el("div");
@@ -250,21 +324,38 @@ function updateControlValues(snapshot) {
   for (const g of Object.values(snapshot.groups || {})) {
     Object.assign(flat, g.values || {});
   }
+  document.querySelectorAll(".c-switch[data-key]").forEach((cb) => {
+    const k = cb.dataset.key;
+    if (k in flat) cb.checked = !!flat[k];
+  });
   document.querySelectorAll(".c-current[data-key]").forEach((sp) => {
     const k = sp.dataset.key;
-    if (k in flat) {
-      const reg = registersByKey[k];
-      sp.textContent = "aktuell: " + fmtValue(flat[k]) + (reg && reg.unit ? " " + reg.unit : "");
+    if (!(k in flat)) return;
+    const reg = registersByKey[k];
+    if (reg && reg.component === "switch") {
+      sp.textContent = t("ctl.current") + t(flat[k] ? "val.on" : "val.off");
+      return;
     }
+    sp.textContent = t("ctl.current") + fmtValue(flat[k]) + (reg && reg.unit ? " " + reg.unit : "");
   });
 }
 
+// writeRegister is the input+button flow: validate, disable, write.
 async function writeRegister(key, value, btn) {
   if (value === "" || value === null || value === undefined) {
-    toast("Bitte einen Wert eingeben.", "err");
+    toast(t("toast.enterValue"), "err");
     return;
   }
-  btn.disabled = true;
+  if (btn) btn.disabled = true;
+  try {
+    await writeValue(key, value);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// writeValue posts a single register write and toasts the result.
+async function writeValue(key, value) {
   try {
     const res = await fetch("/api/write", {
       method: "POST",
@@ -273,26 +364,24 @@ async function writeRegister(key, value, btn) {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || res.statusText);
-    toast(key + " = " + value + " gesetzt", "ok");
+    toast(tf("toast.set", { key, value }), "ok");
   } catch (e) {
-    toast("Fehler: " + e.message, "err");
-  } finally {
-    btn.disabled = false;
+    toast(t("toast.errorPrefix") + e.message, "err");
   }
 }
 
 // ---------- config ----------
 function renderConfig(c) {
   const items = [
-    tile("Modbus", c.modbus_ip + ":" + c.modbus_port, null, "Slave " + c.modbus_slave),
-    tile("MQTT", c.mqtt_server + ":" + c.mqtt_port, null, c.mqtt_topic),
-    tile("Home Assistant", c.hass_enable ? "aktiv" : "aus", null, c.hass_base_topic),
-    tile("Refresh now", c.refresh_now + " s", null),
-    tile("Refresh config", c.refresh_config + " s", null),
-    tile("Refresh day", c.refresh_day + " s", null),
-    tile("Refresh total", c.refresh_total + " s", null),
-    tile("Refresh static", c.refresh_static + " s", null),
-    tile("Debug", c.debug ? "an" : "aus", null),
+    tile(t("cfg.modbus"), c.modbus_ip + ":" + c.modbus_port, null, t("cfg.slave") + " " + c.modbus_slave),
+    tile(t("cfg.mqtt"), c.mqtt_server + ":" + c.mqtt_port, null, c.mqtt_topic),
+    tile(t("cfg.hass"), c.hass_enable ? t("val.active") : t("val.off"), null, c.hass_base_topic),
+    tile(t("cfg.refresh_now"), c.refresh_now + " " + t("unit.seconds"), null),
+    tile(t("cfg.refresh_config"), c.refresh_config + " " + t("unit.seconds"), null),
+    tile(t("cfg.refresh_day"), c.refresh_day + " " + t("unit.seconds"), null),
+    tile(t("cfg.refresh_total"), c.refresh_total + " " + t("unit.seconds"), null),
+    tile(t("cfg.refresh_static"), c.refresh_static + " " + t("unit.seconds"), null),
+    tile(t("cfg.debug"), c.debug ? t("val.on") : t("val.off"), null),
   ];
   setGrid("config-grid", items);
 }
@@ -305,10 +394,10 @@ function labelFor(key) {
 
 function fmtValue(v) {
   if (v === null || v === undefined || v === "") return "–";
-  if (typeof v === "boolean") return v ? "Ja" : "Nein";
+  if (typeof v === "boolean") return v ? t("val.yes") : t("val.no");
   if (typeof v === "number") {
-    if (Number.isInteger(v)) return v.toLocaleString("de-DE");
-    return v.toLocaleString("de-DE", { maximumFractionDigits: 2 });
+    if (Number.isInteger(v)) return v.toLocaleString(LOCALE);
+    return v.toLocaleString(LOCALE, { maximumFractionDigits: 2 });
   }
   return String(v);
 }
