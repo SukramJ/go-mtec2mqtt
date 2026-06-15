@@ -6,7 +6,9 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -109,6 +111,31 @@ func Validate(c *Config) error {
 	rangeCheck("REFRESH_DAY", c.RefreshDay, 1, 86400)
 	rangeCheck("REFRESH_STATIC", c.RefreshStatic, 1, 86400)
 	rangeCheck("REFRESH_TOTAL", c.RefreshTotal, 1, 86400)
+
+	// --- Web UI ---
+	// Only meaningful when the server is enabled; an unused bind address
+	// shouldn't block startup of a pure-MQTT deployment.
+	if c.WebEnable {
+		host, port, err := net.SplitHostPort(c.WebBind)
+		if err != nil {
+			add("WEB_BIND must be host:port, got %q: %v", c.WebBind, err)
+		} else {
+			if host == "" {
+				// An empty host means "all interfaces"; allow it but it's
+				// worth being explicit, so nudge toward 0.0.0.0.
+				host = "0.0.0.0"
+			}
+			if p, perr := strconv.Atoi(port); perr != nil || p < 1 || p > 65535 {
+				add("WEB_BIND port must be 1..65535, got %q", port)
+			}
+			_ = host
+		}
+		// Basic auth is all-or-nothing: a username without a password
+		// (or vice versa) is almost certainly a config mistake.
+		if (c.WebUser == "") != (c.WebPassword == "") {
+			add("WEB_USER and WEB_PASSWORD must both be set or both be empty")
+		}
+	}
 
 	if len(issues) > 0 {
 		return &ValidationError{Issues: issues}

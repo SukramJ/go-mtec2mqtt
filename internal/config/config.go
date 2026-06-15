@@ -63,6 +63,20 @@ type Config struct {
 	RefreshStatic int `yaml:"REFRESH_STATIC"`
 	RefreshTotal  int `yaml:"REFRESH_TOTAL"`
 
+	// --- Web UI (optional status/health dashboard) ---
+	// WebEnable toggles the embedded HTTP server. Off by default so the
+	// daemon stays a pure MQTT bridge unless an operator opts in.
+	WebEnable bool `yaml:"WEB_ENABLE"`
+	// WebBind is the listen address "host:port". Defaults to
+	// 127.0.0.1:8080 — localhost-only — so enabling the UI never exposes
+	// it to the network by accident.
+	WebBind string `yaml:"WEB_BIND"`
+	// WebUser / WebPassword enable HTTP Basic auth when both are set.
+	// Leave both empty to serve without authentication (e.g. behind a
+	// reverse proxy or on a trusted LAN).
+	WebUser     string `yaml:"WEB_USER"`
+	WebPassword string `yaml:"WEB_PASSWORD"`
+
 	// --- Misc ---
 	Debug bool `yaml:"DEBUG"`
 

@@ -24,6 +24,10 @@ const (
 	DefaultRefreshDay    = 300
 	DefaultRefreshStatic = 3600
 	DefaultRefreshTotal  = 300
+
+	// DefaultWebBind binds the optional UI to localhost only. Operators
+	// who want LAN access set WEB_BIND: 0.0.0.0:8080 explicitly.
+	DefaultWebBind = "127.0.0.1:8080"
 )
 
 // applyDefaults fills in any field whose YAML+env round left it at its
@@ -63,5 +67,8 @@ func applyDefaults(c *Config) {
 	}
 	if c.RefreshTotal == 0 {
 		c.RefreshTotal = DefaultRefreshTotal
+	}
+	if c.WebBind == "" {
+		c.WebBind = DefaultWebBind
 	}
 }

@@ -5,9 +5,11 @@
 # Go's net package — that means the runtime image can be distroless,
 # carrying no shell, no package manager and no userland to attack.
 #
-# registers.yaml is copied alongside the binary (the project's
-# deliberate "no go:embed" choice) so an operator can override it via
-# a bind-mount without rebuilding.
+# registers.yaml is copied alongside the binary (the operator-editable
+# register catalog is deliberately NOT embedded) so it can be overridden
+# via a bind-mount without rebuilding. The optional web UI's static
+# assets, by contrast, ARE go:embed-ed into the binary — they are not
+# meant to be operator-patched.
 
 # ---------- Stage 1: build ----------
 FROM golang:1.26-alpine AS builder
@@ -52,6 +54,11 @@ COPY --from=builder /src/registers.yaml /src/config-template.yaml /app/
 # ./my-config:/config:ro` Just Works.
 VOLUME ["/config"]
 ENV XDG_CONFIG_HOME=/config
+
+# Optional web UI. Off by default; when enabled set WEB_BIND to
+# 0.0.0.0:8080 (the 127.0.0.1 default is unreachable from outside the
+# container) and publish the port with `docker run -p 8080:8080`.
+EXPOSE 8080
 
 USER nonroot:nonroot
 ENTRYPOINT ["/app/mtec2mqtt"]
