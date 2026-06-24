@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: LGPL-3.0-or-later
 // Copyright (C) 2026 SukramJ
 
 // Package coordinator orchestrates the M-TEC → MQTT data flow.

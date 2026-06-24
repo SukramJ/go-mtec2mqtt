@@ -189,12 +189,21 @@ correctness is anchored to a battle-tested reference.
 
 - Original Python project:
   [SukramJ/aiomtec2mqtt](https://github.com/sukramj/aiomtec2mqtt)
+  (LGPL-3.0).
 - Upstream Python ancestor:
-  [croedel/MTECmqtt](https://github.com/croedel/MTECmqtt)
+  [croedel/MTECmqtt](https://github.com/croedel/MTECmqtt) by **Christian
+  Rödel** (LGPL-3.0) — the original reverse-engineering work this project
+  builds on, including the register map. Thank you!
 - Pure-Go MQTT stack lifted from
   [SukramJ/openccu-loom](https://github.com/SukramJ/openccu-loom)
   (MIT-licensed; copyright preserved in the file headers).
 
 ## License
 
-MIT — see [LICENSE](./LICENSE).
+LGPL-3.0 — see [LICENSE](./LICENSE).
+
+This project is a Go port of `aiomtec2mqtt`, which in turn derives from
+Christian Rödel's [`croedel/MTECmqtt`](https://github.com/croedel/MTECmqtt).
+As a derivative of that LGPL-3.0 work it is distributed under the same
+license; the copyright notices of both Christian Rödel and SukramJ are
+preserved in [LICENSE](./LICENSE).
