@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: LGPL-3.0-or-later
 # Multi-stage build for go-mtec2mqtt.
 #
 # CGO is disabled so the resulting binary is statically linked against
