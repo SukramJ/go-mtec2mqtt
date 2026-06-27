@@ -120,6 +120,12 @@ type Coordinator struct {
 	virtualByKey map[string]hass.VirtualSwitch
 	lastActiveMu sync.Mutex
 	lastActive   map[string]float64
+
+	// reconcileGate is a try-locked gate so only one discovery orphan
+	// reconcile runs at a time; a re-entrant call while one is in flight
+	// is skipped (discovery changes are infrequent). The zero value is
+	// ready to use, so it needs no initialisation in New.
+	reconcileGate sync.Mutex
 }
 
 // writeReq is one HA → device command pending dispatch.
@@ -207,7 +213,12 @@ func (c *Coordinator) Run(ctx context.Context) error {
 
 	if c.deps.HASS != nil {
 		c.deps.HASS.Initialize(c.serialNo, c.firmware, c.equipmentInfo)
-		c.publishDiscovery(ctx)
+		published := c.publishDiscovery(ctx)
+		// Clear any of our own retained discovery configs that we no longer
+		// publish (entities removed, renamed or re-platformed across catalog
+		// or daemon versions), so they don't linger as unavailable entities
+		// in Home Assistant.
+		c.reconcileOrphans(ctx, published)
 	}
 
 	g, runCtx := errgroup.WithContext(ctx)
@@ -353,13 +364,19 @@ func (c *Coordinator) tryInitFromStatic(ctx context.Context) error {
 // and subscribes to every writable entity's command topic so HA can
 // drive the inverter back. Existing command-topic subscriptions are
 // idempotent on the adapter — re-subscribing on reconnect is safe.
-func (c *Coordinator) publishDiscovery(ctx context.Context) {
+//
+// It returns the set of config topics it advertised. A topic is included
+// even when its publish fails, so a transient broker error never makes
+// orphan reconciliation clear an entity we still intend to publish.
+func (c *Coordinator) publishDiscovery(ctx context.Context) map[string]bool {
 	if c.deps.HASS == nil {
-		return
+		return nil
 	}
 	log := c.deps.Logger
 	entries := c.deps.HASS.Entries()
+	published := make(map[string]bool, len(entries))
 	for _, e := range entries {
+		published[e.ConfigTopic] = true
 		if err := c.deps.MQTT.Publish(ctx, e.ConfigTopic, e.Payload, mqtt.QoS0, true); err != nil {
 			log.Warn("coordinator.discovery_publish",
 				slog.String("topic", e.ConfigTopic),
@@ -368,6 +385,7 @@ func (c *Coordinator) publishDiscovery(ctx context.Context) {
 	}
 	c.discoverySent.Store(true)
 	log.Info("coordinator.discovery_sent", slog.Int("entries", len(entries)))
+	return published
 }
 
 // modbusWatchdog re-runs Connect when the transport reports a closed

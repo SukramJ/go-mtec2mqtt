@@ -54,7 +54,7 @@ func (f *fakeBackend) Write(_ context.Context, key, value string) error {
 	return f.writeErr
 }
 
-func (f *fakeBackend) Changes() (<-chan struct{}, func()) {
+func (f *fakeBackend) Changes() (events <-chan struct{}, cancel func()) {
 	if f.changes == nil {
 		f.changes = make(chan struct{})
 	}
@@ -172,7 +172,7 @@ func TestBasicAuth(t *testing.T) {
 	}
 
 	// Wrong credentials → 401.
-	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/api/health", nil)
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/api/health", http.NoBody)
 	req.SetBasicAuth("admin", "wrong")
 	res2, _ := http.DefaultClient.Do(req)
 	_ = res2.Body.Close()
@@ -181,7 +181,7 @@ func TestBasicAuth(t *testing.T) {
 	}
 
 	// Correct credentials → 200.
-	req2, _ := http.NewRequest(http.MethodGet, ts.URL+"/api/health", nil)
+	req2, _ := http.NewRequest(http.MethodGet, ts.URL+"/api/health", http.NoBody)
 	req2.SetBasicAuth("admin", "s3cret")
 	res3, _ := http.DefaultClient.Do(req2)
 	_ = res3.Body.Close()
@@ -223,7 +223,7 @@ func TestSSEStreamsInitialFrame(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/api/events", nil)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/api/events", http.NoBody)
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)

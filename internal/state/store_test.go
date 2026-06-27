@@ -109,7 +109,7 @@ func TestNotifyDoesNotBlockOnFullSubscriber(t *testing.T) {
 	// Many updates against a never-draining subscriber must not deadlock.
 	done := make(chan struct{})
 	go func() {
-		for i := 0; i < 100; i++ {
+		for i := range 100 {
 			s.UpdateGroup("g", map[string]any{"i": i}, t0)
 		}
 		close(done)

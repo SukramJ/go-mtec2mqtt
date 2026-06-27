@@ -104,12 +104,12 @@ func (s *Store) Static() (serial, firmware, equipment string) {
 // Subscribe registers a change channel for an SSE client. The returned
 // channel receives an empty struct (coalesced) whenever the store
 // changes; call the returned cancel func to unregister and release it.
-func (s *Store) Subscribe() (<-chan struct{}, func()) {
+func (s *Store) Subscribe() (events <-chan struct{}, cancel func()) {
 	ch := make(chan struct{}, 1)
 	s.mu.Lock()
 	s.subs[ch] = struct{}{}
 	s.mu.Unlock()
-	cancel := func() {
+	cancel = func() {
 		s.mu.Lock()
 		if _, ok := s.subs[ch]; ok {
 			delete(s.subs, ch)
