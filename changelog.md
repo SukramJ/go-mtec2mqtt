@@ -1,3 +1,20 @@
+# Version 1.1.2 (2026-06-27)
+
+## What's Changed
+
+### Added
+
+- **Home Assistant discovery orphan cleanup.** After publishing the
+  discovery configs the coordinator now reconciles the broker's retained
+  config topics against the set it just published and clears any of *our
+  own* stale ones (entities removed, renamed or re-platformed across catalog
+  or daemon versions) by writing an empty retained payload, so they no
+  longer linger as unavailable entities in Home Assistant. Cleanup is
+  guarded by `Discovery.IsOwnConfig` (unique_id in the `MTEC_` namespace and
+  state topic under our MQTT root), so the discovery configs of other
+  integrations sharing the discovery prefix are never touched. The pass runs
+  asynchronously and is gated so only one reconcile runs at a time.
+
 # Version 1.1.1 (2026-06-15)
 
 ## What's Changed

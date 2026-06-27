@@ -120,7 +120,9 @@ func (s *Server) Run(ctx context.Context) error {
 
 	select {
 	case <-ctx.Done():
-		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		// ctx is cancelled here; derive a non-cancelled child so the graceful
+		// shutdown still gets its full deadline without breaking the chain.
+		shutCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(shutCtx)
 		s.log.Info("web.stopped")

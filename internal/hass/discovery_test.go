@@ -426,6 +426,55 @@ func TestVirtualSwitchEntities(t *testing.T) {
 	}
 }
 
+// --- orphan-cleanup guards -------------------------------------------------
+
+func TestConfigFilter(t *testing.T) {
+	d := New("homeassistant", "MTEC", loadCatalog(t), "en", nil)
+	if got, want := d.ConfigFilter(), "homeassistant/+/+/config"; got != want {
+		t.Errorf("ConfigFilter = %q, want %q", got, want)
+	}
+}
+
+func TestIsOwnConfig(t *testing.T) {
+	d := New("homeassistant", "MTEC", loadCatalog(t), "en", nil)
+	cases := []struct {
+		name    string
+		payload string
+		want    bool
+	}{
+		{
+			name:    "ours",
+			payload: `{"unique_id":"MTEC_grid_power","state_topic":"MTEC/SN12345/now-base/grid_power/state"}`,
+			want:    true,
+		},
+		{
+			name:    "ours without state topic",
+			payload: `{"unique_id":"MTEC_charge_active"}`,
+			want:    true,
+		},
+		{
+			name:    "foreign unique_id",
+			payload: `{"unique_id":"zigbee2mqtt_0x123","state_topic":"zigbee2mqtt/x"}`,
+			want:    false,
+		},
+		{
+			name:    "MTEC uid but foreign state root",
+			payload: `{"unique_id":"MTEC_grid_power","state_topic":"other/x"}`,
+			want:    false,
+		},
+		{
+			name:    "not json",
+			payload: `not json`,
+			want:    false,
+		},
+	}
+	for _, tc := range cases {
+		if got := d.IsOwnConfig([]byte(tc.payload)); got != tc.want {
+			t.Errorf("%s: IsOwnConfig = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
 // --- helpers ---------------------------------------------------------------
 
 func findEntryOK(d *Discovery, needle string) (Entry, bool) {

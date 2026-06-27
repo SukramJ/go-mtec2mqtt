@@ -137,7 +137,7 @@ func (c *Coordinator) Write(ctx context.Context, mqttKey, value string) error {
 
 // Changes returns a coalesced change-notification channel for SSE, plus
 // a cancel func. Returns a never-firing channel when caching is disabled.
-func (c *Coordinator) Changes() (<-chan struct{}, func()) {
+func (c *Coordinator) Changes() (events <-chan struct{}, cancel func()) {
 	if c.deps.Store == nil {
 		return make(chan struct{}), func() {}
 	}

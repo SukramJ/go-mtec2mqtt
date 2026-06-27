@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/SukramJ/go-mtec2mqtt/internal/registers"
 )
@@ -182,6 +183,32 @@ func (d *Discovery) UnregisterEntries() []Entry {
 		out[i] = Entry{ConfigTopic: e.ConfigTopic, Payload: []byte("")}
 	}
 	return out
+}
+
+// ConfigFilter is the MQTT topic filter matching this daemon's discovery
+// config topics (e.g. "homeassistant/+/+/config", one '+' for the platform
+// and one for the unique_id). Orphan reconciliation subscribes to it to
+// collect the retained configs the broker replays, then compares them
+// against the freshly published set.
+func (d *Discovery) ConfigFilter() string {
+	return d.hassBaseTopic + "/+/+/config"
+}
+
+// IsOwnConfig reports whether a retained HA discovery config payload was
+// published by this daemon: its unique_id sits in our "MTEC_" namespace and
+// its state_topic (when present) is under our MQTT publish root. Orphan
+// cleanup uses this as a guard so it never clears the discovery configs of
+// another integration that happens to share the discovery prefix.
+func (d *Discovery) IsOwnConfig(payload []byte) bool {
+	var cfg struct {
+		UniqueID   string `json:"unique_id"`
+		StateTopic string `json:"state_topic"`
+	}
+	if json.Unmarshal(payload, &cfg) != nil {
+		return false
+	}
+	return strings.HasPrefix(cfg.UniqueID, uniqueIDPrefix) &&
+		(cfg.StateTopic == "" || strings.HasPrefix(cfg.StateTopic, d.mqttTopic+"/"))
 }
 
 // buildEntries iterates the catalog and dispatches each
