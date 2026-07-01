@@ -193,6 +193,13 @@ generated from `pymodbus 3.13`
 (`internal/modbus/testdata/cross_check.py`) so wire-format
 correctness is anchored to a battle-tested reference.
 
+Parts of go-mtec2mqtt are developed with agentic AI assistance, primarily
+[Claude Code](https://www.anthropic.com/claude-code). Submitted issues are
+also triaged and analysed with agentic help. Every change is still
+reviewed by a human maintainer and has to pass the project's test suite
+before it lands — the AI accelerates the work, it does not replace the
+review gate.
+
 ## Compatibility
 
 | Component  | Status                                                          |
