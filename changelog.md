@@ -1,3 +1,19 @@
+# Version 1.2.1 (2026-07-01)
+
+## What's Changed
+
+### Fixed
+
+- **Add-on invisible in Home Assistant.** After adding the repository the
+  add-on never appeared in the store: the manifest `addon/config.yaml` had
+  been excluded from git by the repo's blanket `config.yaml` `.gitignore`
+  rule (intended only for the operator's runtime config), so it never
+  reached `main`. Without a `config.yaml` the Supervisor does not recognise
+  `addon/` as an add-on. The rule now negates the add-on manifest
+  (`!/addon/config.yaml`) and the file is committed, so the add-on shows up
+  and installs (the `ghcr.io/sukramj/go-mtec2mqtt-addon-{arch}` images were
+  already published and public).
+
 # Version 1.2.0 (2026-07-01)
 
 ## What's Changed

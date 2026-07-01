@@ -34,7 +34,10 @@ go.work.sum
 # .idea/
 # .vscode/
 /.idea
+# The operator's runtime config (developed from config-template.yaml) is
+# ignored, but NOT the Home Assistant add-on manifest of the same name.
 config.yaml
+!/addon/config.yaml
 
 # Release artefacts from `make release`
 /dist/
