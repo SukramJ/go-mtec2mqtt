@@ -1,0 +1,109 @@
+name: "Add-on: Build and Push"
+#
+# Builds the Home Assistant add-on image (addon/Dockerfile: HA base + bashio +
+# run.sh entrypoint) once per architecture and pushes per-arch tags to ghcr.io.
+# The add-on manifest references ghcr.io/sukramj/go-mtec2mqtt-addon-{arch};
+# the Supervisor substitutes {arch} (amd64/aarch64/armv7) and pulls it.
+#
+# This is deliberately separate from the distroless daemon image (./Dockerfile,
+# docker-build-push.yml): that image runs the binary directly and has no run.sh
+# to translate add-on options into MTEC_* env, so it is not a valid add-on
+# image. Triggered on tag pushes and via workflow_dispatch.
+# yamllint disable-line rule:truthy
+on:
+  push:
+    tags:
+      - '**'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag to publish (e.g. 1.2.3). Defaults to the resolved git version."
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: addon-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/sukramj/go-mtec2mqtt-addon
+
+jobs:
+  build_and_push:
+    if: github.repository_owner == 'SukramJ'
+    name: addon ${{ matrix.arch }} -> ghcr.io
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            base: ghcr.io/home-assistant/amd64-base:latest
+          - arch: aarch64
+            platform: linux/arm64
+            base: ghcr.io/home-assistant/aarch64-base:latest
+          - arch: armv7
+            platform: linux/arm/v7
+            base: ghcr.io/home-assistant/armv7-base:latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6.0.3
+        with:
+          # Fetch full history so git-describe can resolve the version.
+          fetch-depth: 0
+
+      - name: Resolve version + build metadata
+        run: |
+          INPUT_TAG="${{ github.event.inputs.tag }}"
+          if [ -n "${INPUT_TAG}" ]; then
+            VERSION="${INPUT_TAG#v}"
+          elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo dev)"
+          fi
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+          echo "COMMIT=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
+          echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+          echo "Publishing ${IMAGE}-${{ matrix.arch }}:${VERSION} and :latest"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3  # v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5  # v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee  # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf  # v7
+        with:
+          context: .
+          file: ./addon/Dockerfile
+          platforms: ${{ matrix.platform }}
+          push: true
+          # HA Supervisor expects a plain image, not an OCI index with
+          # attestations, so disable provenance/SBOM manifests.
+          provenance: false
+          build-args: |
+            BUILD_FROM=${{ matrix.base }}
+            BUILD_ARCH=${{ matrix.arch }}
+            BUILD_VERSION=${{ env.VERSION }}
+            VERSION=${{ env.VERSION }}
+            COMMIT=${{ env.COMMIT }}
+            BUILD_DATE=${{ env.BUILD_DATE }}
+          tags: |
+            ${{ env.IMAGE }}-${{ matrix.arch }}:latest
+            ${{ env.IMAGE }}-${{ matrix.arch }}:${{ env.VERSION }}
+          cache-from: type=gha,scope=addon-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=addon-${{ matrix.arch }}

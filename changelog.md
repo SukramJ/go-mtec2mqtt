@@ -1,3 +1,42 @@
+# Version 1.2.0 (2026-07-01)
+
+## What's Changed
+
+Adds a first-class **Home Assistant add-on** and the container-image
+deployment pipeline it depends on.
+
+### Added
+
+- **Home Assistant add-on.** New `addon/` manifest (`config.yaml`,
+  `build.yaml`, `Dockerfile`, `README.md`, `DOCS.md`) plus a top-level
+  `repository.yaml` so the daemon installs from **Settings → Add-ons →
+  Add-on Store → Repositories** (`https://github.com/SukramJ/go-mtec2mqtt`).
+  Add-on options are mapped 1:1 onto the daemon's config keys by
+  `script/run.sh` (a bashio entrypoint) and exported as `MTEC_*` env.
+  - **MQTT zero-config:** leaving `mqtt_server` empty auto-connects to the
+    Home Assistant MQTT broker (the configured MQTT integration /
+    `core-mosquitto`) via the Supervisor's `mqtt` service, like
+    zigbee2mqtt; `hass_enable` is on by default so entities appear
+    automatically via MQTT discovery.
+  - The diagnostic web UI is surfaced as a sidebar panel through **Ingress**
+    (no exposed port required).
+- **Container-image publishing.** `docker-build-push.yml` builds and pushes
+  the multi-arch distroless daemon image `ghcr.io/sukramj/go-mtec2mqtt`
+  (referenced by the README's `docker run` instructions), and
+  `addon-image.yml` builds the per-arch add-on images
+  `ghcr.io/sukramj/go-mtec2mqtt-addon-{arch}`. Both run on tag pushes.
+
+### Changed
+
+- **Environment-only configuration.** When no `config.yaml` is found (or
+  supplied), the daemon now builds its configuration from `MTEC_*`
+  environment variables and defaults alone instead of exiting. This lets
+  the add-on (and env-only `docker run`) drive every setting without
+  shipping a config file; `Validate` still enforces the required values.
+- **Ingress-compatible web UI.** The embedded dashboard now uses relative
+  API URLs so it works both when accessed directly and behind the Home
+  Assistant Ingress path prefix.
+
 # Version 1.1.2 (2026-06-27)
 
 ## What's Changed

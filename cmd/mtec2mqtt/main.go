@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -181,17 +182,30 @@ func run(configPath, registersPath string, logger *slog.Logger) error {
 // loadConfig finds and parses the daemon's YAML config. An explicit
 // --config flag overrides the standard search order so the daemon can
 // run from anywhere without relying on env vars.
+//
+// When no config file is supplied or located, the config is built from
+// MTEC_* environment variables and defaults alone. The Home Assistant
+// add-on (and env-only `docker run`) drives every setting via MTEC_*
+// env and ships no file, so a missing file must not be fatal — Validate
+// still enforces the required values (MODBUS_IP, MQTT_SERVER, …).
 func loadConfig(explicit string, logger *slog.Logger) (*config.Config, error) {
+	env := config.OSEnv{}
 	path := explicit
 	if path == "" {
-		var ok bool
-		path, ok = config.Locate(config.OSEnv{})
-		if !ok {
-			return nil, fmt.Errorf("mtec2mqtt: no config.yaml found (set $XDG_CONFIG_HOME/aiomtec2mqtt/config.yaml or pass --config)")
+		if located, ok := config.Locate(env); ok {
+			path = located
 		}
 	}
+	if path == "" {
+		cfg, err := config.Load(strings.NewReader(""), env)
+		if err != nil {
+			return nil, err
+		}
+		logger.Info("mtec2mqtt.config_loaded", slog.String("path", "(environment only)"))
+		return cfg, nil
+	}
 	logger.Info("mtec2mqtt.config_loaded", slog.String("path", path))
-	return config.LoadFile(path, config.OSEnv{})
+	return config.LoadFile(path, env)
 }
 
 // loadCatalog finds registers.yaml. Search order:
