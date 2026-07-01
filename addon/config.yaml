@@ -1,0 +1,84 @@
+# Home Assistant add-on manifest for go-mtec2mqtt.
+#
+# version MUST equal the published image tag (ghcr.io/sukramj/go-mtec2mqtt-addon-{arch})
+# and is bumped in the release commit that cuts the matching git tag.
+name: go-mtec2mqtt
+version: "1.2.0"
+slug: go-mtec2mqtt
+description: >-
+  Bridges an M-TEC Energybutler (hybrid PV / battery inverter) to MQTT over
+  Modbus TCP, with Home Assistant MQTT discovery and a diagnostic web UI.
+url: https://github.com/SukramJ/go-mtec2mqtt
+arch:
+  - amd64
+  - aarch64
+  - armv7
+
+# Per-arch add-on image (HA base + bashio + run.sh) published by
+# .github/workflows/addon-image.yml. The Supervisor substitutes {arch}
+# (amd64/aarch64/armv7) and pulls <image>:<version>. This is distinct from the
+# distroless daemon image (ghcr.io/sukramj/go-mtec2mqtt), which runs the binary
+# directly and is NOT a valid add-on image (no run.sh to apply options).
+# Remove this key to build addon/Dockerfile locally instead.
+image: "ghcr.io/sukramj/go-mtec2mqtt-addon-{arch}"
+
+# The HA base image ships s6-overlay as its init; don't let the Supervisor
+# inject its own init on top.
+init: false
+
+# Diagnostic web UI surfaced as an HA panel via Ingress — no port needs to be
+# exposed.
+ingress: true
+ingress_port: 8080
+panel_icon: mdi:solar-power-variant
+panel_title: go-mtec2mqtt
+
+# Optional host-port exposure (disabled by default — `null` publishes no port,
+# Ingress stays the primary path). Assign a host port in the add-on's Network
+# tab only when you need to reach :8080 directly.
+ports:
+  8080/tcp: null
+ports_description:
+  8080/tcp: "Diagnostic web UI (normally reached via Ingress)"
+
+# Soft dependency: use the Supervisor's MQTT broker (core-mosquitto) when present.
+services:
+  - mqtt:want
+
+options:
+  modbus_ip: "0.0.0.0"
+  modbus_port: 502
+  modbus_slave: 247
+  modbus_timeout: 5
+  modbus_retries: 3
+  modbus_framer: socket
+  mqtt_server: ""
+  mqtt_port: 1883
+  mqtt_login: ""
+  mqtt_password: ""
+  mqtt_topic: MTEC
+  hass_enable: true
+  language: en
+  web_enable: true
+  charge_active_value: 50
+  discharge_active_value: 50
+  debug: false
+
+schema:
+  modbus_ip: str
+  modbus_port: int(1,65535)
+  modbus_slave: int(0,247)
+  modbus_timeout: int(1,600)
+  modbus_retries: int(0,20)
+  modbus_framer: "list(ascii|rtu|socket|tls)"
+  mqtt_server: "str?"
+  mqtt_port: int(1,65535)
+  mqtt_login: "str?"
+  mqtt_password: "password?"
+  mqtt_topic: str
+  hass_enable: bool
+  language: "list(en|de)"
+  web_enable: bool
+  charge_active_value: int(1,6000)
+  discharge_active_value: int(1,6000)
+  debug: bool
