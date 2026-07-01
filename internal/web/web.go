@@ -18,6 +18,11 @@ import (
 // vanilla HTML/CSS/JS (no build step) so the asset tree is committed
 // as-is and embedded verbatim.
 //
+// Home-Assistant ingress: HA serves the add-on UI behind a path prefix
+// (…/api/hassio_ingress/<token>/). All asset and API URLs in the SPA are
+// kept relative (no leading slash) so the page works both when reached
+// directly and behind that prefix — no server-side rewriting needed.
+//
 //go:embed static
 var staticFS embed.FS
 
