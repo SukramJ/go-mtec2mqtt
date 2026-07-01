@@ -3,7 +3,7 @@
 # version MUST equal the published image tag (ghcr.io/sukramj/go-mtec2mqtt-addon-{arch})
 # and is bumped in the release commit that cuts the matching git tag.
 name: go-mtec2mqtt
-version: "1.2.0"
+version: "1.2.1"
 slug: go-mtec2mqtt
 description: >-
   Bridges an M-TEC Energybutler (hybrid PV / battery inverter) to MQTT over

@@ -82,7 +82,7 @@ EXPOSE 8080
 # Add-on image labels (BUILD_ARCH / BUILD_VERSION are injected by the
 # Supervisor build; defaults keep manual builds from failing).
 ARG BUILD_ARCH=amd64
-ARG BUILD_VERSION=1.2.0
+ARG BUILD_VERSION=1.2.1
 LABEL \
   io.hass.version="${BUILD_VERSION}" \
   io.hass.type="addon" \
