@@ -89,13 +89,15 @@ async function init() {
   // otherwise non-critical, so a failure just leaves English defaults.
   let config = null;
   try {
-    config = await fetchJSON("/api/config");
+    // Relative URL (no leading slash) so the SPA works both when served
+    // directly and behind the Home-Assistant ingress path prefix.
+    config = await fetchJSON("api/config");
   } catch (e) {
     /* non-critical */
   }
   await loadI18n((config && config.language) || "en");
   try {
-    const regs = await fetchJSON("/api/registers");
+    const regs = await fetchJSON("api/registers");
     indexRegisters(regs);
     buildControlList();
   } catch (e) {
@@ -117,7 +119,7 @@ function indexRegisters(regs) {
 
 // ---------- SSE ----------
 function connectSSE() {
-  const es = new EventSource("/api/events");
+  const es = new EventSource("api/events");
   es.addEventListener("update", (ev) => {
     streamDot(true);
     try {
@@ -357,7 +359,7 @@ async function writeRegister(key, value, btn) {
 // writeValue posts a single register write and toasts the result.
 async function writeValue(key, value) {
   try {
-    const res = await fetch("/api/write", {
+    const res = await fetch("api/write", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ key, value }),

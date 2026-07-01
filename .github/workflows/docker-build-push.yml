@@ -1,0 +1,93 @@
+name: "Docker: Build and Push"
+#
+# Build a multi-arch container image with Buildx and push it to the
+# GitHub Container Registry (ghcr.io). Triggered on tag pushes (cutting
+# a release) and manually via workflow_dispatch (ad-hoc rebuilds). The
+# image is tagged :latest plus the bare semver (leading 'v' stripped).
+#
+# This is the distroless daemon image (./Dockerfile) referenced by the
+# README's `docker run` instructions. It is deliberately separate from the
+# Home Assistant add-on images (addon/Dockerfile, addon-image.yml): those
+# carry bashio + run.sh to translate add-on options into MTEC_* env, which
+# this image has no need for.
+# yamllint disable-line rule:truthy
+on:
+  push:
+    tags:
+      - '**'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag to publish (e.g. 1.2.3). Defaults to the resolved git version."
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/sukramj/go-mtec2mqtt
+  PLATFORMS: linux/amd64,linux/arm64,linux/arm/v7
+
+jobs:
+  build_and_push:
+    if: github.repository_owner == 'SukramJ'
+    name: buildx multi-arch -> ghcr.io
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6.0.3
+        with:
+          # Fetch full history so git-describe can resolve the version.
+          fetch-depth: 0
+
+      - name: Resolve version + build metadata
+        run: |
+          INPUT_TAG="${{ github.event.inputs.tag }}"
+          if [ -n "${INPUT_TAG}" ]; then
+            VERSION="${INPUT_TAG#v}"
+          elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo dev)"
+          fi
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+          echo "COMMIT=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
+          echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+          echo "Publishing ${IMAGE}:${VERSION} and ${IMAGE}:latest"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3  # v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5  # v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee  # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf  # v7
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: ${{ env.PLATFORMS }}
+          push: true
+          provenance: false
+          build-args: |
+            VERSION=${{ env.VERSION }}
+            COMMIT=${{ env.COMMIT }}
+            BUILD_DATE=${{ env.BUILD_DATE }}
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ env.VERSION }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

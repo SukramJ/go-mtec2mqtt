@@ -73,7 +73,22 @@ docker run --rm -d \
 
 The container expects a `config.yaml` at `/config/aiomtec2mqtt/config.yaml`
 (matches the XDG path the daemon walks). Start from
-[`config-template.yaml`](./config-template.yaml).
+[`config-template.yaml`](./config-template.yaml). Alternatively, supply
+every setting via `MTEC_*` env vars and mount no file — the daemon falls
+back to an environment-only config when no `config.yaml` is found.
+
+### Home Assistant Add-on
+
+Run the daemon as a Home Assistant add-on with a dedicated config UI and a
+sidebar panel for the diagnostic dashboard (served via Ingress):
+
+1. **Settings → Add-ons → Add-on Store → ⋮ → Repositories** and add
+   `https://github.com/SukramJ/go-mtec2mqtt`.
+2. Install **go-mtec2mqtt**, set `modbus_ip` (leave `mqtt_server` empty to
+   auto-use the HA MQTT broker), and **Start**.
+
+Full details in [`addon/README.md`](./addon/README.md) and the option
+reference in [`addon/DOCS.md`](./addon/DOCS.md).
 
 ### Binary
 
