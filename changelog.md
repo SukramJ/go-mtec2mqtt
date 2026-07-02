@@ -1,3 +1,19 @@
+# Version 1.2.2 (2026-07-02)
+
+## What's Changed
+
+### Fixed
+
+- MQTT half-open connections are now detected and recovered. The keep-alive loop
+  sent PINGREQ but never checked that the matching PINGRESP came back, and the
+  read loop runs without a read deadline — so a broker/network drop without a TCP
+  FIN/RST (e.g. a Mosquitto or Home Assistant restart) left the read loop blocked
+  in `ReadFrame` forever: the socket was never torn down, no reconnect happened,
+  and QoS-1 publishes timed out with `context deadline exceeded` on the dead
+  socket until a manual restart. A PINGRESP watchdog now declares the connection
+  lost when a keep-alive ping goes unanswered, so the existing reconnect logic
+  re-dials automatically (within one keep-alive interval).
+
 # Version 1.2.1 (2026-07-01)
 
 ## What's Changed
