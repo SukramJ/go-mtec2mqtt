@@ -188,11 +188,15 @@ cmd/mtec-util/       interactive register CLI
 internal/config/     YAML loader + MTEC_* env overlay + validation
 internal/registers/  catalog loader, type-aware decoders, address clustering
 internal/modbus/     Modbus-TCP transport (own MBAP codec, no third-party deps)
-internal/mqtt/       Pure-Go MQTT 3.1.1 client (lifted from openccu-loom)
 internal/hass/       Home Assistant discovery payload builder
 internal/coordinator/orchestration: poll loops, pseudo-registers, write queue
 internal/version/    build-info package
 ```
+
+The MQTT transport is no longer part of this tree: it is the external
+[`github.com/SukramJ/go-mqtt`](https://github.com/SukramJ/go-mqtt) module
+(MIT-licensed, `openccu-loom` provenance — see [Credit](#credit)), pulled in
+as a regular `go.mod` dependency.
 
 The Modbus MBAP codec ships with byte-for-byte goldenfile vectors
 generated from `pymodbus 3.13`
@@ -224,9 +228,11 @@ review gate.
   [croedel/MTECmqtt](https://github.com/croedel/MTECmqtt) by **Christian
   Rödel** (LGPL-3.0) — the original reverse-engineering work this project
   builds on, including the register map. Thank you!
-- Pure-Go MQTT stack lifted from
-  [SukramJ/openccu-loom](https://github.com/SukramJ/openccu-loom)
-  (MIT-licensed; copyright preserved in the file headers).
+- Pure-Go MQTT stack: [SukramJ/go-mqtt](https://github.com/SukramJ/go-mqtt)
+  (MIT-licensed), a standalone module extracted from
+  [SukramJ/openccu-loom](https://github.com/SukramJ/openccu-loom) and pulled
+  in as a `go.mod` dependency; its MIT copyright notice lives in that
+  module, not in this repo.
 
 ## License
 

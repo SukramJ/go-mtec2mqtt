@@ -28,16 +28,19 @@ the Python daemon.
   ```
   Do not introduce MIT headers or copy conventions from unrelated
   SukramJ projects (e.g. `openccu-loom`, which is MIT) — the pure-Go
-  MQTT client under `internal/mqtt` was lifted from `openccu-loom` and
-  keeps its MIT provenance noted in the README, but the rest of this
-  repo is LGPL.
+  MQTT client no longer lives in this repo; it is the external
+  `github.com/SukramJ/go-mqtt` module (MIT, `openccu-loom` provenance,
+  noted in the README), pulled in as a regular `go.mod` dependency, but
+  the rest of this repo is LGPL.
 - **Deployment**: two static binaries (`CGO_ENABLED=0`): the `mtec2mqtt`
   daemon and the `mtec-util` interactive register CLI. Also ships as a
   Docker image (distroless runtime) and a Home Assistant add-on
   (`addon/`).
 - **Dependencies are deliberately minimal**: `golang.org/x/sync`
-  (errgroup) and `gopkg.in/yaml.v3` only. Modbus MBAP codec and the
-  MQTT 3.1.1 client are hand-rolled (no third-party protocol deps).
+  (errgroup), `gopkg.in/yaml.v3`, and `github.com/SukramJ/go-mqtt`
+  (the shared MQTT 3.1.1 client extracted from `openccu-loom`, MIT).
+  The Modbus MBAP codec remains hand-rolled in this repo (no
+  third-party protocol deps there).
 - **Config**: YAML (`config-template.yaml` is the annotated reference),
   overridable per-key via `MTEC_<KEY>` env vars. Loaded from
   `--config`, then `$XDG_CONFIG_HOME/aiomtec2mqtt/config.yaml` (or
@@ -51,7 +54,6 @@ cmd/mtec-util/         interactive register CLI (list/read/write registers)
 internal/config/       YAML loader + MTEC_* env overlay + validation
 internal/registers/    register catalog loader, type-aware decoders, address clustering
 internal/modbus/       Modbus-TCP transport (own MBAP codec, no third-party deps)
-internal/mqtt/         pure-Go MQTT 3.1.1 client (lifted from openccu-loom, MIT provenance kept in file headers)
 internal/hass/         Home Assistant discovery payload builder
 internal/coordinator/  orchestration: poll loops, pseudo-registers, write queue, virtual/equipment logic
 internal/state/        thread-safe live-value cache (Store) shared between coordinator writers and web readers
@@ -63,6 +65,10 @@ registers.yaml          register catalog (operator-editable, not embedded — co
 config-template.yaml     annotated reference config
 .github/workflows/       ci.yml (lint/test/build), docker-build-push.yml, addon-image.yml, release-on-tag.yml, codeql.yml, dependabot-auto-merge.yml
 ```
+
+The MQTT transport is not part of this tree: it comes from the external
+`github.com/SukramJ/go-mqtt` module (MIT, `openccu-loom` provenance) as a
+regular `go.mod` dependency, not an `internal/` package.
 
 ## Development Commands
 
