@@ -10,7 +10,9 @@ import (
 	"errors"
 	"io/fs"
 	"log/slog"
+	"mime"
 	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -52,7 +54,7 @@ func New(cfg Config, backend Backend) *Server {
 		log = slog.Default()
 	}
 	s := &Server{cfg: cfg, backend: backend, log: log}
-	s.handler = s.withAuth(s.routes())
+	s.handler = s.withSecurityHeaders(s.withAuth(s.routes()))
 	return s
 }
 
@@ -64,7 +66,10 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/status", s.handleStatus)
 	mux.HandleFunc("GET /api/registers", s.handleRegisters)
 	mux.HandleFunc("GET /api/config", s.handleConfig)
-	mux.HandleFunc("POST /api/write", s.handleWrite)
+	// POST /api/write mutates the inverter, so it alone gets the extra
+	// same-origin/Content-Type guard — the GET endpoints below are
+	// read-only and pose no CSRF risk.
+	mux.Handle("POST /api/write", s.requireSameOriginJSON(http.HandlerFunc(s.handleWrite)))
 	mux.HandleFunc("GET /api/events", s.handleEvents)
 
 	// The SPA: index.html + app.css + app.js. http.FileServerFS serves
@@ -101,6 +106,72 @@ func (s *Server) withAuth(next http.Handler) http.Handler {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// requireSameOriginJSON guards state-changing requests (currently only
+// POST /api/write) against cross-site submissions. A cross-site
+// <form>/fetch POST that skips CORS preflight can only ever carry a
+// "simple" Content-Type (e.g. text/plain) — never application/json —
+// and the browser attaches Basic-Auth credentials automatically, so
+// without this guard a foreign page could trigger a register write.
+// Two independent checks close that gap; both are scoped to this one
+// handler so the read-only GET endpoints stay overhead-free.
+func (s *Server) requireSameOriginJSON(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		if err != nil || mediaType != "application/json" {
+			writeError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
+			return
+		}
+
+		// Sec-Fetch-Site is sent by modern browsers and is not
+		// spoofable from script; when present it is the most reliable
+		// signal. "same-origin" and "none" (browser-initiated, e.g. a
+		// bookmarklet or address-bar navigation) are fine.
+		if site := r.Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" && site != "none" {
+			writeError(w, http.StatusForbidden, "cross-site request rejected")
+			return
+		}
+
+		// Origin is absent for many legitimate same-origin requests
+		// (older browsers, curl, some proxies) — only reject when it is
+		// present AND disagrees with the request's own Host. This also
+		// covers the Home Assistant Ingress case: the SPA only ever
+		// issues relative fetches, so under Ingress the browser's
+		// Origin (if sent at all) is the same host the request arrives
+		// on; X-Forwarded-Host is accepted as an alternative match for
+		// setups where a reverse proxy rewrites the Host header but
+		// preserves the original in X-Forwarded-Host. That header can't
+		// be forged by the very cross-site requests this guard defends
+		// against — setting a custom header forces a CORS preflight,
+		// which the browser blocks here since no
+		// Access-Control-Allow-Origin is ever returned.
+		if origin := r.Header.Get("Origin"); origin != "" {
+			originURL, err := url.Parse(origin)
+			if err != nil || (originURL.Host != r.Host && originURL.Host != r.Header.Get("X-Forwarded-Host")) {
+				writeError(w, http.StatusForbidden, "cross-origin request rejected")
+				return
+			}
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// withSecurityHeaders sets a small set of hardening headers on every
+// response. Home Assistant serves this UI embedded in an iframe via
+// Ingress, so — unlike a typical hardened CSP — this deliberately does
+// NOT set X-Frame-Options or a frame-ancestors directive; either would
+// break that embedding.
+func (s *Server) withSecurityHeaders(next http.Handler) http.Handler {
+	const csp = "default-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'self'"
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Referrer-Policy", "no-referrer")
+		h.Set("Content-Security-Policy", csp)
 		next.ServeHTTP(w, r)
 	})
 }

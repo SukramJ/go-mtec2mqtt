@@ -24,9 +24,10 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/SukramJ/go-mqtt"
+
 	"github.com/SukramJ/go-mtec2mqtt/internal/config"
 	"github.com/SukramJ/go-mtec2mqtt/internal/hass"
-	"github.com/SukramJ/go-mtec2mqtt/internal/mqtt"
 	"github.com/SukramJ/go-mtec2mqtt/internal/registers"
 	"github.com/SukramJ/go-mtec2mqtt/internal/state"
 )
@@ -41,7 +42,7 @@ type ModbusClient interface {
 }
 
 // MQTTPublisher is the subset of [*mqtt.TCPClient] the coordinator
-// publishes through. Matches the interface in internal/mqtt verbatim
+// publishes through. Matches the interface in the go-mqtt module verbatim
 // so the real client satisfies it for free.
 type MQTTPublisher interface {
 	Publish(ctx context.Context, topic string, payload []byte, qos mqtt.QoS, retain bool) error

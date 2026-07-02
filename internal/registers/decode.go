@@ -43,8 +43,16 @@ func Decode(reg *Register, raw []uint16) (any, error) {
 	case DataS16, DataI16:
 		val = signExtend16(raw[0])
 	case DataU32:
+		if length < 2 {
+			return nil, fmt.Errorf("%w: U32 requires length>=2, got %d",
+				ErrDecodeBounds, length)
+		}
 		val = int(uint32(raw[0])<<16 | uint32(raw[1]))
 	case DataS32, DataI32:
+		if length < 2 {
+			return nil, fmt.Errorf("%w: %s requires length>=2, got %d",
+				ErrDecodeBounds, reg.Type, length)
+		}
 		val = signExtend32(uint32(raw[0])<<16 | uint32(raw[1]))
 	case DataBYTE:
 		return formatBYTE(raw[:length], length)

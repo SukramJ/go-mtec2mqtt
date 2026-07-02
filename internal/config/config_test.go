@@ -225,6 +225,61 @@ func TestLoadTemplateValidates(t *testing.T) {
 	}
 }
 
+func TestMQTTBrokerURL(t *testing.T) {
+	cases := []struct {
+		name string
+		ssl  bool
+		port int
+		want string
+	}{
+		{"plain default port omitted", false, 1883, "tcp://localhost"},
+		{"plain custom port appended", false, 1884, "tcp://localhost:1884"},
+		{"tls default port omitted", true, 8883, "tls://localhost"},
+		{"tls custom port appended", true, 8884, "tls://localhost:8884"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &Config{MQTTServer: "localhost", MQTTPort: tc.port, MQTTSSL: tc.ssl}
+			if got := c.MQTTBrokerURL(); got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestMQTTSSLDefaultsFalse(t *testing.T) {
+	c, err := Load(strings.NewReader(minimumYAML), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.MQTTSSL {
+		t.Error("MQTT_SSL should default to false")
+	}
+	if c.MQTTSSLInsecure {
+		t.Error("MQTT_SSL_INSECURE should default to false")
+	}
+	if c.MQTTBrokerURL() != "tcp://localhost" {
+		t.Errorf("default broker URL = %q, want tcp://localhost", c.MQTTBrokerURL())
+	}
+}
+
+func TestMQTTSSLEnvOverride(t *testing.T) {
+	env := fakeEnv{vars: map[string]string{
+		"MTEC_MQTT_SSL":          "true",
+		"MTEC_MQTT_SSL_INSECURE": "true",
+	}}
+	c, err := Load(strings.NewReader(minimumYAML), env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.MQTTSSL {
+		t.Error("MTEC_MQTT_SSL override failed")
+	}
+	if !c.MQTTSSLInsecure {
+		t.Error("MTEC_MQTT_SSL_INSECURE override failed")
+	}
+}
+
 func TestFormatFloatPanicsBeforeValidate(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {

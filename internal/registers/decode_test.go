@@ -187,6 +187,31 @@ func TestDecodeBoundsCheck(t *testing.T) {
 	}
 }
 
+// TestDecodeU32MisdeclaredLengthReturnsError guards against a
+// registers.yaml entry that wrongly declares a 32-bit type with
+// length=1. Without the explicit length>=2 check, the U32 case would
+// index raw[1] and panic instead of failing gracefully.
+func TestDecodeU32MisdeclaredLengthReturnsError(t *testing.T) {
+	r := &Register{Type: DataU32, Length: 1}
+	_, err := Decode(r, []uint16{0x1234})
+	if !errors.Is(err, ErrDecodeBounds) {
+		t.Fatalf("want ErrDecodeBounds, got %v", err)
+	}
+}
+
+// TestDecodeS32I32MisdeclaredLengthReturnsError mirrors
+// TestDecodeU32MisdeclaredLengthReturnsError for the S32/I32 case,
+// which shares the raw[1] access.
+func TestDecodeS32I32MisdeclaredLengthReturnsError(t *testing.T) {
+	for _, typ := range []DataType{DataS32, DataI32} {
+		r := &Register{Type: typ, Length: 1}
+		_, err := Decode(r, []uint16{0x1234})
+		if !errors.Is(err, ErrDecodeBounds) {
+			t.Errorf("%s: want ErrDecodeBounds, got %v", typ, err)
+		}
+	}
+}
+
 func TestDecodeUnknownType(t *testing.T) {
 	r := &Register{Type: "WAT", Length: 1}
 	if _, err := Decode(r, []uint16{0}); err == nil {

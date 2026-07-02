@@ -15,6 +15,15 @@ const (
 	DefaultMQTTPassword    = ""
 	DefaultMQTTFloatFormat = ".3f"
 
+	// DefaultMQTTSSL / DefaultMQTTSSLInsecure keep existing plain-TCP
+	// deployments unchanged on upgrade: TLS is opt-in, and even with TLS
+	// enabled, certificate verification stays on unless explicitly
+	// disabled. Both already equal the bool zero value, so applyDefaults
+	// does not assign them — the constants exist to document the
+	// MQTT_SSL / MQTT_SSL_INSECURE yaml keys' documented defaults.
+	DefaultMQTTSSL         = false
+	DefaultMQTTSSLInsecure = false
+
 	DefaultHASSEnable         = false
 	DefaultHASSBaseTopic      = "homeassistant"
 	DefaultHASSBirthGracetime = 15

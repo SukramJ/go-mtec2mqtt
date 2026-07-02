@@ -11,6 +11,7 @@
 package config
 
 import (
+	"fmt"
 	"time"
 )
 
@@ -50,6 +51,18 @@ type Config struct {
 	// the YAML (e.g. "{:.3f}" or ".3f"). Consumers should call
 	// [Config.FormatFloat] rather than interpret it directly.
 	MQTTFloatFormat string `yaml:"MQTT_FLOAT_FORMAT"`
+	// MQTTSSL enables TLS for the broker connection: the daemon dials
+	// tls:// instead of tcp:// (default port 8883 instead of 1883, see
+	// [Config.MQTTBrokerURL]). Off by default so existing plain-TCP
+	// deployments keep working unchanged — credentials otherwise cross
+	// the wire in clear text.
+	MQTTSSL bool `yaml:"MQTT_SSL"`
+	// MQTTSSLInsecure, when true AND MQTTSSL is true, disables broker
+	// certificate verification (TLS InsecureSkipVerify). This is an
+	// explicit, dangerous opt-in meant only for self-signed certificates
+	// on a broker the operator controls — it must never be the default,
+	// since it removes protection against a man-in-the-middle.
+	MQTTSSLInsecure bool `yaml:"MQTT_SSL_INSECURE"`
 
 	// --- Home Assistant ---
 	HASSEnable         bool   `yaml:"HASS_ENABLE"`
@@ -97,6 +110,35 @@ type Config struct {
 	// goFloatVerb caches the translated [MQTTFloatFormat], populated
 	// in Validate. Never set by callers; ignored by yaml.v3.
 	goFloatVerb string `yaml:"-"`
+}
+
+// mqttDefaultPlainPort / mqttDefaultTLSPort are the IANA-registered
+// default ports for plain and TLS MQTT, mirrored by [Config.MQTTBrokerURL]
+// so an explicit MQTT_PORT matching the scheme's default stays elidable
+// from the broker URL (letting the transport's own scheme-based default
+// stay authoritative).
+const (
+	mqttDefaultPlainPort = 1883
+	mqttDefaultTLSPort   = 8883
+)
+
+// MQTTBrokerURL derives the broker URL the go-mqtt transport
+// dials from MQTTServer / MQTTPort / MQTTSSL. The scheme is "tls" when
+// MQTTSSL is set, "tcp" otherwise. The port is only appended when it
+// differs from the scheme's default (1883 plain / 8883 TLS); this keeps
+// the common case's URL minimal and matches how [Config.MQTTPort] is
+// documented in config-template.yaml.
+func (c *Config) MQTTBrokerURL() string {
+	scheme := "tcp"
+	defaultPort := mqttDefaultPlainPort
+	if c.MQTTSSL {
+		scheme = "tls"
+		defaultPort = mqttDefaultTLSPort
+	}
+	if c.MQTTPort == defaultPort {
+		return fmt.Sprintf("%s://%s", scheme, c.MQTTServer)
+	}
+	return fmt.Sprintf("%s://%s:%d", scheme, c.MQTTServer, c.MQTTPort)
 }
 
 // ModbusTimeoutDuration returns ModbusTimeout as a time.Duration.

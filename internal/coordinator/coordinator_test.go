@@ -12,9 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/SukramJ/go-mqtt"
+
 	"github.com/SukramJ/go-mtec2mqtt/internal/config"
 	"github.com/SukramJ/go-mtec2mqtt/internal/hass"
-	"github.com/SukramJ/go-mtec2mqtt/internal/mqtt"
 	"github.com/SukramJ/go-mtec2mqtt/internal/registers"
 )
 
