@@ -1,3 +1,51 @@
+# Version 1.3.0 (2026-07-02)
+
+## What's Changed
+
+This release hardens the MQTT / Modbus / web surfaces and extracts the MQTT
+client into a shared module.
+
+### Security
+
+- **MQTT frame-size cap.** The MQTT read path capped an incoming frame's
+  `remaining length` only at the 256 MiB wire maximum and allocated the body
+  buffer unconditionally, so a malicious or malfunctioning broker could force a
+  multi-hundred-megabyte allocation per frame (OOM/DoS). Frames larger than
+  1 MiB are now rejected before any allocation.
+- **Web write-endpoint CSRF guard.** `POST /api/write` (which writes to the
+  inverter) accepted any Content-Type, so a cross-site form/fetch could trigger
+  a register write with the browser auto-attaching Basic-Auth credentials. It
+  now requires `application/json` and rejects cross-site / cross-origin
+  requests.
+- **Web security headers.** `X-Content-Type-Options`, `Referrer-Policy` and a
+  strict `Content-Security-Policy` are now set on every response (no
+  `frame-ancestors`, so Home Assistant Ingress embedding keeps working).
+
+### Added
+
+- **Opt-in MQTT TLS.** New `MQTT_SSL` (and `MQTT_SSL_INSECURE` for
+  operator-controlled self-signed certificates) config keys — MQTT credentials
+  previously always crossed the wire in clear text. TLS always verifies the
+  broker certificate (correct `ServerName`, TLS 1.2 minimum) unless explicitly
+  disabled; defaults keep existing plain-TCP setups unchanged.
+- **Rejected MQTT subscriptions are surfaced.** A broker SUBACK failure code
+  (`0x80`) is now decoded and logged instead of silently leaving a command
+  topic undelivered.
+
+### Fixed
+
+- **Register decode crash guard.** A `U32` / `S32` / `I32` register
+  mis-declared with `length: 1` in `registers.yaml` would index out of bounds
+  and panic the decoder; it now returns a bounds error instead.
+
+### Changed
+
+- **MQTT client extracted to `github.com/SukramJ/go-mqtt`.** The hand-rolled
+  MQTT 3.1.1 client that lived under `internal/mqtt` is now the shared
+  `go-mqtt` module (v0.1.0), used by all four `go-*2mqtt` bridges, so a fix
+  lands once instead of drifting across four copies. No behavioural change for
+  this daemon.
+
 # Version 1.2.2 (2026-07-02)
 
 ## What's Changed
