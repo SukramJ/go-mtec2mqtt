@@ -138,6 +138,12 @@ MQTT_TOPIC: MTEC
 HASS_ENABLE: true            # optional Home Assistant discovery
 ```
 
+To connect over TLS instead of plain TCP, set `MQTT_SSL: true` (the
+daemon then dials `tls://` and defaults to port 8883 unless
+`MQTT_PORT` is set explicitly). `MQTT_SSL_INSECURE: true` disables
+broker certificate verification — only for a self-signed certificate
+on a broker you control; never enable it against an untrusted broker.
+
 Every config key can be overridden at runtime via an `MTEC_<KEY>` env
 var — useful in Docker / systemd setups:
 
@@ -206,7 +212,7 @@ review gate.
 |------------|-----------------------------------------------------------------|
 | Inverter   | M-TEC Energybutler GEN3. Potentially Wattsonic / Sunways / Daxtromn. |
 | Firmware   | V27.52.4.0 and newer use port **502**; older firmware needs **5743** + a `MODBUS_FRAMER: rtu` switch. |
-| MQTT       | Plain TCP MQTT 3.1.1 (port 1883). TLS not wired up yet.          |
+| MQTT       | MQTT 3.1.1, plain TCP (port 1883) or TLS (port 8883, `MQTT_SSL: true`). |
 | Go         | 1.26+                                                           |
 
 ## Credit

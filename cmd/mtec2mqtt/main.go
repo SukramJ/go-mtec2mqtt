@@ -15,6 +15,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -103,8 +104,16 @@ func run(configPath, registersPath string, logger *slog.Logger) error {
 
 	// --- mqtt ---
 	clientID := clientIDBase + cfg.MQTTTopic
+	// TLS is opt-in via MQTT_SSL; NewClientTLSConfig always sets
+	// ServerName (tls.Client does not infer it from the dialed address)
+	// and only disables certificate verification when the operator has
+	// explicitly set MQTT_SSL_INSECURE — never by default.
+	var tlsConfig *tls.Config
+	if cfg.MQTTSSL {
+		tlsConfig = mqtt.NewClientTLSConfig(cfg.MQTTServer, cfg.MQTTSSLInsecure)
+	}
 	mqttClient := mqtt.NewTCPClient(mqtt.TCPConfig{
-		BrokerURL:    fmt.Sprintf("tcp://%s:%d", cfg.MQTTServer, cfg.MQTTPort),
+		BrokerURL:    cfg.MQTTBrokerURL(),
 		ClientID:     clientID,
 		Username:     cfg.MQTTLogin,
 		Password:     cfg.MQTTPassword,
@@ -113,6 +122,7 @@ func run(configPath, registersPath string, logger *slog.Logger) error {
 		WillPayload:  []byte("offline"),
 		WillRetain:   true,
 		CleanSession: true,
+		TLSConfig:    tlsConfig,
 		Logger:       logger,
 	})
 	mqttLifecycle := mqtt.NewLifecycle(mqtt.DefaultLifecycle(), mqttClient)

@@ -7,17 +7,19 @@ MODBUS_RETRIES: 3 # Retries
 MODBUS_FRAMER: socket # Modbus Framer (usually no change required; options: 'ascii', 'binary', 'rtu', 'socket', 'tls')
 
 # MQTT settings
-# NOTE: TLS/SSL is currently NOT supported natively (plain TCP only).
-# For TLS, either run a local broker with plain auth, or terminate TLS
-# via a reverse proxy (e.g. mosquitto with bridge). TLS support is
-# tracked in ROADMAP (P1). Credentials can also be provided via the
-# MTEC_MQTT_LOGIN / MTEC_MQTT_PASSWORD environment variables.
+# Credentials can also be provided via the MTEC_MQTT_LOGIN /
+# MTEC_MQTT_PASSWORD environment variables.
 MQTT_SERVER: localhost # MQTT server
-MQTT_PORT: 1883 # MQTT server port (typically 1883 plain, 8883 TLS — TLS not supported)
+MQTT_PORT: 1883 # MQTT server port (default: 1883 plain, 8883 when MQTT_SSL is true)
 MQTT_LOGIN: " " # MQTT Login (override: env MTEC_MQTT_LOGIN)
 MQTT_PASSWORD: "" # MQTT Password (override: env MTEC_MQTT_PASSWORD)
 MQTT_TOPIC: MTEC # MQTT topic name
 MQTT_FLOAT_FORMAT: "{:.3f}" # Defines how to format float values
+# MQTT_SSL: false            # Connect via TLS (tls://) instead of plain TCP
+# MQTT_SSL_INSECURE: false   # DANGEROUS: skip broker certificate verification
+#                             # (self-signed certs only); only takes effect
+#                             # when MQTT_SSL is true. Never enable this
+#                             # against a broker you do not fully trust.
 
 # Refresh interval  / override when needed
 # REFRESH_NOW: 10            # Refresh "now" data every N seconds
