@@ -1,3 +1,12 @@
+# Version 1.3.1 (2026-07-02)
+
+## What's Changed
+
+### Docs
+
+- Updated stale `internal/mqtt` documentation references to point at the
+  extracted `github.com/SukramJ/go-mqtt` module (no functional change).
+
 # Version 1.3.0 (2026-07-02)
 
 ## What's Changed
