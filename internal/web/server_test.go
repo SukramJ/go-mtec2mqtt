@@ -150,6 +150,118 @@ func TestWriteErrorMapping(t *testing.T) {
 	}
 }
 
+func TestWriteRejectsNonJSONContentType(t *testing.T) {
+	ts := newTestServer(Config{}, &fakeBackend{})
+	defer ts.Close()
+
+	// text/plain is exactly the content type a cross-site <form>/fetch
+	// POST can send without triggering a CORS preflight — it must never
+	// reach the write handler.
+	res, err := http.Post(ts.URL+"/api/write", "text/plain", strings.NewReader(`{"key":"x","value":1}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusUnsupportedMediaType {
+		t.Fatalf("status = %d, want %d", res.StatusCode, http.StatusUnsupportedMediaType)
+	}
+}
+
+func TestWriteRejectsMissingContentType(t *testing.T) {
+	ts := newTestServer(Config{}, &fakeBackend{})
+	defer ts.Close()
+
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/write", strings.NewReader(`{"key":"x","value":1}`))
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusUnsupportedMediaType {
+		t.Fatalf("status = %d, want %d", res.StatusCode, http.StatusUnsupportedMediaType)
+	}
+}
+
+func TestWriteAllowsJSONWithCharsetParam(t *testing.T) {
+	ts := newTestServer(Config{}, &fakeBackend{})
+	defer ts.Close()
+
+	res, err := http.Post(ts.URL+"/api/write", "application/json; charset=utf-8",
+		strings.NewReader(`{"key":"x","value":1}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", res.StatusCode)
+	}
+}
+
+func TestWriteRejectsForeignOrigin(t *testing.T) {
+	ts := newTestServer(Config{}, &fakeBackend{})
+	defer ts.Close()
+
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/write", strings.NewReader(`{"key":"x","value":1}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "https://evil.example")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", res.StatusCode, http.StatusForbidden)
+	}
+}
+
+func TestWriteRejectsCrossSiteFetch(t *testing.T) {
+	ts := newTestServer(Config{}, &fakeBackend{})
+	defer ts.Close()
+
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/write", strings.NewReader(`{"key":"x","value":1}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", res.StatusCode, http.StatusForbidden)
+	}
+}
+
+func TestWriteAllowsSameOriginAndNoOrigin(t *testing.T) {
+	ts := newTestServer(Config{}, &fakeBackend{})
+	defer ts.Close()
+
+	// No Origin header at all (curl, older clients) must keep working.
+	res, err := http.Post(ts.URL+"/api/write", "application/json", strings.NewReader(`{"key":"x","value":1}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("no-origin status = %d, want 200", res.StatusCode)
+	}
+
+	// Origin matching the request's own host (the normal browser case,
+	// and the Home Assistant Ingress case where the SPA only ever issues
+	// relative fetches) must keep working too.
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/write", strings.NewReader(`{"key":"x","value":1}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", ts.URL)
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	res2, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = res2.Body.Close()
+	if res2.StatusCode != http.StatusOK {
+		t.Fatalf("same-origin status = %d, want 200", res2.StatusCode)
+	}
+}
+
 func TestWriteMissingKey(t *testing.T) {
 	ts := newTestServer(Config{}, &fakeBackend{})
 	defer ts.Close()
@@ -213,6 +325,50 @@ func TestServesSPA(t *testing.T) {
 		_ = r.Body.Close()
 		if r.StatusCode != http.StatusOK {
 			t.Errorf("asset %s status = %d", asset, r.StatusCode)
+		}
+	}
+}
+
+func TestSecurityHeadersPresent(t *testing.T) {
+	ts := newTestServer(Config{}, &fakeBackend{})
+	defer ts.Close()
+
+	res, err := http.Get(ts.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("index status = %d", res.StatusCode)
+	}
+	if got := res.Header.Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Errorf("X-Content-Type-Options = %q, want nosniff", got)
+	}
+	if got := res.Header.Get("Referrer-Policy"); got != "no-referrer" {
+		t.Errorf("Referrer-Policy = %q, want no-referrer", got)
+	}
+	csp := res.Header.Get("Content-Security-Policy")
+	if csp == "" {
+		t.Fatal("Content-Security-Policy header missing")
+	}
+	// Must not break Home Assistant Ingress iframe embedding.
+	if strings.Contains(csp, "frame-ancestors 'none'") {
+		t.Error("CSP must not set frame-ancestors 'none' — breaks HA Ingress iframe embedding")
+	}
+	if res.Header.Get("X-Frame-Options") == "DENY" {
+		t.Error("X-Frame-Options: DENY breaks HA Ingress iframe embedding")
+	}
+
+	// The header must not prevent the SPA's own asset tree from loading.
+	for _, asset := range []string{"/", "/app.js", "/app.css"} {
+		r, err := http.Get(ts.URL + asset)
+		if err != nil {
+			t.Fatalf("GET %s: %v", asset, err)
+		}
+		_ = r.Body.Close()
+		if r.StatusCode != http.StatusOK {
+			t.Errorf("asset %s status = %d, want 200 (CSP must not block same-origin assets)", asset, r.StatusCode)
 		}
 	}
 }
