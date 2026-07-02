@@ -93,6 +93,41 @@ func TestPingAndDisconnect(t *testing.T) {
 	}
 }
 
+func TestDecodeSubackGranted(t *testing.T) {
+	// packet id 0x0007, two filters both granted QoS 0 and QoS 1.
+	body := []byte{0x00, 0x07, 0x00, 0x01}
+	s, err := DecodeSuback(body)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if s.PacketID != 7 {
+		t.Fatalf("packet id = %d, want 7", s.PacketID)
+	}
+	if len(s.ReturnCodes) != 2 || s.ReturnCodes[0] != 0x00 || s.ReturnCodes[1] != 0x01 {
+		t.Fatalf("return codes = %v", s.ReturnCodes)
+	}
+}
+
+func TestDecodeSubackRejected(t *testing.T) {
+	// packet id 0x0009, one filter rejected (0x80).
+	body := []byte{0x00, 0x09, 0x80}
+	s, err := DecodeSuback(body)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if s.ReturnCodes[0] != SubackFailure {
+		t.Fatalf("return code = %#x, want %#x", s.ReturnCodes[0], SubackFailure)
+	}
+}
+
+func TestDecodeSubackShortBody(t *testing.T) {
+	// Only the 2-byte packet id, no return code at all.
+	_, err := DecodeSuback([]byte{0x00, 0x01})
+	if err == nil {
+		t.Fatal("expected error for short suback body")
+	}
+}
+
 func TestPubackEncodeDecode(t *testing.T) {
 	var buf bytes.Buffer
 	_ = EncodePuback(&buf, 0x1234)

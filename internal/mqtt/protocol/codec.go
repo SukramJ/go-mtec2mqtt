@@ -138,6 +138,35 @@ func (p *PublishPacket) Encode(w io.Writer) error {
 	return writePacket(w, head, body.Bytes())
 }
 
+// SubackFailure is the MQTT 3.1.1 SUBACK return code a broker sends
+// for a topic filter it refuses to grant (§3.9.3): the subscription
+// was rejected (bad filter, ACL denial, unsupported QoS, ...) and no
+// messages for it will ever arrive.
+const SubackFailure = 0x80
+
+// SubackPacket is the inbound SUBACK.
+type SubackPacket struct {
+	PacketID uint16
+	// ReturnCodes holds one byte per requested topic filter, in the
+	// order the SUBSCRIBE listed them. 0x00-0x02 is the granted QoS;
+	// [SubackFailure] (0x80) means the broker rejected that filter.
+	ReturnCodes []byte
+}
+
+// DecodeSuback parses a SUBACK payload: a 2-byte packet id followed by
+// one return-code byte per subscribed filter.
+func DecodeSuback(body []byte) (*SubackPacket, error) {
+	if len(body) < 3 {
+		return nil, errors.New("suback: short body")
+	}
+	codes := make([]byte, len(body)-2)
+	copy(codes, body[2:])
+	return &SubackPacket{
+		PacketID:    binary.BigEndian.Uint16(body[:2]),
+		ReturnCodes: codes,
+	}, nil
+}
+
 // PubackPacket is the inbound PUBACK.
 type PubackPacket struct {
 	PacketID uint16
@@ -237,6 +266,19 @@ func EncodePuback(w io.Writer, id uint16) error {
 	return writePacket(w, byte(PacketPuback)<<4, body)
 }
 
+// maxRemainingLength caps the MQTT "remaining length" field ReadFrame is
+// willing to allocate a body buffer for. The wire format allows up to
+// 268,435,455 bytes (256 MiB); this daemon only ever exchanges small
+// control/publish frames, so 1 MiB is generous headroom while still
+// preventing a malicious or malfunctioning broker from forcing a
+// multi-hundred-megabyte allocation per frame (OOM/DoS).
+const maxRemainingLength = 1 << 20 // 1 MiB
+
+// ErrFrameTooLarge is returned by [ReadFrame] when the fixed header
+// advertises a remaining length beyond [maxRemainingLength]. Callers
+// must not allocate a body buffer before this check runs.
+var ErrFrameTooLarge = errors.New("mqtt: remaining length exceeds limit")
+
 // Frame is a decoded fixed-header + remaining bytes tuple.
 type Frame struct {
 	Header byte
@@ -255,6 +297,12 @@ func ReadFrame(r io.Reader) (Frame, error) {
 	length, err := readRemainingLength(r)
 	if err != nil {
 		return Frame{}, err
+	}
+	// Reject oversized frames BEFORE allocating the body buffer — the
+	// whole point of the check is to avoid the allocation, not just the
+	// subsequent read.
+	if length > maxRemainingLength {
+		return Frame{}, ErrFrameTooLarge
 	}
 	body := make([]byte, length)
 	if length > 0 {

@@ -6,9 +6,11 @@ package mqtt
 import (
 	"bufio"
 	"context"
+	"log/slog"
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -27,7 +29,16 @@ type mockBroker struct {
 	mu        sync.Mutex
 	published []*protocol.InboundPublish
 	subs      []string
+
+	// rejectSubscribe, when true, makes every SUBACK reply carry
+	// protocol.SubackFailure (0x80) instead of a granted QoS — used to
+	// exercise the client's subscribe-rejected warning path.
+	rejectSubscribe atomic.Bool
 }
+
+// RejectSubscribe toggles whether the broker answers SUBSCRIBE frames
+// with a rejected (0x80) SUBACK return code.
+func (b *mockBroker) RejectSubscribe(v bool) { b.rejectSubscribe.Store(v) }
 
 func newMockBroker(t *testing.T) *mockBroker {
 	t.Helper()
@@ -82,7 +93,11 @@ func (b *mockBroker) serve(conn net.Conn) {
 			b.subs = append(b.subs, topic)
 			b.mu.Unlock()
 			// SUBACK (packet id + one status byte)
-			body := []byte{frame.Body[0], frame.Body[1], 0x01}
+			rc := byte(0x01)
+			if b.rejectSubscribe.Load() {
+				rc = protocol.SubackFailure
+			}
+			body := []byte{frame.Body[0], frame.Body[1], rc}
 			_ = writePacket(bw, byte(protocol.PacketSuback)<<4, body)
 			_ = bw.Flush()
 		case protocol.PacketPingreq:
@@ -207,6 +222,53 @@ func TestTCPClientSubscribeSendsFrame(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatal("broker never saw subscribe")
+}
+
+// syncBuf is a concurrency-safe io.Writer sink for capturing slog
+// output from a goroutine (the read loop) while the test goroutine
+// polls it — bytes.Buffer alone is not safe for that.
+type syncBuf struct {
+	mu  sync.Mutex
+	buf strings.Builder
+}
+
+func (s *syncBuf) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.Write(p)
+}
+
+func (s *syncBuf) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.String()
+}
+
+func TestTCPClientWarnsOnSubackRejection(t *testing.T) {
+	b := newMockBroker(t)
+	b.RejectSubscribe(true)
+
+	logs := &syncBuf{}
+	logger := slog.New(slog.NewTextHandler(logs, nil))
+	c := NewTCPClient(TCPConfig{BrokerURL: b.URL(), ClientID: "gotest", KeepAlive: 30 * time.Second, Logger: logger})
+	ctx := context.Background()
+	if err := c.Connect(ctx); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer c.Disconnect(ctx) //nolint:errcheck // teardown
+
+	if err := c.Subscribe(ctx, "cmd/#", QoS1, func(string, []byte) {}); err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if strings.Contains(logs.String(), "mqtt.tcp.subscribe_rejected") {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("expected subscribe_rejected warning, got log: %s", logs.String())
 }
 
 func TestTopicMatches(t *testing.T) {

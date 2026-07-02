@@ -116,6 +116,28 @@ func TestReadFrameEOF(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// ReadFrame — oversized remaining length is rejected BEFORE the body
+// buffer is allocated (OOM/DoS hardening).
+// ---------------------------------------------------------------------------
+
+func TestReadFrameRejectsOversizedRemainingLength(t *testing.T) {
+	t.Parallel()
+	// Encode a remaining length just over the limit. header carries only
+	// the fixed header + remaining-length bytes; errReader returns an
+	// error the instant anything tries to read past them. If ReadFrame
+	// allocated (or attempted to read) the ~1 MiB+1 body, it would
+	// surface that error instead of ErrFrameTooLarge — proving the size
+	// check runs before any body allocation/read is attempted.
+	lengthBytes := encodeRemainingLength(maxRemainingLength + 1)
+	header := append([]byte{byte(PacketPublish) << 4}, lengthBytes...)
+	r := &errReader{header: header}
+	_, err := ReadFrame(r)
+	if !errors.Is(err, ErrFrameTooLarge) {
+		t.Fatalf("expected ErrFrameTooLarge, got %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // readRemainingLength — malformed (5 continuation bytes → error)
 // ---------------------------------------------------------------------------
 

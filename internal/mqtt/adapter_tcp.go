@@ -303,6 +303,10 @@ func (c *TCPClient) Publish(ctx context.Context, topic string, payload []byte, q
 
 // Subscribe implements [Subscriber]. Only one handler per topic
 // filter — re-subscribing replaces the previous handler.
+//
+// See [MessageHandler] for the non-blocking contract handler must
+// satisfy: it runs synchronously in the read loop, so a slow handler
+// delays PUBACK/PINGRESP handling and can trip the keep-alive watchdog.
 func (c *TCPClient) Subscribe(ctx context.Context, filter string, qos QoS, handler MessageHandler) error {
 	pkt := &protocol.SubscribePacket{PacketID: c.nextPacketID(), TopicFilter: filter, QoS: byte(qos)}
 	if err := c.writeFrame(pkt); err != nil {
@@ -453,9 +457,30 @@ func (c *TCPClient) readLoop(stop <-chan struct{}) {
 			// Heartbeat ack: the broker is alive, so clear the
 			// watchdog flag set when keepAliveLoop sent the PINGREQ.
 			c.pingOutstanding.Store(false)
-		case protocol.PacketSuback, protocol.PacketUnsuback:
-			// non-blocking in our MVP; the subscribe/unsubscribe
-			// calls return as soon as the frame is on the wire.
+		case protocol.PacketSuback:
+			// Subscribe/unsubscribe calls return as soon as the frame
+			// is on the wire (non-blocking in our MVP — no caller
+			// waits on this SUBACK), but a rejected filter is still
+			// worth surfacing: without this, HA's `set_temperature` /
+			// `set_mode` / `set_profile` command topics could silently
+			// never be delivered because the broker refused the
+			// subscription (bad ACL, disallowed filter, ...) and
+			// nothing would ever say so.
+			sub, err := protocol.DecodeSuback(frame.Body)
+			if err != nil {
+				c.logger.Warn("mqtt.tcp.malformed_suback", slog.String("err", err.Error()))
+				continue
+			}
+			for _, rc := range sub.ReturnCodes {
+				if rc == protocol.SubackFailure {
+					c.logger.Warn("mqtt.tcp.subscribe_rejected",
+						slog.Uint64("packet_id", uint64(sub.PacketID)))
+					break
+				}
+			}
+		case protocol.PacketUnsuback:
+			// non-blocking in our MVP; the unsubscribe call returns as
+			// soon as the frame is on the wire.
 		}
 	}
 }
@@ -537,6 +562,17 @@ func (c *TCPClient) handleConnectionLost() {
 	}
 }
 
+// dispatch routes an inbound PUBLISH to its matching [MessageHandler].
+//
+// It runs synchronously, inline in [TCPClient.readLoop] — the same
+// goroutine that also decodes PUBACK/PINGRESP and feeds the PINGRESP
+// watchdog in keepAliveLoop. A handler that blocks (network calls,
+// waiting on a channel, heavy computation, ...) therefore stalls the
+// whole read pump: PUBACKs stop being processed, PINGRESPs stop being
+// observed, and the keep-alive watchdog can then declare the
+// connection lost (`mqtt.tcp.ping_timeout`) even though the socket is
+// perfectly healthy. See [MessageHandler] for the contract this
+// implies for every Subscribe callback.
 func (c *TCPClient) dispatch(ib *protocol.InboundPublish) {
 	c.subMu.RLock()
 	var handler MessageHandler
