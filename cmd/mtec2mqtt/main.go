@@ -28,11 +28,12 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/SukramJ/go-mqtt"
+
 	"github.com/SukramJ/go-mtec2mqtt/internal/config"
 	"github.com/SukramJ/go-mtec2mqtt/internal/coordinator"
 	"github.com/SukramJ/go-mtec2mqtt/internal/hass"
 	"github.com/SukramJ/go-mtec2mqtt/internal/modbus"
-	"github.com/SukramJ/go-mtec2mqtt/internal/mqtt"
 	"github.com/SukramJ/go-mtec2mqtt/internal/registers"
 	"github.com/SukramJ/go-mtec2mqtt/internal/state"
 	"github.com/SukramJ/go-mtec2mqtt/internal/version"

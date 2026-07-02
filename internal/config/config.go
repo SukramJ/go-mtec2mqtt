@@ -122,7 +122,7 @@ const (
 	mqttDefaultTLSPort   = 8883
 )
 
-// MQTTBrokerURL derives the broker URL the internal/mqtt transport
+// MQTTBrokerURL derives the broker URL the go-mqtt transport
 // dials from MQTTServer / MQTTPort / MQTTSSL. The scheme is "tls" when
 // MQTTSSL is set, "tcp" otherwise. The port is only appended when it
 // differs from the scheme's default (1883 plain / 8883 TLS); this keeps
