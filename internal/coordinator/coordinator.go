@@ -265,7 +265,7 @@ func (c *Coordinator) installInboundHandler(ctx context.Context) error {
 // onMessage dispatches one inbound publish. Errors are logged and
 // swallowed — the message loop must not exit because a single bad
 // payload arrived.
-func (c *Coordinator) onMessage(topic string, payload []byte) {
+func (c *Coordinator) onMessage(topic string, payload []byte, _ bool) {
 	log := c.deps.Logger
 	if topic == c.hassStatusTopic {
 		if string(payload) == "online" {
