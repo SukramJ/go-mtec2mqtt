@@ -145,7 +145,7 @@ func (s *stubMQTT) deliver(topic string, payload []byte) {
 	defer s.mu.Unlock()
 	for filter, h := range s.handlers {
 		if matchTopicFilter(filter, topic) {
-			h(topic, payload)
+			h(topic, payload, false)
 		}
 	}
 }
