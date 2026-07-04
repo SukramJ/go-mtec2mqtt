@@ -23,6 +23,18 @@ input and anchors the transport with fuzz targets and poison-path tests.
 - **FC03 responses with a zero byte-count are rejected.** The Modbus spec
   requires at least one register in a read-holding response; a zero
   byte-count now fails decoding instead of yielding an empty result.
+- **Upgraded to `go-mqtt` v1.0.0 — MQTT 5.0 is now the wire default.** The
+  bridge negotiates MQTT 5.0 with the broker unless the code is pinned back
+  to 3.1.1 via `TCPConfig.ProtocolVersion` (see the updated `MQTT`
+  compatibility note in the README); brokers that only speak 3.1.1 keep
+  working via that opt-out. Reconnects are now event-driven instead of
+  polling `IsConnected()`, so a dropped link is retried immediately instead
+  of waiting for the next poll tick. Command-topic subscriptions now block
+  until the broker's SUBACK and a rejected filter is a hard startup error
+  instead of a log line that was easy to miss. Publishing while the link is
+  known to be down now fails fast instead of riding out the full ack
+  timeout. The underlying client also gained full QoS 0/1/2 support in both
+  directions (this bridge still only publishes/subscribes at QoS 0/1).
 
 ### Added
 

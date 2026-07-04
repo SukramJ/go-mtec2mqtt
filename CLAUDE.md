@@ -38,7 +38,8 @@ the Python daemon.
   (`addon/`).
 - **Dependencies are deliberately minimal**: `golang.org/x/sync`
   (errgroup), `gopkg.in/yaml.v3`, and `github.com/SukramJ/go-mqtt`
-  (the shared MQTT 3.1.1 client extracted from `openccu-loom`, MIT).
+  (the shared MQTT client extracted from `openccu-loom`, MIT — MQTT 5.0
+  by default, 3.1.1 selectable via `TCPConfig.ProtocolVersion`).
   The Modbus MBAP codec remains hand-rolled in this repo (no
   third-party protocol deps there).
 - **Config**: YAML (`config-template.yaml` is the annotated reference),
