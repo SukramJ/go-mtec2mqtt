@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 
 	"github.com/SukramJ/go-mtec2mqtt/internal/registers"
@@ -203,18 +204,21 @@ func parseWriteValue(s string, scale int) (uint16, error) {
 		scale = 1
 	}
 	if i, err := strconv.ParseInt(s, 10, 64); err == nil {
-		v := i * int64(scale)
-		if v < 0 || v > 0xFFFF {
-			return 0, fmt.Errorf("scaled value %d out of uint16 range", v)
+		// Bound i before multiplying — i*scale can wrap around int64 and
+		// land back inside [0, 0xFFFF], silently writing a bogus value.
+		if i < 0 || i > 0xFFFF/int64(scale) {
+			return 0, fmt.Errorf("value %d with scale %d out of uint16 range", i, scale)
 		}
-		return uint16(v), nil
+		return uint16(i * int64(scale)), nil //nolint:gosec // i bounded to [0, 0xFFFF/scale] above
 	}
 	f, err := strconv.ParseFloat(s, 64)
 	if err != nil {
 		return 0, err
 	}
 	scaled := f * float64(scale)
-	if scaled < 0 || scaled > 0xFFFF {
+	// NaN compares false against both bounds and uint16(NaN) is
+	// platform-defined (0 on amd64) — reject it explicitly.
+	if math.IsNaN(scaled) || scaled < 0 || scaled > 0xFFFF {
 		return 0, fmt.Errorf("scaled value %v out of uint16 range", scaled)
 	}
 	return uint16(scaled), nil

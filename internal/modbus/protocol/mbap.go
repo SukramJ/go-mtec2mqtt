@@ -181,6 +181,10 @@ func DecodeReadHoldingResponse(pdu []byte) ([]uint16, error) {
 		return nil, ErrShortPDU
 	}
 	byteCount := int(pdu[1])
+	if byteCount == 0 {
+		// Spec §6.3: an FC03 response carries at least one register.
+		return nil, fmt.Errorf("%w: FC03 byte-count is zero", ErrShortPDU)
+	}
 	if byteCount%2 != 0 {
 		return nil, ErrOddByteCount
 	}

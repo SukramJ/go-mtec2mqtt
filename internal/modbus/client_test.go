@@ -90,7 +90,57 @@ func TestReadHoldingExceptionBubbles(t *testing.T) {
 	}
 }
 
+func TestWriteSingleExceptionBubbles(t *testing.T) {
+	srv := newMockServer(t, func(req []byte) ([]byte, *protocol.ExceptionError) {
+		return nil, &protocol.ExceptionError{
+			Function:      protocol.FCWriteSingleRegister,
+			ExceptionCode: protocol.ExceptionIllegalDataAddress,
+		}
+	})
+	c := newTestClient(t, srv.Port())
+	if err := c.Connect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	err := c.WriteSingleRegister(context.Background(), 60000, 1)
+	var exc *protocol.ExceptionError
+	if !errors.As(err, &exc) {
+		t.Fatalf("want *ExceptionError, got %v", err)
+	}
+	if exc.ExceptionCode != protocol.ExceptionIllegalDataAddress {
+		t.Fatalf("unexpected code: %+v", exc)
+	}
+}
+
 // --- connection state -------------------------------------------------------
+
+func TestConnectFailure(t *testing.T) {
+	// A cancelled context makes DialContext fail deterministically —
+	// dialing a "known closed" port instead would race against the OS
+	// re-issuing it to a concurrent listener.
+	c := New(Config{Host: "127.0.0.1", Port: 1, UnitID: testUnitID})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := c.Connect(ctx); err == nil {
+		t.Fatal("want dial error with cancelled context, got nil")
+	}
+	if c.IsConnected() {
+		t.Fatal("failed Connect must not mark the client connected")
+	}
+}
+
+func TestWriteWithoutConnect(t *testing.T) {
+	c := New(Config{Host: "127.0.0.1", Port: 1, UnitID: testUnitID})
+	if err := c.WriteSingleRegister(context.Background(), 52000, 1); !errors.Is(err, ErrNotConnected) {
+		t.Fatalf("want ErrNotConnected, got %v", err)
+	}
+}
+
+func TestReadHoldingRegistersInvalidCount(t *testing.T) {
+	c := New(Config{Host: "127.0.0.1", Port: 1, UnitID: testUnitID})
+	if _, err := c.ReadHoldingRegisters(context.Background(), 0, 0); !errors.Is(err, protocol.ErrCountOutOfRange) {
+		t.Fatalf("want ErrCountOutOfRange, got %v", err)
+	}
+}
 
 func TestReadWithoutConnect(t *testing.T) {
 	c := New(Config{Host: "127.0.0.1", Port: 1, UnitID: testUnitID})
@@ -215,6 +265,87 @@ func TestWriteSingleEchoMismatch(t *testing.T) {
 	if err == nil || !contains(err.Error(), "echo mismatch") {
 		t.Fatalf("want echo-mismatch error, got %v", err)
 	}
+}
+
+// requireNextCallNotConnected asserts the poison contract: after a
+// framing/transport error the very next call must observe
+// ErrNotConnected so the resilience layer knows to reconnect.
+func requireNextCallNotConnected(t *testing.T, c *Client) {
+	t.Helper()
+	if _, err := c.ReadHoldingRegisters(context.Background(), 11000, 1); !errors.Is(err, ErrNotConnected) {
+		t.Fatalf("connection not poisoned: want ErrNotConnected, got %v", err)
+	}
+}
+
+func TestTIDMismatchPoisonsConnection(t *testing.T) {
+	srv := newMockServer(t, func([]byte) ([]byte, *protocol.ExceptionError) {
+		return cannedFC03([]uint16{0x0001}), nil
+	}).withMutator(func(frame []byte) []byte {
+		frame[0] ^= 0xFF // corrupt the transaction-id
+		return frame
+	})
+	c := newTestClient(t, srv.Port())
+	if err := c.Connect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	_, err := c.ReadHoldingRegisters(context.Background(), 11000, 1)
+	if !errors.Is(err, ErrTIDMismatch) {
+		t.Fatalf("want ErrTIDMismatch, got %v", err)
+	}
+	requireNextCallNotConnected(t, c)
+}
+
+func TestUnitMismatchPoisonsConnection(t *testing.T) {
+	srv := newMockServer(t, func([]byte) ([]byte, *protocol.ExceptionError) {
+		return cannedFC03([]uint16{0x0001}), nil
+	}).withMutator(func(frame []byte) []byte {
+		frame[6] ^= 0xFF // corrupt the unit-id
+		return frame
+	})
+	c := newTestClient(t, srv.Port())
+	if err := c.Connect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	_, err := c.ReadHoldingRegisters(context.Background(), 11000, 1)
+	if !errors.Is(err, ErrUnitMismatch) {
+		t.Fatalf("want ErrUnitMismatch, got %v", err)
+	}
+	requireNextCallNotConnected(t, c)
+}
+
+func TestBadProtocolIDPoisonsConnection(t *testing.T) {
+	srv := newMockServer(t, func([]byte) ([]byte, *protocol.ExceptionError) {
+		return cannedFC03([]uint16{0x0001}), nil
+	}).withMutator(func(frame []byte) []byte {
+		frame[2] = 0x01 // MBAP protocol-id must be 0
+		return frame
+	})
+	c := newTestClient(t, srv.Port())
+	if err := c.Connect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	_, err := c.ReadHoldingRegisters(context.Background(), 11000, 1)
+	if !errors.Is(err, protocol.ErrBadProtocolID) {
+		t.Fatalf("want ErrBadProtocolID, got %v", err)
+	}
+	requireNextCallNotConnected(t, c)
+}
+
+func TestTruncatedResponsePoisonsConnection(t *testing.T) {
+	srv := newMockServer(t, func([]byte) ([]byte, *protocol.ExceptionError) {
+		return cannedFC03([]uint16{0x0001}), nil
+	}).withMutator(func(frame []byte) []byte {
+		return frame[:len(frame)-1] // header intact, PDU one byte short
+	}).withCloseAfterReply()
+	c := newTestClient(t, srv.Port())
+	if err := c.Connect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	_, err := c.ReadHoldingRegisters(context.Background(), 11000, 1)
+	if err == nil {
+		t.Fatal("expected error on truncated response")
+	}
+	requireNextCallNotConnected(t, c)
 }
 
 // --- concurrency ------------------------------------------------------------
