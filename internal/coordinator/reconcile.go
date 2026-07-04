@@ -41,9 +41,9 @@ func (c *Coordinator) reconcileOrphans(ctx context.Context, published map[string
 
 		var mu sync.Mutex
 		retained := map[string][]byte{}
-		if err := c.deps.MQTT.Subscribe(ctx, filter, mqtt.QoS0, func(topic string, payload []byte, _ bool) {
+		if _, err := c.deps.MQTT.Subscribe(ctx, filter, mqtt.QoS0, func(msg *mqtt.Message) {
 			mu.Lock()
-			retained[topic] = append([]byte(nil), payload...)
+			retained[msg.Topic] = append([]byte(nil), msg.Payload...)
 			mu.Unlock()
 		}); err != nil {
 			log.Warn("coordinator.reconcile_subscribe_failed", slog.String("err", err.Error()))

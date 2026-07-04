@@ -113,7 +113,7 @@ func newStubMQTT() *stubMQTT {
 	return &stubMQTT{handlers: map[string]mqtt.MessageHandler{}}
 }
 
-func (s *stubMQTT) Publish(_ context.Context, topic string, payload []byte, _ mqtt.QoS, retain bool) error {
+func (s *stubMQTT) Publish(_ context.Context, topic string, payload []byte, _ mqtt.QoS, retain bool, _ ...mqtt.PublishOption) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	cp := make([]byte, len(payload))
@@ -122,12 +122,12 @@ func (s *stubMQTT) Publish(_ context.Context, topic string, payload []byte, _ mq
 	return nil
 }
 
-func (s *stubMQTT) Subscribe(_ context.Context, filter string, _ mqtt.QoS, h mqtt.MessageHandler) error {
+func (s *stubMQTT) Subscribe(_ context.Context, filter string, _ mqtt.QoS, h mqtt.MessageHandler, _ ...mqtt.SubscribeOption) (mqtt.SubscribeResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.subscribes = append(s.subscribes, filter)
 	s.handlers[filter] = h
-	return nil
+	return mqtt.SubscribeResult{}, nil
 }
 
 func (s *stubMQTT) Unsubscribe(_ context.Context, filter string) error {
@@ -145,7 +145,7 @@ func (s *stubMQTT) deliver(topic string, payload []byte) {
 	defer s.mu.Unlock()
 	for filter, h := range s.handlers {
 		if matchTopicFilter(filter, topic) {
-			h(topic, payload, false)
+			h(&mqtt.Message{Topic: topic, Payload: payload})
 		}
 	}
 }

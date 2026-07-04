@@ -216,7 +216,7 @@ review gate.
 |------------|-----------------------------------------------------------------|
 | Inverter   | M-TEC Energybutler GEN3. Potentially Wattsonic / Sunways / Daxtromn. |
 | Firmware   | V27.52.4.0 and newer use port **502**; older firmware needs **5743** + a `MODBUS_FRAMER: rtu` switch. |
-| MQTT       | MQTT 3.1.1, plain TCP (port 1883) or TLS (port 8883, `MQTT_SSL: true`). |
+| MQTT       | MQTT 5.0 by default (3.1.1 selectable via `TCPConfig.ProtocolVersion` for brokers that don't speak 5.0 yet), plain TCP (port 1883) or TLS (port 8883, `MQTT_SSL: true`). |
 | Go         | 1.26+                                                           |
 
 ## Credit

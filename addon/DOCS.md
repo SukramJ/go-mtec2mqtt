@@ -43,5 +43,7 @@ defaults; run the standalone binary / Docker image if you need to tune those.
 
 ## TLS / secure MQTT
 
-The daemon speaks **plain TCP MQTT 3.1.1** only (no native TLS). Point it at a
-local broker with plain auth, or terminate TLS via a reverse proxy / bridge.
+The daemon speaks **plain TCP MQTT** only (no native TLS) — MQTT 5.0 by
+default, with 3.1.1 selectable via `TCPConfig.ProtocolVersion` for brokers
+that don't support 5.0 yet. Point it at a local broker with plain auth, or
+terminate TLS via a reverse proxy / bridge.

@@ -45,13 +45,13 @@ type ModbusClient interface {
 // publishes through. Matches the interface in the go-mqtt module verbatim
 // so the real client satisfies it for free.
 type MQTTPublisher interface {
-	Publish(ctx context.Context, topic string, payload []byte, qos mqtt.QoS, retain bool) error
+	Publish(ctx context.Context, topic string, payload []byte, qos mqtt.QoS, retain bool, opts ...mqtt.PublishOption) error
 }
 
 // MQTTSubscriber is the subset of [*mqtt.TCPClient] used to receive
 // inbound HA command messages.
 type MQTTSubscriber interface {
-	Subscribe(ctx context.Context, filter string, qos mqtt.QoS, handler mqtt.MessageHandler) error
+	Subscribe(ctx context.Context, filter string, qos mqtt.QoS, handler mqtt.MessageHandler, opts ...mqtt.SubscribeOption) (mqtt.SubscribeResult, error)
 	Unsubscribe(ctx context.Context, filter string) error
 }
 
@@ -255,7 +255,7 @@ func (c *Coordinator) installInboundHandler(ctx context.Context) error {
 		c.deps.Cfg.MQTTTopic + "/+/+/+/set",
 	}
 	for _, s := range subs {
-		if err := c.deps.MQTT.Subscribe(ctx, s, mqtt.QoS1, c.onMessage); err != nil {
+		if _, err := c.deps.MQTT.Subscribe(ctx, s, mqtt.QoS1, c.onMessage); err != nil {
 			return fmt.Errorf("coordinator: subscribe %s: %w", s, err)
 		}
 	}
@@ -265,8 +265,9 @@ func (c *Coordinator) installInboundHandler(ctx context.Context) error {
 // onMessage dispatches one inbound publish. Errors are logged and
 // swallowed — the message loop must not exit because a single bad
 // payload arrived.
-func (c *Coordinator) onMessage(topic string, payload []byte, _ bool) {
+func (c *Coordinator) onMessage(msg *mqtt.Message) {
 	log := c.deps.Logger
+	topic, payload := msg.Topic, msg.Payload
 	if topic == c.hassStatusTopic {
 		if string(payload) == "online" {
 			log.Info("coordinator.hass_birth_seen")
