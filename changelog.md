@@ -1,3 +1,42 @@
+# Version 1.4.0 (2026-07-04)
+
+## What's Changed
+
+This release hardens the Modbus write path and codec against malformed
+input and anchors the transport with fuzz targets and poison-path tests.
+
+### Fixed
+
+- **`NaN` write payloads no longer silently write 0.** A `nan` value sent
+  to a writable register's MQTT command topic slipped past the range
+  checks (NaN compares false against every bound) and `uint16(NaN)` put 0
+  on the wire — e.g. silently resetting a mode register. Such payloads are
+  now rejected with a parse error, as are `+Inf`/`-Inf`.
+- **Overflowing write payloads no longer wrap back into range.** A huge
+  integer payload (e.g. `1844674407370955162` on a scale-10 register)
+  overflowed int64 during scaling and could land back inside `0..65535`,
+  writing an unintended value instead of failing. The bound is now checked
+  before the multiplication.
+
+### Changed
+
+- **FC03 responses with a zero byte-count are rejected.** The Modbus spec
+  requires at least one register in a read-holding response; a zero
+  byte-count now fails decoding instead of yielding an empty result.
+
+### Added
+
+- **Fuzz targets for the Modbus codec.** Four `go test -fuzz` targets pin
+  the hand-rolled MBAP codec's invariants (accepted headers/PDUs must be
+  internally consistent, frames must round-trip); their seed corpora run
+  as part of every `go test`.
+- **Transport poison-path tests.** The mock Modbus server can now mutate
+  responses (wrong transaction-id, wrong unit-id, bad protocol-id,
+  truncated frame), asserting the client tears the connection down and the
+  next call observes `ErrNotConnected` — the contract the coordinator's
+  resilience layer relies on. Statement coverage: `internal/modbus/protocol`
+  74 % → 100 %, `internal/modbus` 80 % → 97 %.
+
 # Version 1.3.2 (2026-07-03)
 
 ## What's Changed

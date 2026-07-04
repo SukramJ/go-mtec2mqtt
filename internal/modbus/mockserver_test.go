@@ -28,6 +28,12 @@ type mockServer struct {
 	addr     *net.TCPAddr
 	handler  handler
 	delay    time.Duration
+	// mutate, when set, rewrites the fully encoded response frame just
+	// before it is written — used to inject wrong transaction-ids,
+	// unit-ids or truncated frames. Returning a shorter slice combined
+	// with closeAfterReply simulates a peer dying mid-response.
+	mutate          func(frame []byte) []byte
+	closeAfterReply bool
 
 	wg     sync.WaitGroup
 	mu     sync.Mutex
@@ -57,6 +63,20 @@ func (s *mockServer) Port() int { return s.addr.Port }
 // withDelay holds back each response by d — used to provoke timeouts.
 func (s *mockServer) withDelay(d time.Duration) *mockServer {
 	s.delay = d
+	return s
+}
+
+// withMutator installs a response-frame rewriter (see mutate field).
+func (s *mockServer) withMutator(fn func(frame []byte) []byte) *mockServer {
+	s.mutate = fn
+	return s
+}
+
+// withCloseAfterReply drops the connection right after each response —
+// combined with a truncating mutator this leaves the client waiting for
+// bytes that never arrive.
+func (s *mockServer) withCloseAfterReply() *mockServer {
+	s.closeAfterReply = true
 	return s
 }
 
@@ -120,7 +140,13 @@ func (s *mockServer) serve(conn net.Conn) {
 		binary.BigEndian.PutUint16(out[4:6], uint16(len(respPDU)+1))
 		out[6] = h.UnitID
 		copy(out[protocol.HeaderLen:], respPDU)
+		if s.mutate != nil {
+			out = s.mutate(out)
+		}
 		if _, err := conn.Write(out); err != nil {
+			return
+		}
+		if s.closeAfterReply {
 			return
 		}
 	}

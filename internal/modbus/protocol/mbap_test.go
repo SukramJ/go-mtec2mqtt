@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -85,6 +86,12 @@ func TestEncodeFrameEmptyPDU(t *testing.T) {
 	}
 }
 
+func TestEncodeFrameOversizedPDU(t *testing.T) {
+	if _, err := EncodeFrame(1, 1, make([]byte, MaxPDULen+1)); err == nil {
+		t.Fatal("want error for PDU above MaxPDULen, got nil")
+	}
+}
+
 // --- header decoding --------------------------------------------------------
 
 func TestDecodeHeader(t *testing.T) {
@@ -108,6 +115,15 @@ func TestDecodeHeaderBadProtocolID(t *testing.T) {
 	bad := []byte{0x00, 0x01, 0x00, 0x01 /* nonzero */, 0x00, 0x06, 0xF7}
 	if _, err := DecodeHeader(bad); !errors.Is(err, ErrBadProtocolID) {
 		t.Fatalf("want ErrBadProtocolID, got %v", err)
+	}
+}
+
+func TestDecodeHeaderDeclaredLengthOutOfRange(t *testing.T) {
+	for _, declared := range []uint16{0, 1, MaxPDULen + 2, 0xFFFF} {
+		buf := []byte{0x00, 0x01, 0x00, 0x00, byte(declared >> 8), byte(declared), 0xF7}
+		if _, err := DecodeHeader(buf); err == nil {
+			t.Errorf("declared=%d: want length-out-of-range error, got nil", declared)
+		}
 	}
 }
 
@@ -228,6 +244,65 @@ func TestDecodeFC03BadByteCount(t *testing.T) {
 func TestDecodeFC03ShortPDU(t *testing.T) {
 	if _, err := DecodeReadHoldingResponse([]byte{0x03}); !errors.Is(err, ErrShortPDU) {
 		t.Fatalf("want ErrShortPDU, got %v", err)
+	}
+}
+
+func TestDecodeFC03ZeroByteCount(t *testing.T) {
+	// Spec-invalid: an FC03 response must carry at least one register.
+	if _, err := DecodeReadHoldingResponse([]byte{0x03, 0x00}); !errors.Is(err, ErrShortPDU) {
+		t.Fatalf("want ErrShortPDU for zero byte-count, got %v", err)
+	}
+}
+
+func TestDecodeFC03LengthMismatch(t *testing.T) {
+	// byte-count says 4, but only 2 data bytes follow.
+	pdu := []byte{0x03, 0x04, 0xAA, 0xBB}
+	if _, err := DecodeReadHoldingResponse(pdu); !errors.Is(err, ErrLengthMismatch) {
+		t.Fatalf("want ErrLengthMismatch, got %v", err)
+	}
+}
+
+func TestDecodeFC06LengthMismatch(t *testing.T) {
+	if _, _, err := DecodeWriteSingleResponse([]byte{0x06, 0x00, 0x01}); !errors.Is(err, ErrLengthMismatch) {
+		t.Fatalf("want ErrLengthMismatch, got %v", err)
+	}
+}
+
+func TestRequireFunctionShortExceptionPDU(t *testing.T) {
+	// Exception function code but the exception-code byte is missing.
+	err := requireFunction([]byte{0x83}, FCReadHoldingRegisters)
+	if !errors.Is(err, ErrShortPDU) {
+		t.Fatalf("want ErrShortPDU, got %v", err)
+	}
+}
+
+func TestRequireFunctionEmptyPDU(t *testing.T) {
+	if err := requireFunction(nil, FCReadHoldingRegisters); !errors.Is(err, ErrEmptyPDU) {
+		t.Fatalf("want ErrEmptyPDU, got %v", err)
+	}
+}
+
+func TestExceptionErrorMessages(t *testing.T) {
+	cases := []struct {
+		code byte
+		want string
+	}{
+		{ExceptionIllegalFunction, "illegal function"},
+		{ExceptionIllegalDataAddress, "illegal data address"},
+		{ExceptionIllegalDataValue, "illegal data value"},
+		{ExceptionSlaveDeviceFailure, "slave device failure"},
+		{ExceptionAcknowledge, "acknowledge"},
+		{ExceptionSlaveDeviceBusy, "slave device busy"},
+		{ExceptionMemoryParityError, "memory parity error"},
+		{ExceptionGatewayPathUnavailable, "gateway path unavailable"},
+		{ExceptionGatewayTargetFailed, "gateway target failed to respond"},
+		{0x7F, "unknown"},
+	}
+	for _, tc := range cases {
+		e := &ExceptionError{Function: FCReadHoldingRegisters, ExceptionCode: tc.code}
+		if got := e.Error(); !strings.Contains(got, tc.want) {
+			t.Errorf("code 0x%02x: message %q does not contain %q", tc.code, got, tc.want)
+		}
 	}
 }
 

@@ -67,10 +67,33 @@ func buildCatalog(t *testing.T) *registers.Map {
   mqtt: grid_inject_limit
   group: config
 
+"52002":
+  name: Broken enum
+  length: 1
+  type: U16
+  writable: true
+  mqtt: bad_enum
+  group: config
+  hass_value_items:
+    70000: "Huge"
+
+"52003":
+  name: Broken length
+  length: -1
+  type: U16
+  mqtt: broken_length
+  group: config
+
 "consumption":
   name: Household
   mqtt: consumption
   group: now-base
+
+"pseudo_writable":
+  name: Pseudo writable
+  writable: true
+  mqtt: pseudo_writable
+  group: config
 `
 	m, _, err := loadCatalogString(yaml)
 	if err != nil {
@@ -206,6 +229,28 @@ func TestReadRegisterHappy(t *testing.T) {
 	}
 }
 
+func TestReadRegisterClampsNegativeLength(t *testing.T) {
+	// The loader normalizes length 0 to 1 but lets negative values
+	// through — the reader must clamp them to a single-word read
+	// instead of wrapping to count=65535 on the wire.
+	catalog := buildCatalog(t)
+	srv := newMockServer(t, func(req []byte) ([]byte, *protocol.ExceptionError) {
+		if count := binary.BigEndian.Uint16(req[3:5]); count != 1 {
+			t.Errorf("negative length must clamp to count=1, got %d", count)
+		}
+		return cannedFC03([]uint16{5}), nil
+	})
+	c := newTestClient(t, srv.Port())
+	if err := c.Connect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	r := NewReader(c, catalog)
+	v, err := r.ReadRegister(context.Background(), "52003")
+	if err != nil || v != 5 {
+		t.Fatalf("got %v / %v, want 5", v, err)
+	}
+}
+
 func TestReadRegisterRejectsPseudo(t *testing.T) {
 	r := NewReader(nil, buildCatalog(t))
 	_, err := r.ReadRegister(context.Background(), "consumption")
@@ -292,6 +337,127 @@ func TestWriteRegisterRejectsBadValue(t *testing.T) {
 	err := r.WriteRegisterByMQTT(context.Background(), "mode", "not-a-number")
 	if !errors.Is(err, ErrValueParse) {
 		t.Fatalf("want ErrValueParse, got %v", err)
+	}
+}
+
+func TestWriteRegisterRejectsWritablePseudo(t *testing.T) {
+	r := NewReader(nil, buildCatalog(t))
+	err := r.WriteRegisterByMQTT(context.Background(), "pseudo_writable", "1")
+	if !errors.Is(err, ErrPseudoUnsupported) {
+		t.Fatalf("want ErrPseudoUnsupported, got %v", err)
+	}
+}
+
+func TestWriteRegisterValueItemsCodeOutOfRange(t *testing.T) {
+	r := NewReader(nil, buildCatalog(t))
+	// "Huge" reverse-looks-up to code 70000, which cannot fit in uint16.
+	err := r.WriteRegisterByMQTT(context.Background(), "bad_enum", "Huge")
+	if !errors.Is(err, ErrValueParse) {
+		t.Fatalf("want ErrValueParse, got %v", err)
+	}
+}
+
+func TestWriteRegisterRejectsNaNPayload(t *testing.T) {
+	r := NewReader(nil, buildCatalog(t))
+	for _, payload := range []string{"nan", "NaN", "+Inf", "-Inf"} {
+		err := r.WriteRegisterByMQTT(context.Background(), "grid_inject_limit", payload)
+		if !errors.Is(err, ErrValueParse) {
+			t.Errorf("payload %q: want ErrValueParse, got %v", payload, err)
+		}
+	}
+}
+
+func TestReadRegisterTransportError(t *testing.T) {
+	c := New(Config{Host: "127.0.0.1", Port: 1, UnitID: testUnitID})
+	r := NewReader(c, buildCatalog(t))
+	if _, err := r.ReadRegister(context.Background(), "52000"); !errors.Is(err, ErrNotConnected) {
+		t.Fatalf("want ErrNotConnected, got %v", err)
+	}
+}
+
+// --- parseWriteValue --------------------------------------------------------
+
+func TestParseWriteValue(t *testing.T) {
+	cases := []struct {
+		name    string
+		in      string
+		scale   int
+		want    uint16
+		wantErr bool
+	}{
+		{"int plain", "42", 1, 42, false},
+		{"int scaled", "100", 10, 1000, false},
+		{"int max", "65535", 1, 65535, false},
+		{"int above max", "65536", 1, 0, true},
+		{"int negative", "-1", 1, 0, true},
+		{"int scaled just above max", "6554", 10, 0, true},
+		{"int scaled at max", "6553", 10, 65530, false},
+		// 1844674407370955162 * 10 wraps around int64 to exactly 4 —
+		// must be rejected, not silently written as 4.
+		{"int64 wrap", "1844674407370955162", 10, 0, true},
+		{"float scaled", "230.5", 10, 2305, false},
+		{"float negative", "-0.5", 1, 0, true},
+		{"float above max", "65535.5", 1, 0, true},
+		// NaN slips past plain < / > range checks; uint16(NaN) would be 0.
+		{"nan lower", "nan", 10, 0, true},
+		{"nan mixed", "NaN", 1, 0, true},
+		{"pos inf", "+Inf", 1, 0, true},
+		{"neg inf", "-Inf", 1, 0, true},
+		{"garbage", "not-a-number", 1, 0, true},
+		{"scale zero clamps to one", "7", 0, 7, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseWriteValue(tc.in, tc.scale)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("parseWriteValue(%q, %d) = %d, want error", tc.in, tc.scale, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseWriteValue(%q, %d): %v", tc.in, tc.scale, err)
+			}
+			if got != tc.want {
+				t.Fatalf("parseWriteValue(%q, %d) = %d, want %d", tc.in, tc.scale, got, tc.want)
+			}
+		})
+	}
+}
+
+// --- decodeClusterInto ------------------------------------------------------
+
+func TestDecodeClusterIntoCollectsPerRegisterErrors(t *testing.T) {
+	regOK := &registers.Register{Address: 100, Length: 1, Type: registers.DataU16, MQTT: "ok_value"}
+	// Length 0 exercises the defensive clamp to a single word.
+	regNoMQTT := &registers.Register{Address: 101, Length: 0, Type: registers.DataU16, Name: "Plain name"}
+	regBadType := &registers.Register{Address: 102, Length: 1, Type: "BOGUS", MQTT: "bad_type"}
+	regBefore := &registers.Register{Address: 99, Length: 1, Type: registers.DataU16, MQTT: "before"}
+	regBeyond := &registers.Register{Address: 103, Length: 2, Type: registers.DataU32, MQTT: "beyond"}
+
+	c := registers.Cluster{
+		Start:   100,
+		Count:   3,
+		Members: []*registers.Register{regOK, regNoMQTT, regBadType, regBefore, regBeyond},
+	}
+	raw := []uint16{7, 9, 11} // regBefore starts left of the window, regBeyond ends past it
+
+	out := map[string]any{}
+	var errs []error
+	decodeClusterInto(out, c, raw, &errs)
+
+	if out["ok_value"] != 7 {
+		t.Errorf("ok_value: got %v, want 7", out["ok_value"])
+	}
+	if out["Plain name"] != 9 {
+		t.Errorf("MQTT-less register must fall back to Name key: got %v", out["Plain name"])
+	}
+	if len(out) != 2 {
+		t.Errorf("only the two decodable registers may appear, got %v", out)
+	}
+	if len(errs) != 3 {
+		t.Fatalf("want 3 collected errors (bad type, before window, beyond window), got %d: %v",
+			len(errs), errs)
 	}
 }
 
