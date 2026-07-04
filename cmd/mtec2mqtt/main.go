@@ -132,6 +132,20 @@ func run(configPath, registersPath string, logger *slog.Logger) error {
 	if err := mqttLifecycle.Start(ctx); err != nil {
 		return fmt.Errorf("mtec2mqtt: mqtt start: %w", err)
 	}
+	// Circuit breaker between the coordinator and the broker: during a
+	// degraded-broker phase (TCP link up, acks missing) publishes fail
+	// fast with mqtt.ErrCircuitOpen instead of each stalling on the ack
+	// timeout, and bounded half-open probes test recovery. Defaults: 5
+	// consecutive broker-side failures open the circuit, recovery is
+	// probed after 30s. The lifecycle's reconnect loop stays in charge
+	// of the link itself.
+	breaker := mqtt.NewBreaker(mqttClient, mqtt.BreakerConfig{
+		OnStateChange: func(from, to mqtt.BreakerState) {
+			logger.Warn("mtec2mqtt.mqtt_breaker_state",
+				slog.String("from", from.String()),
+				slog.String("to", to.String()))
+		},
+	})
 	defer func() {
 		// Graceful disconnect — bounded so a hung broker can't block
 		// shutdown for more than a few seconds.
@@ -165,7 +179,7 @@ func run(configPath, registersPath string, logger *slog.Logger) error {
 		Catalog: catalog,
 		Modbus:  modbusClient,
 		Reader:  reader,
-		MQTT:    mqttClient,
+		MQTT:    &mqttSession{Breaker: breaker, MQTTSubscriber: mqttClient},
 		HASS:    discovery,
 		Logger:  logger,
 		Store:   store,
@@ -251,6 +265,23 @@ func loadCatalog(explicit string, logger *slog.Logger) (*registers.Map, error) {
 		slog.Int("registers", len(m.All)))
 	return m, nil
 }
+
+// mqttSession is the MQTT surface handed to the coordinator: Publish
+// is gated by the circuit breaker, while Subscribe/Unsubscribe go
+// straight to the client — subscriptions are startup-path calls with
+// their own SUBACK-bounded wait and must not be rejected during a
+// publish-side broker brownout.
+type mqttSession struct {
+	*mqtt.Breaker
+	coordinator.MQTTSubscriber
+}
+
+// Compile-time contract: the session satisfies the coordinator's
+// combined MQTT dependency.
+var _ interface {
+	coordinator.MQTTPublisher
+	coordinator.MQTTSubscriber
+} = (*mqttSession)(nil)
 
 func locateRegisters() string {
 	candidates := []string{}
