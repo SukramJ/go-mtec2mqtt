@@ -114,17 +114,19 @@ func run(configPath, registersPath string, logger *slog.Logger) error {
 		tlsConfig = mqtt.NewClientTLSConfig(cfg.MQTTServer, cfg.MQTTSSLInsecure)
 	}
 	mqttClient := mqtt.NewTCPClient(mqtt.TCPConfig{
-		BrokerURL:    cfg.MQTTBrokerURL(),
-		ClientID:     clientID,
-		Username:     cfg.MQTTLogin,
-		Password:     cfg.MQTTPassword,
-		KeepAlive:    60 * time.Second,
-		WillTopic:    cfg.HASSBaseTopic + "/status/lwt",
-		WillPayload:  []byte("offline"),
-		WillRetain:   true,
-		CleanSession: true,
-		TLSConfig:    tlsConfig,
-		Logger:       logger,
+		BrokerURL:  cfg.MQTTBrokerURL(),
+		ClientID:   clientID,
+		Username:   cfg.MQTTLogin,
+		Password:   cfg.MQTTPassword,
+		KeepAlive:  60 * time.Second,
+		CleanStart: true,
+		Will: &mqtt.Will{
+			Topic:   cfg.HASSBaseTopic + "/status/lwt",
+			Payload: []byte("offline"),
+			Retain:  true,
+		},
+		TLSConfig: tlsConfig,
+		Logger:    logger,
 	})
 	mqttLifecycle := mqtt.NewLifecycle(mqtt.DefaultLifecycle(), mqttClient)
 	if err := mqttLifecycle.Start(ctx); err != nil {
