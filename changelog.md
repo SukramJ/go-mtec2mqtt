@@ -1,3 +1,20 @@
+# Version 1.6.2 (2026-07-06)
+
+## What's Changed
+
+### Fixed
+
+- **Home Assistant entity ids now match the Python `aiomtec2mqtt`
+  scheme.** 1.6.1 seeded the `entity_id` from the short mqtt topic key
+  (`grid_a`, `mode`, `pv_1`, `backup_day`, …), which diverged sharply
+  from the established ids. The Python reference sets no `object_id` and
+  lets HA build the id from the register **name**, so the seed is now the
+  slugified English register **name** to match — e.g. register `grid_a` /
+  "Grid power phase A" → `sensor.<device>_grid_power_phase_a` instead of
+  `sensor.<device>_grid_a`. The English name (never the localised display
+  name) keeps ids language-independent; `unique_id` / MQTT topics still
+  key on the mqtt suffix, so no existing entity is renamed.
+
 # Version 1.6.1 (2026-07-06)
 
 ## What's Changed
