@@ -68,6 +68,16 @@ type Config struct {
 	HASSEnable         bool   `yaml:"HASS_ENABLE"`
 	HASSBaseTopic      string `yaml:"HASS_BASE_TOPIC"`
 	HASSBirthGracetime int    `yaml:"HASS_BIRTH_GRACETIME"` // seconds
+	// DeviceName is an optional operator-chosen name for this inverter.
+	// When set it becomes the Home Assistant device name (replacing the
+	// generic "MTEC EnergyButler") and is slugged into each entity's
+	// object_id and unique_id, so HA derives entity_ids like
+	// sensor.<device_name>_grid_power instead of the generic ones. Leave
+	// empty to keep the previous behaviour unchanged. The MQTT topic tree
+	// stays keyed on the inverter serial regardless — only the HA-facing
+	// identity is affected, so setting this on an existing install renames
+	// entities (opt-in) without moving any published topics.
+	DeviceName string `yaml:"DEVICE_NAME"`
 
 	// --- Refresh intervals (seconds) ---
 	RefreshNow    int `yaml:"REFRESH_NOW"`

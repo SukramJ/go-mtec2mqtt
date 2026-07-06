@@ -84,6 +84,7 @@ func TestEnvOverrideCoercion(t *testing.T) {
 		"MTEC_HASS_ENABLE":   "true",
 		"MTEC_REFRESH_NOW":   "20",
 		"MTEC_MQTT_PASSWORD": "s3cret!", // stays string
+		"MTEC_DEVICE_NAME":   "Wohnzimmer",
 		"UNRELATED_VAR":      "ignored",
 		"MTEC_":              "empty key, ignored",
 	}}
@@ -105,6 +106,9 @@ func TestEnvOverrideCoercion(t *testing.T) {
 	}
 	if c.MQTTPassword != "s3cret!" {
 		t.Errorf("string preserved: %q", c.MQTTPassword)
+	}
+	if c.DeviceName != "Wohnzimmer" {
+		t.Errorf("MTEC_DEVICE_NAME override: %q", c.DeviceName)
 	}
 }
 

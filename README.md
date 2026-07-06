@@ -144,6 +144,14 @@ daemon then dials `tls://` and defaults to port 8883 unless
 broker certificate verification — only for a self-signed certificate
 on a broker you control; never enable it against an untrusted broker.
 
+Set `DEVICE_NAME` to give the inverter a friendly name: it becomes the
+Home Assistant device name (instead of the generic "MTEC EnergyButler")
+and is slugged into every entity id (e.g. `sensor.<device_name>_grid_power`),
+which is handy to tell multiple inverters apart. Leave it empty to keep
+the previous behaviour. The MQTT topic tree stays keyed on the inverter
+serial regardless — a device name only renames the Home Assistant
+entities, it never moves a published topic.
+
 Every config key can be overridden at runtime via an `MTEC_<KEY>` env
 var — useful in Docker / systemd setups:
 

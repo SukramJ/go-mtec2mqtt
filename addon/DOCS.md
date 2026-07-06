@@ -30,6 +30,7 @@ Everything else has sensible defaults; use the reference below to fine-tune.
 | `mqtt_password` | password | `""` | MQTT password. Only used when `mqtt_server` is set. |
 | `mqtt_topic` | str | `MTEC` | Base MQTT topic for published register state. |
 | `hass_enable` | bool | `true` | Publish Home Assistant MQTT discovery so entities appear automatically. On by default — leave enabled for the normal HA experience; disable only to manage entities manually. |
+| `device_name` | str | `""` | Optional friendly name for this inverter. When set, it becomes the Home Assistant device name (instead of the generic "MTEC EnergyButler") and is slugged into every entity's id (e.g. `sensor.<device_name>_grid_power`) — handy to tell multiple inverters apart. Leave empty to keep the previous behaviour. MQTT topics stay keyed on the inverter serial, so this only renames the HA entities (opt-in). |
 | `language` | list(en\|de) | `en` | UI / entity naming language. Entity ids stay language-independent, so switching never re-creates entities. |
 | `web_enable` | bool | `true` | Enable the diagnostic web UI (required for the Ingress panel). |
 | `charge_active_value` | int | `50` | Amperage written to the charge-limit register when the "Charge active" switch is first turned on (native register unit). |

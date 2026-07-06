@@ -120,6 +120,13 @@ type Discovery struct {
 	lang          string
 	virtual       []VirtualSwitch
 
+	// deviceName is the operator-chosen HA device name (empty = use the
+	// generic deviceName constant). deviceSlug is its slugged form, mixed
+	// into object_id/unique_id so entity_ids reflect it; empty when no
+	// name is configured, preserving the previous generic identity.
+	deviceName string
+	deviceSlug string
+
 	serialNo      string
 	firmware      string
 	equipmentInfo string
@@ -131,18 +138,70 @@ type Discovery struct {
 // New constructs a Discovery for the given topic roots and catalog.
 // hassBaseTopic is usually "homeassistant"; mqttTopic is the MTEC
 // publish root (e.g. "MTEC"). lang ("en"/"de") localises entity friendly
-// names; virtual adds synthetic switch entities (may be nil).
-func New(hassBaseTopic, mqttTopic string, catalog *registers.Map, lang string, virtual []VirtualSwitch) *Discovery {
+// names; virtual adds synthetic switch entities (may be nil). deviceName
+// is the optional operator-chosen HA device name — when non-empty it
+// replaces the generic device name and its slug is folded into every
+// object_id/unique_id; pass "" to keep the previous generic identity.
+func New(hassBaseTopic, mqttTopic string, catalog *registers.Map, lang string, virtual []VirtualSwitch, deviceName string) *Discovery {
 	if lang == "" {
 		lang = "en"
 	}
+	deviceName = strings.TrimSpace(deviceName)
 	return &Discovery{
 		hassBaseTopic: hassBaseTopic,
 		mqttTopic:     mqttTopic,
 		catalog:       catalog,
 		lang:          lang,
 		virtual:       virtual,
+		deviceName:    deviceName,
+		deviceSlug:    slugify(deviceName),
 	}
+}
+
+// slugify reduces a free-text device name to a lower-case
+// [a-z0-9_] token usable inside an HA object_id / unique_id. Runs of
+// non-alphanumeric characters collapse to a single underscore and
+// leading/trailing underscores are trimmed. Returns "" for input that
+// carries no usable characters, so callers fall back to the generic
+// identity.
+func slugify(s string) string {
+	var b strings.Builder
+	lastUnderscore := false
+	for _, r := range strings.ToLower(s) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			lastUnderscore = false
+		default:
+			if b.Len() > 0 && !lastUnderscore {
+				b.WriteByte('_')
+				lastUnderscore = true
+			}
+		}
+	}
+	return strings.Trim(b.String(), "_")
+}
+
+// objectID returns the HA object_id for an entity key, prefixed with the
+// device slug when a device name is configured so entity_ids read as
+// "<platform>.<device>_<key>". Without a device name it is the bare key,
+// exactly as before.
+func (d *Discovery) objectID(key string) string {
+	if d.deviceSlug == "" {
+		return key
+	}
+	return d.deviceSlug + "_" + key
+}
+
+// uniqueID returns the entity unique_id: the "MTEC_" namespace prefix,
+// then the device slug (when configured) so multiple inverters no longer
+// collide, then the entity key. Without a device name it stays the
+// historic "MTEC_<key>", keeping existing entities stable on upgrade.
+func (d *Discovery) uniqueID(key string) string {
+	if d.deviceSlug == "" {
+		return uniqueIDPrefix + key
+	}
+	return uniqueIDPrefix + d.deviceSlug + "_" + key
 }
 
 // IsInitialized reports whether [Initialize] has been called.
@@ -156,12 +215,20 @@ func (d *Discovery) Initialize(serialNo, firmware, equipmentInfo string) {
 	d.serialNo = serialNo
 	d.firmware = firmware
 	d.equipmentInfo = equipmentInfo
+	// The HA device name is the operator-chosen one when configured,
+	// otherwise the generic constant. Identifiers/serial_number stay
+	// keyed on the serial so the device registry entry is stable
+	// regardless of any display-name change.
+	name := deviceName
+	if d.deviceName != "" {
+		name = d.deviceName
+	}
 	d.device = map[string]any{
 		"identifiers":   []string{serialNo},
 		"manufacturer":  manufacturer,
 		"model":         model,
 		"model_id":      equipmentInfo,
-		"name":          deviceName,
+		"name":          name,
 		"serial_number": serialNo,
 		"sw_version":    firmware,
 	}
@@ -257,14 +324,14 @@ func (d *Discovery) buildEntries() {
 // stable Key (also the object_id), and its friendly name is localised.
 // payload_on/off are "1"/"0" to match the coordinator-published state.
 func (d *Discovery) appendVirtualSwitch(v VirtualSwitch) {
-	uid := uniqueIDPrefix + v.Key
+	uid := d.uniqueID(v.Key)
 	command := fmt.Sprintf("%s/%s/%s/%s/set", d.mqttTopic, d.serialNo, v.Group, v.Key)
 	payload := map[string]any{
 		"command_topic":      command,
 		"device":             d.device,
 		"enabled_by_default": true,
 		"name":               v.LocalizedName(d.lang),
-		"object_id":          v.Key,
+		"object_id":          d.objectID(v.Key),
 		"payload_off":        "0",
 		"payload_on":         "1",
 		"state_topic":        fmt.Sprintf("%s/%s/%s/%s/state", d.mqttTopic, d.serialNo, v.Group, v.Key),
@@ -276,12 +343,12 @@ func (d *Discovery) appendVirtualSwitch(v VirtualSwitch) {
 // --- per-platform builders --------------------------------------------------
 
 func (d *Discovery) appendSensor(r *registers.Register) {
-	uid := uniqueIDPrefix + r.MQTT
+	uid := d.uniqueID(r.MQTT)
 	payload := map[string]any{
 		"device":              d.device,
 		"enabled_by_default":  true,
 		"name":                r.LocalizedName(d.lang),
-		"object_id":           r.MQTT,
+		"object_id":           d.objectID(r.MQTT),
 		"state_topic":         d.stateTopic(r),
 		"unique_id":           uid,
 		"unit_of_measurement": r.Unit,
@@ -299,12 +366,12 @@ func (d *Discovery) appendSensor(r *registers.Register) {
 }
 
 func (d *Discovery) appendBinarySensor(r *registers.Register) {
-	uid := uniqueIDPrefix + r.MQTT
+	uid := d.uniqueID(r.MQTT)
 	payload := map[string]any{
 		"device":             d.device,
 		"enabled_by_default": true,
 		"name":               r.LocalizedName(d.lang),
-		"object_id":          r.MQTT,
+		"object_id":          d.objectID(r.MQTT),
 		"state_topic":        d.stateTopic(r),
 		"unique_id":          uid,
 	}
@@ -321,7 +388,7 @@ func (d *Discovery) appendBinarySensor(r *registers.Register) {
 }
 
 func (d *Discovery) appendNumber(r *registers.Register) {
-	uid := uniqueIDPrefix + r.MQTT
+	uid := d.uniqueID(r.MQTT)
 	command := d.commandTopic(r)
 	payload := map[string]any{
 		"command_topic":       command,
@@ -329,7 +396,7 @@ func (d *Discovery) appendNumber(r *registers.Register) {
 		"enabled_by_default":  false,
 		"mode":                "box",
 		"name":                r.LocalizedName(d.lang),
-		"object_id":           r.MQTT,
+		"object_id":           d.objectID(r.MQTT),
 		"state_topic":         d.stateTopic(r),
 		"unique_id":           uid,
 		"unit_of_measurement": r.Unit,
@@ -341,14 +408,14 @@ func (d *Discovery) appendNumber(r *registers.Register) {
 }
 
 func (d *Discovery) appendSelect(r *registers.Register) {
-	uid := uniqueIDPrefix + r.MQTT
+	uid := d.uniqueID(r.MQTT)
 	command := d.commandTopic(r)
 	payload := map[string]any{
 		"command_topic":      command,
 		"device":             d.device,
 		"enabled_by_default": false,
 		"name":               r.LocalizedName(d.lang),
-		"object_id":          r.MQTT,
+		"object_id":          d.objectID(r.MQTT),
 		"options":            valueItemsValues(r.LocalizedValueItems(d.lang)),
 		"state_topic":        d.stateTopic(r),
 		"unique_id":          uid,
@@ -357,14 +424,14 @@ func (d *Discovery) appendSelect(r *registers.Register) {
 }
 
 func (d *Discovery) appendSwitch(r *registers.Register) {
-	uid := uniqueIDPrefix + r.MQTT
+	uid := d.uniqueID(r.MQTT)
 	command := d.commandTopic(r)
 	payload := map[string]any{
 		"command_topic":      command,
 		"device":             d.device,
 		"enabled_by_default": false,
 		"name":               r.LocalizedName(d.lang),
-		"object_id":          r.MQTT,
+		"object_id":          d.objectID(r.MQTT),
 		"state_topic":        d.stateTopic(r),
 		"unique_id":          uid,
 	}

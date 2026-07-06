@@ -1,3 +1,22 @@
+# Version 1.6.0 (2026-07-06)
+
+## What's Changed
+
+### Added
+
+- **Optional device name.** A new `DEVICE_NAME` config key (add-on option
+  `device_name`, env `MTEC_DEVICE_NAME`) lets you give the inverter a
+  friendly name. When set it becomes the Home Assistant device name
+  (instead of the generic "MTEC EnergyButler") and is slugged into every
+  entity's `object_id`/`unique_id`, so Home Assistant derives entity ids
+  like `sensor.<device_name>_grid_power` — handy to tell multiple
+  inverters apart. Leaving it empty preserves the previous identity
+  exactly, so existing installs are unaffected on upgrade. The MQTT topic
+  tree stays keyed on the inverter serial regardless: setting a name only
+  renames the HA-facing entities (opt-in), it never moves a published
+  topic. The device-registry `identifiers`/`serial_number` also stay the
+  serial, keeping the device entry stable across a rename.
+
 # Version 1.5.0 (2026-07-04)
 
 ## What's Changed

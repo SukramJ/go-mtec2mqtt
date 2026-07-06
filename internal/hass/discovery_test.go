@@ -93,7 +93,7 @@ func loadCatalog(t *testing.T) *registers.Map {
 
 func newDiscovery(t *testing.T) *Discovery {
 	t.Helper()
-	d := New("homeassistant", "MTEC", loadCatalog(t), "en", nil)
+	d := New("homeassistant", "MTEC", loadCatalog(t), "en", nil, "")
 	d.Initialize("SN12345", "V27.52.4.0", "8.0K-25A-3P")
 	return d
 }
@@ -145,7 +145,7 @@ func TestDiscoveryEntryCountAndSkipping(t *testing.T) {
 }
 
 func TestDiscoveryIsInitialized(t *testing.T) {
-	d := New("homeassistant", "MTEC", loadCatalog(t), "en", nil)
+	d := New("homeassistant", "MTEC", loadCatalog(t), "en", nil, "")
 	if d.IsInitialized() {
 		t.Fatal("must report uninitialised before Initialize")
 	}
@@ -308,7 +308,7 @@ func TestDiscoveryAgainstRealCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := New("homeassistant", "MTEC", m, "en", nil)
+	d := New("homeassistant", "MTEC", m, "en", nil, "")
 	d.Initialize("SN12345", "V27.52.4.0", "8.0K-25A-3P")
 
 	if len(d.Entries()) < 50 {
@@ -375,7 +375,7 @@ func TestGermanNamesAndOptions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := New("homeassistant", "MTEC", m, "de", nil)
+	d := New("homeassistant", "MTEC", m, "de", nil, "")
 	d.Initialize("SN", "V1", "model")
 
 	sensor := unmarshalEntry(t, findEntry(t, d, "sensor/MTEC_grid_power/config"))
@@ -398,7 +398,7 @@ func TestGermanNamesAndOptions(t *testing.T) {
 
 func TestVirtualSwitchEntities(t *testing.T) {
 	vs := DefaultVirtualSwitches(50, 40)
-	d := New("homeassistant", "MTEC", loadCatalog(t), "de", vs)
+	d := New("homeassistant", "MTEC", loadCatalog(t), "de", vs, "")
 	d.Initialize("SN12345", "V1", "model")
 
 	e, ok := findEntryOK(d, "switch/MTEC_charge_active/config")
@@ -429,14 +429,14 @@ func TestVirtualSwitchEntities(t *testing.T) {
 // --- orphan-cleanup guards -------------------------------------------------
 
 func TestConfigFilter(t *testing.T) {
-	d := New("homeassistant", "MTEC", loadCatalog(t), "en", nil)
+	d := New("homeassistant", "MTEC", loadCatalog(t), "en", nil, "")
 	if got, want := d.ConfigFilter(), "homeassistant/+/+/config"; got != want {
 		t.Errorf("ConfigFilter = %q, want %q", got, want)
 	}
 }
 
 func TestIsOwnConfig(t *testing.T) {
-	d := New("homeassistant", "MTEC", loadCatalog(t), "en", nil)
+	d := New("homeassistant", "MTEC", loadCatalog(t), "en", nil, "")
 	cases := []struct {
 		name    string
 		payload string
@@ -501,6 +501,79 @@ func assertSubset(t *testing.T, got, want map[string]any) {
 		if !equalAny(gv, v) {
 			t.Errorf("%q: got %v (%T), want %v (%T)", k, gv, gv, v, v)
 		}
+	}
+}
+
+// --- device name / identity --------------------------------------------------
+
+func TestSlugify(t *testing.T) {
+	cases := map[string]string{
+		"Wohnzimmer":          "wohnzimmer",
+		"Wohnzimmer Inverter": "wohnzimmer_inverter",
+		"  PV-Dach #2  ":      "pv_dach_2",
+		"ÜÄÖ":                 "", // no ASCII alnum → no usable slug
+		"":                    "",
+		"__a__":               "a",
+		"a.b.c":               "a_b_c",
+	}
+	for in, want := range cases {
+		if got := slugify(in); got != want {
+			t.Errorf("slugify(%q): got %q, want %q", in, got, want)
+		}
+	}
+}
+
+// Without a device name the identity stays exactly as before: bare
+// object_id, "MTEC_" unique_id, generic device name. This is the
+// backward-compat guard.
+func TestDeviceNameUnsetKeepsGenericIdentity(t *testing.T) {
+	d := New("homeassistant", "MTEC", loadCatalog(t), "en", nil, "")
+	d.Initialize("SN12345", "V1", "model")
+
+	e := findEntry(t, d, "sensor/MTEC_grid_power/config")
+	p := unmarshalEntry(t, e)
+	if got := p["object_id"]; got != "grid_power" {
+		t.Errorf("object_id: got %v, want %q", got, "grid_power")
+	}
+	if got := p["unique_id"]; got != "MTEC_grid_power" {
+		t.Errorf("unique_id: got %v, want %q", got, "MTEC_grid_power")
+	}
+	dev := p["device"].(map[string]any)
+	if got := dev["name"]; got != deviceName {
+		t.Errorf("device name: got %v, want %q", got, deviceName)
+	}
+}
+
+// With a device name set, it becomes the HA device name and is slugged
+// into object_id/unique_id (hence the discovery config topic). The MQTT
+// state/command topics must still be keyed on the serial, unchanged.
+func TestDeviceNameSetRewritesEntityIdentity(t *testing.T) {
+	d := New("homeassistant", "MTEC", loadCatalog(t), "en", nil, "Wohnzimmer Inverter")
+	d.Initialize("SN12345", "V1", "model")
+
+	e := findEntry(t, d, "sensor/MTEC_wohnzimmer_inverter_grid_power/config")
+	p := unmarshalEntry(t, e)
+	if got := p["object_id"]; got != "wohnzimmer_inverter_grid_power" {
+		t.Errorf("object_id: got %v, want slugged form", got)
+	}
+	if got := p["unique_id"]; got != "MTEC_wohnzimmer_inverter_grid_power" {
+		t.Errorf("unique_id: got %v, want slugged form", got)
+	}
+	dev := p["device"].(map[string]any)
+	if got := dev["name"]; got != "Wohnzimmer Inverter" {
+		t.Errorf("device name: got %v, want raw configured name", got)
+	}
+	// Identity in the device registry stays the serial, not the name.
+	if got := dev["serial_number"]; got != "SN12345" {
+		t.Errorf("serial_number: got %v, want %q", got, "SN12345")
+	}
+	// Topics remain serial-keyed — no MQTT topic move.
+	if got := p["state_topic"].(string); got != "MTEC/SN12345/now-base/grid_power/state" {
+		t.Errorf("state_topic must stay serial-keyed, got %q", got)
+	}
+	// IsOwnConfig must still recognise the payload as ours.
+	if !d.IsOwnConfig(e.Payload) {
+		t.Error("IsOwnConfig must still match slugged unique_id")
 	}
 }
 
