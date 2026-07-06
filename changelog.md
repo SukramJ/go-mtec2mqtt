@@ -1,3 +1,23 @@
+# Version 1.6.1 (2026-07-06)
+
+## What's Changed
+
+### Fixed
+
+- **Home Assistant entity ids no longer follow the translated friendly
+  name.** 1.6.0 published only `default_entity_id` to seed the
+  `entity_id`, but current HA Core does not yet apply that option
+  reliably in MQTT discovery (home-assistant/core#157241) — it falls back
+  to slugging the localised `name`, so with `LANGUAGE: de` the entity ids
+  came out German (e.g. `sensor.netzleistung`). The discovery payloads now
+  publish **both** seeds: `object_id` (`"<key>"`, still honoured by
+  today's HA) and `default_entity_id` (`"<domain>.<key>"`, its successor
+  for HA Core 2026.4+ once `object_id` is removed). Both are derived from
+  the language-independent register key (optionally the device-name slug),
+  never the translated name, so entity ids stay English while only the
+  display name follows `LANGUAGE`. `unique_id` is unchanged, so no
+  existing entity is re-created.
+
 # Version 1.6.0 (2026-07-06)
 
 ## What's Changed
@@ -8,28 +28,28 @@
   `device_name`, env `MTEC_DEVICE_NAME`) lets you give the inverter a
   friendly name. When set it becomes the Home Assistant device name
   (instead of the generic "MTEC EnergyButler") and is slugged into every
-  entity's `default_entity_id`, so Home Assistant seeds fresh entity ids
-  like `sensor.<device_name>_grid_power` — handy to tell multiple
-  inverters apart. The entity `unique_id` is deliberately left unchanged,
-  so enabling this on an existing install does not orphan established
-  entities or lose their history/customisations — only newly created
-  entities pick up the nicer id (`default_entity_id` only seeds the
-  initial id; HA tracks entities by `unique_id`). Leaving it empty
-  preserves the previous identity exactly. The MQTT topic tree also stays
-  keyed on the inverter serial regardless, and the device-registry
+  entity's entity-id seed, so Home Assistant seeds fresh entity ids like
+  `sensor.<device_name>_grid_power` — handy to tell multiple inverters
+  apart. The seed is always the English register key (never the localised
+  friendly name), so entity ids stay language-independent; only the
+  display name follows `LANGUAGE`. The entity `unique_id` is deliberately
+  left unchanged, so enabling this on an existing install does not orphan
+  established entities or lose their history/customisations — only newly
+  created entities pick up the nicer id (the seed only sets the initial
+  id; HA tracks entities by `unique_id`). Leaving it empty preserves the
+  previous identity exactly. The MQTT topic tree also stays keyed on the
+  inverter serial regardless, and the device-registry
   `identifiers`/`serial_number` stay the serial, keeping the device entry
   stable across a rename.
 
-### Fixed
+### Changed
 
-- **Home Assistant discovery no longer uses the deprecated `object_id`
-  option.** HA Core deprecated the `object_id` discovery option in
-  2025.10 (logging a warning per entity) and removed it in 2026.4. The
-  discovery payloads now publish `default_entity_id`
-  (`"<domain>.<key>"`) instead, which restores control over the seeded
-  `entity_id` on current Home Assistant and clears the deprecation
-  warnings. `unique_id` — the value HA tracks entities by — is
-  unchanged, so this does not re-create any existing entities.
+- **Home Assistant discovery migrated off the deprecated `object_id`
+  option.** HA Core deprecated the `object_id` discovery option in 2025.10
+  in favour of `default_entity_id` and removes it in 2026.4, so the
+  payloads switched to publishing `default_entity_id` (`"<domain>.<key>"`)
+  to seed the `entity_id`. (Superseded by 1.6.1, which also re-adds
+  `object_id` — see above.)
 
 # Version 1.5.0 (2026-07-04)
 
