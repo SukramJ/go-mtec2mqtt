@@ -37,9 +37,8 @@ HASS_BIRTH_GRACETIME: 15 # Give HASS some time to get ready after the birth mess
 # (instead of the generic "MTEC EnergyButler") and is slugged into every
 # entity's entity_id seed, so HA seeds fresh entity_ids like
 # sensor.<device_name>_grid_power. Handy to tell multiple inverters apart.
-# The seed is the slugified English register name (matching the Python
-# aiomtec2mqtt entity_ids), never the localised display name, so entity_ids
-# stay language-independent; only the display name follows
+# The seed is always the English register key (never the localised name), so
+# entity_ids stay language-independent; only the display name follows
 # LANGUAGE. The entity unique_id is left unchanged, so enabling this on an
 # existing install does not orphan established entities — only newly created
 # ones pick up the nicer id. Leave empty to keep the previous behaviour. The

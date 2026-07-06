@@ -62,8 +62,7 @@ type Entry struct {
 // the discovery builder and the coordinator read from, so the entity's
 // identity (key, names, group) lives in one place.
 type VirtualSwitch struct {
-	// Key is the MQTT suffix and the stable unique_id seed — never localised.
-	// (The entity_id is seeded from the English Name, like real registers.)
+	// Key is the MQTT suffix and the stable entity_id seed — never localised.
 	Key string
 	// Name / NameDE are the friendly labels (English / German).
 	Name   string
@@ -184,21 +183,15 @@ func slugify(s string) string {
 }
 
 // entityIDBase returns the language-independent object part of the
-// entity_id, derived from a register's ENGLISH name (never the localised
-// display name): slug(name), or "<device>_<slug(name)>" when a device
-// name is configured. Seeding from the English name — rather than the
-// short mqtt topic key — mirrors the Python aiomtec2mqtt reference, which
-// sets no object_id and lets HA build the entity_id from the name, so the
-// Go port stays a drop-in replacement (same entity_ids). Pinning to the
-// English name keeps the id stable across LANGUAGE; only the display
-// "name" carries translations. Example: "Grid power phase A" (device
-// "MrBurns") → "mrburns_grid_power_phase_a".
-func (d *Discovery) entityIDBase(englishName string) string {
-	seed := slugify(englishName)
+// entity_id: the plain entity key, or "<device>_<key>" when a device name
+// is configured. It is never derived from the localised friendly name, so
+// the generated entity_id stays English regardless of LANGUAGE — only the
+// display "name" carries translations.
+func (d *Discovery) entityIDBase(key string) string {
 	if d.deviceSlug == "" {
-		return seed
+		return key
 	}
-	return d.deviceSlug + "_" + seed
+	return d.deviceSlug + "_" + key
 }
 
 // objectID is the bare seed HA has historically used to generate the
@@ -209,8 +202,8 @@ func (d *Discovery) entityIDBase(englishName string) string {
 // leaks into the entity_id). We therefore publish both (see
 // [Discovery.defaultEntityID]); object_id keeps today's HA correct,
 // default_entity_id keeps future HA correct.
-func (d *Discovery) objectID(englishName string) string {
-	return d.entityIDBase(englishName)
+func (d *Discovery) objectID(key string) string {
+	return d.entityIDBase(key)
 }
 
 // defaultEntityID builds the HA "default_entity_id" discovery option:
@@ -221,8 +214,8 @@ func (d *Discovery) objectID(englishName string) string {
 // by unique_id, so it never renames an entity that already exists —
 // enabling a device name later gives new entities the nicer id without
 // disturbing established ones.
-func (d *Discovery) defaultEntityID(p Platform, englishName string) string {
-	return string(p) + "." + d.entityIDBase(englishName)
+func (d *Discovery) defaultEntityID(p Platform, key string) string {
+	return string(p) + "." + d.entityIDBase(key)
 }
 
 // uniqueID returns the entity unique_id: the "MTEC_" namespace prefix
@@ -362,9 +355,9 @@ func (d *Discovery) appendVirtualSwitch(v VirtualSwitch) {
 		"command_topic":      command,
 		"device":             d.device,
 		"enabled_by_default": true,
-		"default_entity_id":  d.defaultEntityID(PlatformSwitch, v.Name),
+		"default_entity_id":  d.defaultEntityID(PlatformSwitch, v.Key),
 		"name":               v.LocalizedName(d.lang),
-		"object_id":          d.objectID(v.Name),
+		"object_id":          d.objectID(v.Key),
 		"payload_off":        "0",
 		"payload_on":         "1",
 		"state_topic":        fmt.Sprintf("%s/%s/%s/%s/state", d.mqttTopic, d.serialNo, v.Group, v.Key),
@@ -378,11 +371,11 @@ func (d *Discovery) appendVirtualSwitch(v VirtualSwitch) {
 func (d *Discovery) appendSensor(r *registers.Register) {
 	uid := d.uniqueID(r.MQTT)
 	payload := map[string]any{
-		"default_entity_id":   d.defaultEntityID(PlatformSensor, r.Name),
+		"default_entity_id":   d.defaultEntityID(PlatformSensor, r.MQTT),
 		"device":              d.device,
 		"enabled_by_default":  true,
 		"name":                r.LocalizedName(d.lang),
-		"object_id":           d.objectID(r.Name),
+		"object_id":           d.objectID(r.MQTT),
 		"state_topic":         d.stateTopic(r),
 		"unique_id":           uid,
 		"unit_of_measurement": r.Unit,
@@ -402,11 +395,11 @@ func (d *Discovery) appendSensor(r *registers.Register) {
 func (d *Discovery) appendBinarySensor(r *registers.Register) {
 	uid := d.uniqueID(r.MQTT)
 	payload := map[string]any{
-		"default_entity_id":  d.defaultEntityID(PlatformBinarySensor, r.Name),
+		"default_entity_id":  d.defaultEntityID(PlatformBinarySensor, r.MQTT),
 		"device":             d.device,
 		"enabled_by_default": true,
 		"name":               r.LocalizedName(d.lang),
-		"object_id":          d.objectID(r.Name),
+		"object_id":          d.objectID(r.MQTT),
 		"state_topic":        d.stateTopic(r),
 		"unique_id":          uid,
 	}
@@ -431,8 +424,8 @@ func (d *Discovery) appendNumber(r *registers.Register) {
 		"enabled_by_default":  false,
 		"mode":                "box",
 		"name":                r.LocalizedName(d.lang),
-		"default_entity_id":   d.defaultEntityID(PlatformNumber, r.Name),
-		"object_id":           d.objectID(r.Name),
+		"default_entity_id":   d.defaultEntityID(PlatformNumber, r.MQTT),
+		"object_id":           d.objectID(r.MQTT),
 		"state_topic":         d.stateTopic(r),
 		"unique_id":           uid,
 		"unit_of_measurement": r.Unit,
@@ -450,9 +443,9 @@ func (d *Discovery) appendSelect(r *registers.Register) {
 		"command_topic":      command,
 		"device":             d.device,
 		"enabled_by_default": false,
-		"default_entity_id":  d.defaultEntityID(PlatformSelect, r.Name),
+		"default_entity_id":  d.defaultEntityID(PlatformSelect, r.MQTT),
 		"name":               r.LocalizedName(d.lang),
-		"object_id":          d.objectID(r.Name),
+		"object_id":          d.objectID(r.MQTT),
 		"options":            valueItemsValues(r.LocalizedValueItems(d.lang)),
 		"state_topic":        d.stateTopic(r),
 		"unique_id":          uid,
@@ -467,9 +460,9 @@ func (d *Discovery) appendSwitch(r *registers.Register) {
 		"command_topic":      command,
 		"device":             d.device,
 		"enabled_by_default": false,
-		"default_entity_id":  d.defaultEntityID(PlatformSwitch, r.Name),
+		"default_entity_id":  d.defaultEntityID(PlatformSwitch, r.MQTT),
 		"name":               r.LocalizedName(d.lang),
-		"object_id":          d.objectID(r.Name),
+		"object_id":          d.objectID(r.MQTT),
 		"state_topic":        d.stateTopic(r),
 		"unique_id":          uid,
 	}

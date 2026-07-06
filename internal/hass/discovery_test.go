@@ -361,19 +361,17 @@ const localisedCatalogYAML = `
 
 func TestEntriesCarryStableEntityID(t *testing.T) {
 	d := newDiscovery(t)
-	// The entity_id seeds derive from the English register *name*
-	// (slug("Inject limit") = "inject_limit"), NOT the mqtt topic key
-	// ("grid_inject_limit") — this matches the Python aiomtec2mqtt entity
-	// ids. The unique_id / config topic still key on the mqtt suffix. We
-	// publish object_id (honoured by current HA) and default_entity_id
-	// (its "<domain>.<id>" successor for HA Core 2026.4+).
+	// Both entity_id seeds must be the language-independent mqtt suffix so
+	// the HA entity_id never changes when the friendly name is translated.
+	// We publish object_id (honoured by current HA) and default_entity_id
+	// (its "<domain>.<key>" successor for HA Core 2026.4+).
 	e := findEntry(t, d, "number/MTEC_grid_inject_limit/config")
 	p := unmarshalEntry(t, e)
-	if p["object_id"] != "inject_limit" {
-		t.Errorf("object_id = %v, want inject_limit (from name)", p["object_id"])
+	if p["object_id"] != "grid_inject_limit" {
+		t.Errorf("object_id = %v, want grid_inject_limit", p["object_id"])
 	}
-	if p["default_entity_id"] != "number.inject_limit" {
-		t.Errorf("default_entity_id = %v, want number.inject_limit", p["default_entity_id"])
+	if p["default_entity_id"] != "number.grid_inject_limit" {
+		t.Errorf("default_entity_id = %v, want number.grid_inject_limit", p["default_entity_id"])
 	}
 }
 

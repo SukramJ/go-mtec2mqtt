@@ -73,8 +73,7 @@ type Config struct {
 	// generic "MTEC EnergyButler") and is slugged into each entity's
 	// entity_id seed, so HA seeds fresh entity_ids like
 	// sensor.<device_name>_grid_power instead of the generic ones. The seed
-	// is the slugified English register name (matching the Python
-	// aiomtec2mqtt entity_ids), never the localised display name, so
+	// is always the English register key (never the localised name), so
 	// entity_ids stay language-independent; only the display name follows
 	// LANGUAGE. The entity unique_id is deliberately left unchanged, so
 	// enabling this on an existing install does not orphan established

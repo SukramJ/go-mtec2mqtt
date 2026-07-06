@@ -148,10 +148,9 @@ Set `DEVICE_NAME` to give the inverter a friendly name: it becomes the
 Home Assistant device name (instead of the generic "MTEC EnergyButler")
 and is slugged into every entity's entity-id seed, so HA seeds fresh
 entity ids like `sensor.<device_name>_grid_power` — handy to tell multiple
-inverters apart. The seed is the slugified English register name (matching
-the Python `aiomtec2mqtt` entity ids), never the localised display name,
-so entity ids stay language-independent; only the display name follows
-`LANGUAGE`. The entity `unique_id` is left unchanged, so
+inverters apart. The seed is always the English register key (never the
+localised name), so entity ids stay language-independent; only the display
+name follows `LANGUAGE`. The entity `unique_id` is left unchanged, so
 enabling this on an existing install does not orphan established entities
 or lose their history; only newly created entities pick up the nicer id.
 Leave it empty to keep the previous behaviour. The MQTT topic tree also
