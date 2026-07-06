@@ -62,7 +62,7 @@ type Entry struct {
 // the discovery builder and the coordinator read from, so the entity's
 // identity (key, names, group) lives in one place.
 type VirtualSwitch struct {
-	// Key is the MQTT suffix and the stable object_id — never localised.
+	// Key is the MQTT suffix and the stable entity_id seed — never localised.
 	Key string
 	// Name / NameDE are the friendly labels (English / German).
 	Name   string
@@ -121,9 +121,9 @@ type Discovery struct {
 	virtual       []VirtualSwitch
 
 	// deviceName is the operator-chosen HA device name (empty = use the
-	// generic deviceName constant). deviceSlug is its slugged form, mixed
-	// into object_id/unique_id so entity_ids reflect it; empty when no
-	// name is configured, preserving the previous generic identity.
+	// generic deviceName constant). deviceSlug is its slugged form, folded
+	// into default_entity_id (the initial entity_id seed) but never
+	// unique_id; empty when no name is configured, preserving the identity.
 	deviceName string
 	deviceSlug string
 
@@ -141,7 +141,8 @@ type Discovery struct {
 // names; virtual adds synthetic switch entities (may be nil). deviceName
 // is the optional operator-chosen HA device name — when non-empty it
 // replaces the generic device name and its slug is folded into every
-// object_id/unique_id; pass "" to keep the previous generic identity.
+// default_entity_id (unique_id stays stable); pass "" to keep the
+// previous generic identity.
 func New(hassBaseTopic, mqttTopic string, catalog *registers.Map, lang string, virtual []VirtualSwitch, deviceName string) *Discovery {
 	if lang == "" {
 		lang = "en"
@@ -159,11 +160,10 @@ func New(hassBaseTopic, mqttTopic string, catalog *registers.Map, lang string, v
 }
 
 // slugify reduces a free-text device name to a lower-case
-// [a-z0-9_] token usable inside an HA object_id / unique_id. Runs of
-// non-alphanumeric characters collapse to a single underscore and
-// leading/trailing underscores are trimmed. Returns "" for input that
-// carries no usable characters, so callers fall back to the generic
-// identity.
+// [a-z0-9_] token usable inside an HA entity_id. Runs of non-alphanumeric
+// characters collapse to a single underscore and leading/trailing
+// underscores are trimmed. Returns "" for input that carries no usable
+// characters, so callers fall back to the generic identity.
 func slugify(s string) string {
 	var b strings.Builder
 	lastUnderscore := false
@@ -182,26 +182,32 @@ func slugify(s string) string {
 	return strings.Trim(b.String(), "_")
 }
 
-// objectID returns the HA object_id for an entity key, prefixed with the
-// device slug when a device name is configured so entity_ids read as
-// "<platform>.<device>_<key>". Without a device name it is the bare key,
-// exactly as before.
-func (d *Discovery) objectID(key string) string {
+// defaultEntityID builds the HA "default_entity_id" discovery option for
+// an entity: "<domain>.<id>", where <domain> is the platform (sensor,
+// number, …) and <id> is the entity key, prefixed with the device slug
+// when a device name is configured (so fresh entity_ids read as
+// "<domain>.<device>_<key>"). This replaces the "object_id" discovery
+// option, which HA Core deprecated in 2025.10 and removed in 2026.4.
+// Like object_id it only seeds the initial entity_id: HA tracks entities
+// by unique_id, so it never renames an entity that already exists —
+// enabling a device name later gives new entities the nicer id without
+// disturbing established ones.
+func (d *Discovery) defaultEntityID(p Platform, key string) string {
 	if d.deviceSlug == "" {
-		return key
+		return string(p) + "." + key
 	}
-	return d.deviceSlug + "_" + key
+	return string(p) + "." + d.deviceSlug + "_" + key
 }
 
-// uniqueID returns the entity unique_id: the "MTEC_" namespace prefix,
-// then the device slug (when configured) so multiple inverters no longer
-// collide, then the entity key. Without a device name it stays the
-// historic "MTEC_<key>", keeping existing entities stable on upgrade.
+// uniqueID returns the entity unique_id: the "MTEC_" namespace prefix
+// plus the entity key. It deliberately never folds in the device slug —
+// unique_id is the identity Home Assistant tracks an entity by, so
+// changing it would orphan the old entity and drop all its history,
+// customisations and dashboard/automation references (MQTT discovery has
+// no clean unique_id migration). A configured device name therefore only
+// affects the display name and default_entity_id, never this value.
 func (d *Discovery) uniqueID(key string) string {
-	if d.deviceSlug == "" {
-		return uniqueIDPrefix + key
-	}
-	return uniqueIDPrefix + d.deviceSlug + "_" + key
+	return uniqueIDPrefix + key
 }
 
 // IsInitialized reports whether [Initialize] has been called.
@@ -321,7 +327,7 @@ func (d *Discovery) buildEntries() {
 
 // appendVirtualSwitch emits a switch entity for a [VirtualSwitch]. Its
 // state/command topics live under the configured group keyed by the
-// stable Key (also the object_id), and its friendly name is localised.
+// stable Key (also the entity_id seed), and its friendly name is localised.
 // payload_on/off are "1"/"0" to match the coordinator-published state.
 func (d *Discovery) appendVirtualSwitch(v VirtualSwitch) {
 	uid := d.uniqueID(v.Key)
@@ -330,8 +336,8 @@ func (d *Discovery) appendVirtualSwitch(v VirtualSwitch) {
 		"command_topic":      command,
 		"device":             d.device,
 		"enabled_by_default": true,
+		"default_entity_id":  d.defaultEntityID(PlatformSwitch, v.Key),
 		"name":               v.LocalizedName(d.lang),
-		"object_id":          d.objectID(v.Key),
 		"payload_off":        "0",
 		"payload_on":         "1",
 		"state_topic":        fmt.Sprintf("%s/%s/%s/%s/state", d.mqttTopic, d.serialNo, v.Group, v.Key),
@@ -345,10 +351,10 @@ func (d *Discovery) appendVirtualSwitch(v VirtualSwitch) {
 func (d *Discovery) appendSensor(r *registers.Register) {
 	uid := d.uniqueID(r.MQTT)
 	payload := map[string]any{
+		"default_entity_id":   d.defaultEntityID(PlatformSensor, r.MQTT),
 		"device":              d.device,
 		"enabled_by_default":  true,
 		"name":                r.LocalizedName(d.lang),
-		"object_id":           d.objectID(r.MQTT),
 		"state_topic":         d.stateTopic(r),
 		"unique_id":           uid,
 		"unit_of_measurement": r.Unit,
@@ -368,10 +374,10 @@ func (d *Discovery) appendSensor(r *registers.Register) {
 func (d *Discovery) appendBinarySensor(r *registers.Register) {
 	uid := d.uniqueID(r.MQTT)
 	payload := map[string]any{
+		"default_entity_id":  d.defaultEntityID(PlatformBinarySensor, r.MQTT),
 		"device":             d.device,
 		"enabled_by_default": true,
 		"name":               r.LocalizedName(d.lang),
-		"object_id":          d.objectID(r.MQTT),
 		"state_topic":        d.stateTopic(r),
 		"unique_id":          uid,
 	}
@@ -396,7 +402,7 @@ func (d *Discovery) appendNumber(r *registers.Register) {
 		"enabled_by_default":  false,
 		"mode":                "box",
 		"name":                r.LocalizedName(d.lang),
-		"object_id":           d.objectID(r.MQTT),
+		"default_entity_id":   d.defaultEntityID(PlatformNumber, r.MQTT),
 		"state_topic":         d.stateTopic(r),
 		"unique_id":           uid,
 		"unit_of_measurement": r.Unit,
@@ -414,8 +420,8 @@ func (d *Discovery) appendSelect(r *registers.Register) {
 		"command_topic":      command,
 		"device":             d.device,
 		"enabled_by_default": false,
+		"default_entity_id":  d.defaultEntityID(PlatformSelect, r.MQTT),
 		"name":               r.LocalizedName(d.lang),
-		"object_id":          d.objectID(r.MQTT),
 		"options":            valueItemsValues(r.LocalizedValueItems(d.lang)),
 		"state_topic":        d.stateTopic(r),
 		"unique_id":          uid,
@@ -430,8 +436,8 @@ func (d *Discovery) appendSwitch(r *registers.Register) {
 		"command_topic":      command,
 		"device":             d.device,
 		"enabled_by_default": false,
+		"default_entity_id":  d.defaultEntityID(PlatformSwitch, r.MQTT),
 		"name":               r.LocalizedName(d.lang),
-		"object_id":          d.objectID(r.MQTT),
 		"state_topic":        d.stateTopic(r),
 		"unique_id":          uid,
 	}

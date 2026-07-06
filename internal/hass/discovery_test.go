@@ -327,7 +327,7 @@ func TestDiscoveryAgainstRealCatalog(t *testing.T) {
 	}
 }
 
-// --- object_id + localisation + virtual switches ---------------------------
+// --- default_entity_id + localisation + virtual switches -------------------
 
 // localisedCatalog carries German names + enum labels so the de-language
 // assertions have something to translate.
@@ -359,14 +359,19 @@ const localisedCatalogYAML = `
     1: "Sparmodus"
 `
 
-func TestEntriesCarryStableObjectID(t *testing.T) {
+func TestEntriesCarryStableEntityID(t *testing.T) {
 	d := newDiscovery(t)
-	// object_id must equal the language-independent mqtt suffix so the
-	// HA entity_id never changes when the friendly name is translated.
+	// default_entity_id must equal "<domain>.<mqtt suffix>", the
+	// language-independent seed, so the HA entity_id never changes when
+	// the friendly name is translated. (Replaces the deprecated object_id
+	// discovery option, removed in HA Core 2026.4.)
 	e := findEntry(t, d, "number/MTEC_grid_inject_limit/config")
 	p := unmarshalEntry(t, e)
-	if p["object_id"] != "grid_inject_limit" {
-		t.Errorf("object_id = %v, want grid_inject_limit", p["object_id"])
+	if p["default_entity_id"] != "number.grid_inject_limit" {
+		t.Errorf("default_entity_id = %v, want number.grid_inject_limit", p["default_entity_id"])
+	}
+	if _, has := p["object_id"]; has {
+		t.Error("deprecated object_id must no longer be published")
 	}
 }
 
@@ -382,8 +387,8 @@ func TestGermanNamesAndOptions(t *testing.T) {
 	if sensor["name"] != "Netzleistung" {
 		t.Errorf("de sensor name = %v, want Netzleistung", sensor["name"])
 	}
-	if sensor["object_id"] != "grid_power" {
-		t.Errorf("object_id = %v, want grid_power", sensor["object_id"])
+	if sensor["default_entity_id"] != "sensor.grid_power" {
+		t.Errorf("default_entity_id = %v, want sensor.grid_power", sensor["default_entity_id"])
 	}
 	sel := unmarshalEntry(t, findEntry(t, d, "select/MTEC_mode/config"))
 	if sel["name"] != "Betriebsmodus" {
@@ -412,8 +417,8 @@ func TestVirtualSwitchEntities(t *testing.T) {
 	if p["name"] != "Laden aktiv" {
 		t.Errorf("de name = %v, want 'Laden aktiv'", p["name"])
 	}
-	if p["object_id"] != "charge_active" {
-		t.Errorf("object_id = %v, want charge_active", p["object_id"])
+	if p["default_entity_id"] != "switch.charge_active" {
+		t.Errorf("default_entity_id = %v, want switch.charge_active", p["default_entity_id"])
 	}
 	if p["payload_on"] != "1" || p["payload_off"] != "0" {
 		t.Errorf("payloads = %v/%v, want 1/0", p["payload_on"], p["payload_off"])
@@ -524,16 +529,16 @@ func TestSlugify(t *testing.T) {
 }
 
 // Without a device name the identity stays exactly as before: bare
-// object_id, "MTEC_" unique_id, generic device name. This is the
-// backward-compat guard.
+// "<domain>.<key>" default_entity_id, "MTEC_" unique_id, generic device
+// name. This is the backward-compat guard.
 func TestDeviceNameUnsetKeepsGenericIdentity(t *testing.T) {
 	d := New("homeassistant", "MTEC", loadCatalog(t), "en", nil, "")
 	d.Initialize("SN12345", "V1", "model")
 
 	e := findEntry(t, d, "sensor/MTEC_grid_power/config")
 	p := unmarshalEntry(t, e)
-	if got := p["object_id"]; got != "grid_power" {
-		t.Errorf("object_id: got %v, want %q", got, "grid_power")
+	if got := p["default_entity_id"]; got != "sensor.grid_power" {
+		t.Errorf("default_entity_id: got %v, want %q", got, "sensor.grid_power")
 	}
 	if got := p["unique_id"]; got != "MTEC_grid_power" {
 		t.Errorf("unique_id: got %v, want %q", got, "MTEC_grid_power")
@@ -545,19 +550,24 @@ func TestDeviceNameUnsetKeepsGenericIdentity(t *testing.T) {
 }
 
 // With a device name set, it becomes the HA device name and is slugged
-// into object_id/unique_id (hence the discovery config topic). The MQTT
-// state/command topics must still be keyed on the serial, unchanged.
+// into default_entity_id (the fresh entity_id seed). Crucially, unique_id
+// — and therefore the discovery config topic — must stay stable so Home
+// Assistant does not orphan established entities. The MQTT state/command
+// topics must also stay keyed on the serial, unchanged.
 func TestDeviceNameSetRewritesEntityIdentity(t *testing.T) {
 	d := New("homeassistant", "MTEC", loadCatalog(t), "en", nil, "Wohnzimmer Inverter")
 	d.Initialize("SN12345", "V1", "model")
 
-	e := findEntry(t, d, "sensor/MTEC_wohnzimmer_inverter_grid_power/config")
+	// Config topic (built from unique_id) is unchanged from the no-name case.
+	e := findEntry(t, d, "sensor/MTEC_grid_power/config")
 	p := unmarshalEntry(t, e)
-	if got := p["object_id"]; got != "wohnzimmer_inverter_grid_power" {
-		t.Errorf("object_id: got %v, want slugged form", got)
+	// default_entity_id carries the slug so a fresh entity_id reflects the name.
+	if got := p["default_entity_id"]; got != "sensor.wohnzimmer_inverter_grid_power" {
+		t.Errorf("default_entity_id: got %v, want slugged form", got)
 	}
-	if got := p["unique_id"]; got != "MTEC_wohnzimmer_inverter_grid_power" {
-		t.Errorf("unique_id: got %v, want slugged form", got)
+	// unique_id must be the stable historic value — never slugged.
+	if got := p["unique_id"]; got != "MTEC_grid_power" {
+		t.Errorf("unique_id must stay stable, got %v", got)
 	}
 	dev := p["device"].(map[string]any)
 	if got := dev["name"]; got != "Wohnzimmer Inverter" {
@@ -573,7 +583,7 @@ func TestDeviceNameSetRewritesEntityIdentity(t *testing.T) {
 	}
 	// IsOwnConfig must still recognise the payload as ours.
 	if !d.IsOwnConfig(e.Payload) {
-		t.Error("IsOwnConfig must still match slugged unique_id")
+		t.Error("IsOwnConfig must still match the stable unique_id")
 	}
 }
 

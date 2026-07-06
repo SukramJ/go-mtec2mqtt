@@ -8,14 +8,28 @@
   `device_name`, env `MTEC_DEVICE_NAME`) lets you give the inverter a
   friendly name. When set it becomes the Home Assistant device name
   (instead of the generic "MTEC EnergyButler") and is slugged into every
-  entity's `object_id`/`unique_id`, so Home Assistant derives entity ids
+  entity's `default_entity_id`, so Home Assistant seeds fresh entity ids
   like `sensor.<device_name>_grid_power` — handy to tell multiple
-  inverters apart. Leaving it empty preserves the previous identity
-  exactly, so existing installs are unaffected on upgrade. The MQTT topic
-  tree stays keyed on the inverter serial regardless: setting a name only
-  renames the HA-facing entities (opt-in), it never moves a published
-  topic. The device-registry `identifiers`/`serial_number` also stay the
-  serial, keeping the device entry stable across a rename.
+  inverters apart. The entity `unique_id` is deliberately left unchanged,
+  so enabling this on an existing install does not orphan established
+  entities or lose their history/customisations — only newly created
+  entities pick up the nicer id (`default_entity_id` only seeds the
+  initial id; HA tracks entities by `unique_id`). Leaving it empty
+  preserves the previous identity exactly. The MQTT topic tree also stays
+  keyed on the inverter serial regardless, and the device-registry
+  `identifiers`/`serial_number` stay the serial, keeping the device entry
+  stable across a rename.
+
+### Fixed
+
+- **Home Assistant discovery no longer uses the deprecated `object_id`
+  option.** HA Core deprecated the `object_id` discovery option in
+  2025.10 (logging a warning per entity) and removed it in 2026.4. The
+  discovery payloads now publish `default_entity_id`
+  (`"<domain>.<key>"`) instead, which restores control over the seeded
+  `entity_id` on current Home Assistant and clears the deprecation
+  warnings. `unique_id` — the value HA tracks entities by — is
+  unchanged, so this does not re-create any existing entities.
 
 # Version 1.5.0 (2026-07-04)
 
