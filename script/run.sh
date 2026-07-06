@@ -46,6 +46,12 @@ export MTEC_MQTT_TOPIC="$(bashio::config 'mqtt_topic')"
 # --- Home Assistant discovery ---
 export MTEC_HASS_ENABLE="$(bashio::config 'hass_enable')"
 
+# Optional device name — only export when set so an empty field keeps the
+# generic device identity instead of overriding it with a blank name.
+if bashio::config.has_value 'device_name'; then
+  export MTEC_DEVICE_NAME="$(bashio::config 'device_name')"
+fi
+
 # --- Charge / discharge "active" switch fallback values ---
 export MTEC_CHARGE_ACTIVE_VALUE="$(bashio::config 'charge_active_value')"
 export MTEC_DISCHARGE_ACTIVE_VALUE="$(bashio::config 'discharge_active_value')"

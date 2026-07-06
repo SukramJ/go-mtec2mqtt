@@ -317,7 +317,7 @@ func buildDeps(t *testing.T, hassEnable bool) (*Coordinator, *stubReader, *stubM
 		Now:     func() time.Time { return time.Date(2026, 5, 25, 14, 30, 45, 0, time.UTC) },
 	}
 	if hassEnable {
-		deps.HASS = hass.New(cfg.HASSBaseTopic, cfg.MQTTTopic, catalog, cfg.Language, nil)
+		deps.HASS = hass.New(cfg.HASSBaseTopic, cfg.MQTTTopic, catalog, cfg.Language, nil, cfg.DeviceName)
 	}
 	return New(deps), reader, mqttStub, modbusStub
 }

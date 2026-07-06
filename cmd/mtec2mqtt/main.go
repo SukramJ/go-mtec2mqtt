@@ -161,7 +161,7 @@ func run(configPath, registersPath string, logger *slog.Logger) error {
 	virtualSwitches := hass.DefaultVirtualSwitches(cfg.ChargeActiveValue, cfg.DischargeActiveValue)
 	var discovery *hass.Discovery
 	if cfg.HASSEnable {
-		discovery = hass.New(cfg.HASSBaseTopic, cfg.MQTTTopic, catalog, cfg.Language, virtualSwitches)
+		discovery = hass.New(cfg.HASSBaseTopic, cfg.MQTTTopic, catalog, cfg.Language, virtualSwitches, cfg.DeviceName)
 	}
 
 	// --- web ui (optional) ---

@@ -33,6 +33,16 @@ HASS_ENABLE: false # Enable home assistant
 HASS_BASE_TOPIC: homeassistant # Basis MQTT topic of home assistant
 HASS_BIRTH_GRACETIME: 15 # Give HASS some time to get ready after the birth message was received
 
+# Optional device name. When set, it becomes the Home Assistant device name
+# (instead of the generic "MTEC EnergyButler") and is slugged into every
+# entity's default_entity_id, so HA seeds fresh entity_ids like
+# sensor.<device_name>_grid_power. Handy to tell multiple inverters apart.
+# The entity unique_id is left unchanged, so enabling this on an existing
+# install does not orphan established entities — only newly created ones pick
+# up the nicer id. Leave empty to keep the previous behaviour. The MQTT topic
+# tree also stays keyed on the inverter serial regardless.
+# DEVICE_NAME: "" # e.g. "Wohnzimmer" (override: env MTEC_DEVICE_NAME)
+
 # Web UI (optional status / health dashboard)
 # When enabled, the daemon serves a small embedded single-page app with
 # live status, health and the current register values, plus edit controls
