@@ -1,31 +1,39 @@
+# Version 1.6.2 (2026-07-06)
+
+## What's Changed
+
+### Fixed
+
+- **Home Assistant entity ids now match the Python `aiomtec2mqtt`
+  scheme.** 1.6.1 seeded the `entity_id` from the short mqtt topic key
+  (`grid_a`, `mode`, `pv_1`, `backup_day`, …), which diverged sharply
+  from the established ids. The Python reference sets no `object_id` and
+  lets HA build the id from the register **name**, so the seed is now the
+  slugified English register **name** to match — e.g. register `grid_a` /
+  "Grid power phase A" → `sensor.<device>_grid_power_phase_a` instead of
+  `sensor.<device>_grid_a`. The English name (never the localised display
+  name) keeps ids language-independent; `unique_id` / MQTT topics still
+  key on the mqtt suffix, so no existing entity is renamed.
+
 # Version 1.6.1 (2026-07-06)
 
 ## What's Changed
 
 ### Fixed
 
-- **Home Assistant entity ids match the Python `aiomtec2mqtt` scheme
-  again and no longer follow the translated name.** Two problems in 1.6.0
-  are fixed:
-  - *Wrong seed source.* 1.6.0 seeded the `entity_id` from the short mqtt
-    topic key (`grid_a`, `mode`, `pv_1`, …), diverging sharply from the
-    established ids. The Python reference sets no `object_id` and lets HA
-    build the id from the register **name**; the seed is now the
-    slugified English **name** to match — e.g. register `grid_a` /
-    "Grid power phase A" → `sensor.<device>_grid_power_phase_a`, not
-    `sensor.<device>_grid_a`. (`unique_id` / MQTT topics keep keying on
-    the mqtt suffix.)
-  - *Localised leakage.* 1.6.0 published only `default_entity_id`, which
-    current HA Core does not yet apply reliably in MQTT discovery
-    (home-assistant/core#157241) — it fell back to slugging the localised
-    display `name`, so with `LANGUAGE: de` ids came out German. The
-    payloads now publish **both** seeds — `object_id` (honoured by
-    today's HA) and `default_entity_id` (`"<domain>.<id>"`, its successor
-    for HA Core 2026.4+) — both from the **English** name, so entity ids
-    stay language-independent while only the display name follows
-    `LANGUAGE`.
-
-  `unique_id` is unchanged, so no existing entity is re-created.
+- **Home Assistant entity ids no longer follow the translated friendly
+  name.** 1.6.0 published only `default_entity_id` to seed the
+  `entity_id`, but current HA Core does not yet apply that option
+  reliably in MQTT discovery (home-assistant/core#157241) — it falls back
+  to slugging the localised `name`, so with `LANGUAGE: de` the entity ids
+  came out German (e.g. `sensor.netzleistung`). The discovery payloads now
+  publish **both** seeds: `object_id` (`"<key>"`, still honoured by
+  today's HA) and `default_entity_id` (`"<domain>.<key>"`, its successor
+  for HA Core 2026.4+ once `object_id` is removed). Both are derived from
+  the language-independent register key (optionally the device-name slug),
+  never the translated name, so entity ids stay English while only the
+  display name follows `LANGUAGE`. `unique_id` is unchanged, so no
+  existing entity is re-created.
 
 # Version 1.6.0 (2026-07-06)
 
