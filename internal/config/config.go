@@ -71,13 +71,15 @@ type Config struct {
 	// DeviceName is an optional operator-chosen name for this inverter.
 	// When set it becomes the Home Assistant device name (replacing the
 	// generic "MTEC EnergyButler") and is slugged into each entity's
-	// default_entity_id, so HA seeds fresh entity_ids like
-	// sensor.<device_name>_grid_power instead of the generic ones. The
-	// entity unique_id is deliberately left unchanged, so enabling this on
-	// an existing install does not orphan established entities or lose
-	// their history — only newly created entities pick up the nicer id.
-	// Leave empty to keep the previous behaviour unchanged. The MQTT topic
-	// tree also stays keyed on the inverter serial regardless.
+	// entity_id seed, so HA seeds fresh entity_ids like
+	// sensor.<device_name>_grid_power instead of the generic ones. The seed
+	// is always the English register key (never the localised name), so
+	// entity_ids stay language-independent; only the display name follows
+	// LANGUAGE. The entity unique_id is deliberately left unchanged, so
+	// enabling this on an existing install does not orphan established
+	// entities or lose their history — only newly created entities pick up
+	// the nicer id. Leave empty to keep the previous behaviour unchanged.
+	// The MQTT topic tree also stays keyed on the inverter serial regardless.
 	DeviceName string `yaml:"DEVICE_NAME"`
 
 	// --- Refresh intervals (seconds) ---
