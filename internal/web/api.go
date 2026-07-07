@@ -50,7 +50,19 @@ type writeRequest struct {
 	Value any    `json:"value"`
 }
 
+// writeBodyTimeout bounds how long a POST /api/write client may take to
+// deliver its request body. The server's ReadHeaderTimeout only covers
+// the header phase and MaxBytesReader only caps the byte count, so
+// without this a client trickling the body would hold the handler (and
+// its connection/goroutine) indefinitely. A var, not a const, so tests
+// can shorten it.
+var writeBodyTimeout = 10 * time.Second
+
 func (s *Server) handleWrite(w http.ResponseWriter, r *http.Request) {
+	// Best-effort: not every ResponseWriter supports read deadlines, and
+	// a failure to set one just means the pre-existing behaviour.
+	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(writeBodyTimeout))
+
 	var req writeRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
@@ -87,13 +99,21 @@ func (s *Server) handleWrite(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// sseWriteTimeout bounds each SSE frame write. The server deliberately
+// has no WriteTimeout (SSE responses are long-lived), so without a
+// per-write deadline a client that keeps the TCP connection open but
+// stops reading (zero receive window) fills the kernel send buffer and
+// blocks the handler in Write/Flush forever — leaking the goroutine,
+// the connection and the Changes subscription. A var, not a const, so
+// tests can shorten it.
+var sseWriteTimeout = 15 * time.Second
+
 // handleEvents streams Server-Sent Events. It pushes a full liveView on
 // connect, then on every change notification, plus a periodic tick so
 // the uptime counter advances and the connection stays warm through
 // idle proxies.
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
-	flusher, ok := w.(http.Flusher)
-	if !ok {
+	if _, ok := w.(http.Flusher); !ok {
 		writeError(w, http.StatusInternalServerError, "streaming unsupported")
 		return
 	}
@@ -108,16 +128,24 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
+	rc := http.NewResponseController(w)
 	send := func() bool {
 		view := liveView{Health: s.backend.Health(), Snapshot: s.backend.Snapshot()}
 		payload, err := json.Marshal(view)
 		if err != nil {
 			return false
 		}
+		// Refresh the write deadline per frame (best-effort — not every
+		// ResponseWriter supports it): a stalled client then errors the
+		// blocked write instead of pinning this goroutine, its connection
+		// and the Changes subscription until process exit.
+		_ = rc.SetWriteDeadline(time.Now().Add(sseWriteTimeout))
 		if _, err := fmt.Fprintf(w, "event: update\ndata: %s\n\n", payload); err != nil {
 			return false
 		}
-		flusher.Flush()
+		if err := rc.Flush(); err != nil {
+			return false
+		}
 		return true
 	}
 

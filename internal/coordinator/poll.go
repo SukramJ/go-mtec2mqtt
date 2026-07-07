@@ -104,7 +104,8 @@ func (c *Coordinator) pollSecondary(ctx context.Context, every time.Duration) er
 // Modbus, process values, compute pseudo-registers, publish each
 // value to its MQTT topic. Always returns — errors land in the log.
 func (c *Coordinator) publishGroupOnce(ctx context.Context, log *slog.Logger, group registers.Group) {
-	if c.topicBase == "" {
+	topicBase := c.loadTopicBase()
+	if topicBase == "" {
 		// Initialisation hasn't completed yet — nothing to publish under.
 		return
 	}
@@ -132,7 +133,7 @@ func (c *Coordinator) publishGroupOnce(ctx context.Context, log *slog.Logger, gr
 		c.deps.Store.UpdateGroup(string(group), processed, c.deps.Now())
 	}
 	for key, val := range processed {
-		topic := fmt.Sprintf("%s/%s/%s/state", c.topicBase, group, key)
+		topic := fmt.Sprintf("%s/%s/%s/state", topicBase, group, key)
 		payload := formatValue(val, c.deps.Cfg.GoFloatVerb())
 		if err := c.deps.MQTT.Publish(ctx, topic, []byte(payload), mqtt.QoS0, false); err != nil {
 			log.Warn("coordinator.publish_failed",

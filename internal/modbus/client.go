@@ -138,7 +138,18 @@ func (c *Client) ReadHoldingRegisters(ctx context.Context, address, count uint16
 	if err != nil {
 		return nil, err
 	}
-	return protocol.DecodeReadHoldingResponse(respPDU)
+	regs, err := protocol.DecodeReadHoldingResponse(respPDU)
+	if err != nil {
+		return nil, err
+	}
+	// A well-framed response may still carry a different quantity than
+	// requested (stale buffer replayed under a fresh TID by a buggy
+	// gateway). The frame was fully consumed, so the stream stays in
+	// sync — reject without poisoning, mirroring the FC06 echo check.
+	if len(regs) != int(count) {
+		return nil, fmt.Errorf("modbus: FC03 returned %d registers, requested %d", len(regs), count)
+	}
+	return regs, nil
 }
 
 // WriteSingleRegister issues FC06. On success the device echoes the
@@ -170,6 +181,12 @@ func (c *Client) do(ctx context.Context, pdu []byte) ([]byte, error) {
 	if c.conn == nil {
 		return nil, ErrNotConnected
 	}
+	// Fail fast on an already-cancelled context so calls queued on c.mu
+	// (and subsequent clusters of a group read) abort immediately on
+	// shutdown instead of each running a full wire transaction.
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("modbus: %w", err)
+	}
 
 	tid := c.nextTransactionID()
 	frame, err := protocol.EncodeFrame(tid, c.cfg.UnitID, pdu)
@@ -182,6 +199,18 @@ func (c *Client) do(ctx context.Context, pdu []byte) ([]byte, error) {
 		c.poisonLocked()
 		return nil, fmt.Errorf("modbus: set deadline: %w", err)
 	}
+
+	// Interrupt in-flight I/O on cancellation: the run context carries
+	// no deadline (signal.NotifyContext), so without this hook a blocked
+	// Write/ReadFull would run until now+Timeout after SIGTERM. Forcing
+	// an immediate deadline surfaces a timeout error that takes the
+	// existing poisonLocked path. The closure captures the conn value —
+	// not the c.conn field, which is nilled under mu by poisonLocked —
+	// and is registered after the SetDeadline above so a cancellation
+	// firing in between cannot be overwritten.
+	conn := c.conn
+	stop := context.AfterFunc(ctx, func() { _ = conn.SetDeadline(time.Now()) })
+	defer stop()
 
 	if _, err := c.conn.Write(frame); err != nil {
 		c.poisonLocked()
