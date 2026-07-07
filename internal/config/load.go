@@ -9,9 +9,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 )
@@ -67,7 +69,7 @@ func Load(r io.Reader, env Env) (*Config, error) {
 		return nil, fmt.Errorf("config: decode merged config: %w", err)
 	}
 
-	applyDefaults(&cfg)
+	applyDefaults(&cfg, raw)
 	if err := Validate(&cfg); err != nil {
 		return nil, err
 	}
@@ -124,10 +126,33 @@ func Locate(env Env) (string, bool) {
 	return "", false
 }
 
+// stringYAMLKeys is the set of YAML keys whose [Config] field is a
+// plain string, built once via reflection over the struct's yaml tags.
+// The env overlay must never run the numeric/bool coercion ladder on
+// these keys: a password of "007" would otherwise become "7", "True"
+// would become "true", and a numeric-looking MQTT_TOPIC would silently
+// change the topic layout.
+var stringYAMLKeys = sync.OnceValue(func() map[string]struct{} {
+	keys := make(map[string]struct{})
+	t := reflect.TypeOf(Config{})
+	for i := range t.NumField() {
+		f := t.Field(i)
+		tag, _, _ := strings.Cut(f.Tag.Get("yaml"), ",")
+		if tag == "" || tag == "-" || f.Type.Kind() != reflect.String {
+			continue
+		}
+		keys[tag] = struct{}{}
+	}
+	return keys
+})
+
 // applyEnvOverrides walks every MTEC_<KEY>=value pair in env and sets
 // raw[KEY] = coerced(value). The raw map is mutated in place.
 //
-// Coercion order matches the Python helper _coerce_env_value:
+// Values destined for string-typed Config fields (credentials, topics,
+// device name, ...) are stored verbatim. All other keys go through the
+// coercion ladder, whose order matches the Python helper
+// _coerce_env_value:
 //
 //  1. "true"/"false" (case-insensitive) → bool
 //  2. parseable as int → int
@@ -145,6 +170,10 @@ func applyEnvOverrides(raw map[string]any, env Env) {
 		}
 		cfgKey := key[len(EnvPrefix):]
 		if cfgKey == "" {
+			continue
+		}
+		if _, isString := stringYAMLKeys()[cfgKey]; isString {
+			raw[cfgKey] = val // string field: keep the raw value untouched
 			continue
 		}
 		raw[cfgKey] = coerceEnvValue(val)

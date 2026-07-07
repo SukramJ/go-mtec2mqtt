@@ -16,6 +16,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -62,10 +63,20 @@ func main() {
 	slog.SetDefault(logger)
 	logger.Info("mtec2mqtt.boot", slog.String("build", version.String()))
 
-	if err := run(*configPath, *registersPath, logger); err != nil {
+	if err := run(*configPath, *registersPath, logger); fatalErr(err) {
 		logger.Error("mtec2mqtt.fatal", slog.String("err", err.Error()))
 		os.Exit(1)
 	}
+}
+
+// fatalErr reports whether err is a genuine failure rather than the
+// normal outcome of a cancelled run context. A SIGINT/SIGTERM that
+// lands during the startup phase (HASS birth gracetime, static-read
+// retries, connect retries) surfaces as context.Canceled; exiting 1
+// for that would make systemd record a clean `systemctl stop` as a
+// unit failure.
+func fatalErr(err error) bool {
+	return err != nil && !errors.Is(err, context.Canceled)
 }
 
 // run is the testable entry point: returns a non-nil error on any
@@ -105,6 +116,11 @@ func run(configPath, registersPath string, logger *slog.Logger) error {
 
 	// --- mqtt ---
 	clientID := clientIDBase + cfg.MQTTTopic
+	// Retained availability topic: the broker-side will covers
+	// ungraceful death, the OnConnect hook below publishes the matching
+	// "online" birth, and the shutdown path re-publishes "offline"
+	// because a graceful DISCONNECT suppresses the will.
+	lwtTopic := cfg.HASSBaseTopic + "/status/lwt"
 	// TLS is opt-in via MQTT_SSL; NewClientTLSConfig always sets
 	// ServerName (tls.Client does not infer it from the dialed address)
 	// and only disables certificate verification when the operator has
@@ -121,7 +137,7 @@ func run(configPath, registersPath string, logger *slog.Logger) error {
 		KeepAlive:  60 * time.Second,
 		CleanStart: true,
 		Will: &mqtt.Will{
-			Topic:   cfg.HASSBaseTopic + "/status/lwt",
+			Topic:   lwtTopic,
 			Payload: []byte("offline"),
 			Retain:  true,
 		},
@@ -129,7 +145,13 @@ func run(configPath, registersPath string, logger *slog.Logger) error {
 		Logger:    logger,
 	})
 	mqttLifecycle := mqtt.NewLifecycle(mqtt.DefaultLifecycle(), mqttClient)
-	if err := mqttLifecycle.Start(ctx); err != nil {
+	// The will only fires on ungraceful death; without a matching birth
+	// publish a single network blip would leave the retained
+	// availability topic stuck at "offline" for the rest of the
+	// daemon's uptime. Registered before Start so the first connect
+	// announces too.
+	mqttLifecycle.OnConnect(announceAvailability(mqttClient, lwtTopic, "online", logger))
+	if err := startMQTT(ctx, mqttLifecycle, time.Second, 30*time.Second, logger); err != nil {
 		return fmt.Errorf("mtec2mqtt: mqtt start: %w", err)
 	}
 	// Circuit breaker between the coordinator and the broker: during a
@@ -148,9 +170,12 @@ func run(configPath, registersPath string, logger *slog.Logger) error {
 	})
 	defer func() {
 		// Graceful disconnect — bounded so a hung broker can't block
-		// shutdown for more than a few seconds.
+		// shutdown for more than a few seconds. A clean DISCONNECT
+		// suppresses the broker-side will, so leave the retained
+		// availability topic at "offline" ourselves first.
 		stopCtx, stopCancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer stopCancel()
+		announceAvailability(mqttClient, lwtTopic, "offline", logger)(stopCtx)
 		_ = mqttLifecycle.Stop(stopCtx)
 	}()
 
@@ -204,6 +229,55 @@ func run(configPath, registersPath string, logger *slog.Logger) error {
 	g.Go(func() error { return c.Run(gctx) })
 	g.Go(func() error { return webSrv.Run(gctx) })
 	return g.Wait()
+}
+
+// mqttStarter is the subset of [*mqtt.Lifecycle] that startMQTT
+// drives, narrowed so tests can inject first-connect failures.
+type mqttStarter interface {
+	Start(ctx context.Context) error
+}
+
+// startMQTT retries the lifecycle's synchronous first broker connect
+// with bounded exponential backoff until it succeeds or ctx is
+// cancelled. [mqtt.Lifecycle.Start] makes exactly one connect attempt
+// and only runs its reconnect loop after that first success, so a
+// broker that is still booting (power-outage recovery: mosquitto and
+// this daemon starting simultaneously) must be retried here instead
+// of being treated like a fatal configuration error.
+func startMQTT(ctx context.Context, lc mqttStarter, backoff, maxBackoff time.Duration, logger *slog.Logger) error {
+	for {
+		err := lc.Start(ctx)
+		if err == nil {
+			return nil
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		logger.Warn("mtec2mqtt.mqtt_start_retry",
+			slog.String("err", err.Error()),
+			slog.Duration("retry_in", backoff))
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+		}
+		backoff = min(2*backoff, maxBackoff)
+	}
+}
+
+// announceAvailability returns a callback that publishes the retained
+// availability payload to the LWT topic. Registered as the lifecycle's
+// OnConnect hook with "online" (fired on every (re)connect) and called
+// directly with "offline" during graceful shutdown. Publish failures
+// are logged, never fatal — availability is best-effort.
+func announceAvailability(pub coordinator.MQTTPublisher, topic, payload string, logger *slog.Logger) func(context.Context) {
+	return func(ctx context.Context) {
+		if err := pub.Publish(ctx, topic, []byte(payload), mqtt.QoS0, true); err != nil {
+			logger.Warn("mtec2mqtt.lwt_publish_failed",
+				slog.String("payload", payload),
+				slog.String("err", err.Error()))
+		}
+	}
 }
 
 // loadConfig finds and parses the daemon's YAML config. An explicit

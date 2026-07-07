@@ -14,6 +14,15 @@ import "sort"
 // adjacent reads needlessly.
 const gapThreshold = 10
 
+// maxReadWords is the FC03 read limit (Modbus spec: 125 holding
+// registers per request). It mirrors the unexported maxReadCount in
+// internal/modbus/protocol — duplicated here because the registers
+// package must stay below the modbus layer in the dependency graph.
+// The loader rejects longer registers and the clusterer refuses to
+// merge windows past it, so one oversized catalog entry can never make
+// the encoder reject a whole cluster of healthy neighbours.
+const maxReadWords = 125
+
 // Cluster is one Modbus read window that covers a contiguous block of
 // register addresses. The Members slice is sorted by address so the
 // caller can compute each register's offset within the read response
@@ -37,8 +46,8 @@ type Cluster struct {
 func Clusterize(regs []*Register) []Cluster {
 	type entry struct {
 		reg    *Register
-		end    uint16 // address + length, used to extend clusters
-		length uint16
+		end    int    // address + length in int — immune to uint16 wraparound
+		length uint16 // clamped to 1..0xFFFF
 	}
 	entries := make([]entry, 0, len(regs))
 	seen := make(map[uint16]bool, len(regs))
@@ -57,7 +66,7 @@ func Clusterize(regs []*Register) []Cluster {
 		entries = append(entries, entry{
 			reg:    r,
 			length: length,
-			end:    r.Address + length,
+			end:    int(r.Address) + int(length),
 		})
 	}
 	if len(entries) == 0 {
@@ -77,13 +86,15 @@ func Clusterize(regs []*Register) []Cluster {
 
 	for _, e := range entries[1:] {
 		cur := &clusters[len(clusters)-1]
-		gap := int(e.reg.Address) - int(curEnd)
-		if gap <= gapThreshold {
+		gap := int(e.reg.Address) - curEnd
+		words := max(curEnd, e.end) - int(cur.Start)
+		// Merge only while the combined window stays within the FC03
+		// read limit — otherwise one oversized register would drag its
+		// healthy neighbours into an unencodable request.
+		if gap <= gapThreshold && words >= 1 && words <= maxReadWords {
 			cur.Members = append(cur.Members, e.reg)
-			if e.end > curEnd {
-				curEnd = e.end
-			}
-			cur.Count = curEnd - cur.Start
+			curEnd = int(cur.Start) + words
+			cur.Count = uint16(words)
 			continue
 		}
 		clusters = append(clusters, Cluster{

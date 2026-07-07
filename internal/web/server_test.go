@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -24,6 +25,7 @@ type fakeBackend struct {
 	lastKey  string
 	lastVal  string
 	changes  chan struct{}
+	onCancel func() // invoked when a Changes subscription is released
 }
 
 func (f *fakeBackend) Snapshot() state.Snapshot {
@@ -58,7 +60,11 @@ func (f *fakeBackend) Changes() (events <-chan struct{}, cancel func()) {
 	if f.changes == nil {
 		f.changes = make(chan struct{})
 	}
-	return f.changes, func() {}
+	return f.changes, func() {
+		if f.onCancel != nil {
+			f.onCancel()
+		}
+	}
 }
 
 func newTestServer(cfg Config, b Backend) *httptest.Server {
@@ -370,6 +376,156 @@ func TestSecurityHeadersPresent(t *testing.T) {
 		if r.StatusCode != http.StatusOK {
 			t.Errorf("asset %s status = %d, want 200 (CSP must not block same-origin assets)", asset, r.StatusCode)
 		}
+	}
+}
+
+// TestWriteTrickledBodyTimesOut proves that a client which sends complete
+// headers for POST /api/write but then withholds the JSON body cannot hold
+// the handler (and its connection/goroutine) open indefinitely: the
+// per-request read deadline aborts the decode with a 400.
+func TestWriteTrickledBodyTimesOut(t *testing.T) {
+	old := writeBodyTimeout
+	writeBodyTimeout = 200 * time.Millisecond
+	defer func() { writeBodyTimeout = old }()
+
+	ts := newTestServer(Config{}, &fakeBackend{})
+	defer ts.Close()
+
+	conn, err := net.Dial("tcp", strings.TrimPrefix(ts.URL, "http://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	// Complete headers with a Content-Length promising a body that never
+	// fully arrives — exactly the slow-client shape the deadline defends
+	// against.
+	_, err = io.WriteString(conn,
+		"POST /api/write HTTP/1.1\r\nHost: t\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n{\"key\"")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	res, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		t.Fatalf("no response within 3s — trickled body held the handler: %v", err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 after body read deadline", res.StatusCode)
+	}
+}
+
+// TestRunShutdownUnblocksSSE proves that cancelling the run context also
+// cancels in-flight request contexts (via BaseContext), so a connected SSE
+// client no longer forces srv.Shutdown to burn its full 5s deadline.
+func TestRunShutdownUnblocksSSE(t *testing.T) {
+	// Reserve a free port, then hand its address to Run.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	_ = ln.Close()
+
+	srv := New(Config{Bind: addr}, &fakeBackend{})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- srv.Run(ctx) }()
+
+	// Connect an SSE client (retry until the listener is up) and read the
+	// first byte so the handler is provably inside its streaming loop.
+	var res *http.Response
+	for range 100 {
+		req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+addr+"/api/events", http.NoBody)
+		if reqErr != nil {
+			t.Fatal(reqErr)
+		}
+		res, err = http.DefaultClient.Do(req)
+		if err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatalf("connecting SSE client: %v", err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	buf := make([]byte, 1)
+	if _, err := res.Body.Read(buf); err != nil {
+		t.Fatalf("reading first SSE byte: %v", err)
+	}
+
+	start := time.Now()
+	cancel()
+	select {
+	case runErr := <-done:
+		if runErr != nil {
+			t.Fatalf("Run returned error: %v", runErr)
+		}
+	case <-time.After(4 * time.Second):
+		t.Fatal("Run did not return within 4s of cancellation — SSE stream held shutdown")
+	}
+	if d := time.Since(start); d >= 2*time.Second {
+		t.Errorf("shutdown took %v, want prompt exit well under the 5s Shutdown deadline", d)
+	}
+}
+
+// TestSSEStalledClientUnblocksViaWriteDeadline proves that a client which
+// opens /api/events and then never reads the response cannot pin the
+// handler goroutine forever: once the socket buffers fill, the per-frame
+// write deadline errors the blocked write and the handler exits,
+// releasing its Changes subscription (the deferred cancel runs).
+func TestSSEStalledClientUnblocksViaWriteDeadline(t *testing.T) {
+	old := sseWriteTimeout
+	sseWriteTimeout = 200 * time.Millisecond
+	defer func() { sseWriteTimeout = old }()
+
+	handlerDone := make(chan struct{})
+	fb := &fakeBackend{
+		changes:  make(chan struct{}),
+		onCancel: func() { close(handlerDone) },
+	}
+	ts := newTestServer(Config{}, fb)
+	defer ts.Close()
+
+	// Raw TCP client: send the request, then never read the response, so
+	// the receive window fills and server-side writes eventually block.
+	conn, err := net.Dial("tcp", ts.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	if tc, ok := conn.(*net.TCPConn); ok {
+		// Shrink the receive buffer so the window fills fast.
+		_ = tc.SetReadBuffer(4096)
+	}
+	if _, err := conn.Write([]byte("GET /api/events HTTP/1.1\r\nHost: stalled.test\r\n\r\n")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Pump change notifications so the handler keeps producing frames
+	// until the socket buffers are full and the next write blocks.
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		for {
+			select {
+			case fb.changes <- struct{}{}:
+			case <-stop:
+				return
+			}
+		}
+	}()
+
+	select {
+	case <-handlerDone:
+		// Handler exited and released its subscription — the write
+		// deadline reaped the stalled stream.
+	case <-time.After(15 * time.Second):
+		t.Fatal("SSE handler still running: write deadline did not unblock the stalled client's stream")
 	}
 }
 

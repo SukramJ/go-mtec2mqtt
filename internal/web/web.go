@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"mime"
+	"net"
 	"net/http"
 	"net/url"
 	"time"
@@ -185,6 +186,19 @@ func (s *Server) Run(ctx context.Context) error {
 		Addr:              s.cfg.Bind,
 		Handler:           s.handler,
 		ReadHeaderTimeout: 10 * time.Second,
+		// Reap idle keep-alive connections so abandoned clients cannot pin
+		// goroutines and file descriptors forever. This applies only
+		// between requests, so the long-lived SSE stream at /api/events is
+		// unaffected — which is also why ReadTimeout/WriteTimeout must stay
+		// unset (either would kill that stream). The write-endpoint body
+		// read is bounded per-request in handleWrite instead.
+		IdleTimeout: 120 * time.Second,
+		// Tie every request context to the run context so long-lived
+		// handlers (the SSE stream) observe shutdown. Without this,
+		// Shutdown below would always burn its full deadline while a
+		// dashboard tab is connected, since Shutdown waits for active
+		// handlers but never cancels their request contexts.
+		BaseContext: func(net.Listener) context.Context { return ctx },
 	}
 
 	errc := make(chan error, 1)
@@ -200,7 +214,11 @@ func (s *Server) Run(ctx context.Context) error {
 		// shutdown still gets its full deadline without breaking the chain.
 		shutCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
-		_ = srv.Shutdown(shutCtx)
+		if err := srv.Shutdown(shutCtx); err != nil {
+			// Deadline expired with connections still active — close them
+			// hard rather than abandoning them to process exit.
+			_ = srv.Close()
+		}
 		s.log.Info("web.stopped")
 		return nil
 	case err := <-errc:

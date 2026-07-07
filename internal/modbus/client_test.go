@@ -234,6 +234,60 @@ func TestContextDeadlineTighterThanTimeout(t *testing.T) {
 	}
 }
 
+func TestAlreadyCancelledContextFailsFast(t *testing.T) {
+	srv := newMockServer(t, func([]byte) ([]byte, *protocol.ExceptionError) {
+		return cannedFC03([]uint16{0x0001}), nil
+	})
+	c := newTestClient(t, srv.Port())
+	if err := c.Connect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := c.ReadHoldingRegisters(ctx, 11000, 1); !errors.Is(err, context.Canceled) {
+		t.Fatalf("want context.Canceled, got %v", err)
+	}
+	// A cancelled call must not touch the wire, so the connection stays
+	// healthy for the next caller.
+	if _, err := c.ReadHoldingRegisters(context.Background(), 11000, 1); err != nil {
+		t.Fatalf("connection unusable after cancelled call: %v", err)
+	}
+}
+
+func TestContextCancelInterruptsInflightIO(t *testing.T) {
+	srv := newMockServer(t, func([]byte) ([]byte, *protocol.ExceptionError) {
+		return cannedFC03([]uint16{0}), nil
+	}).withDelay(2 * time.Second)
+
+	c := New(Config{
+		Host:    "127.0.0.1",
+		Port:    srv.Port(),
+		UnitID:  testUnitID,
+		Timeout: 5 * time.Second, // no deadline pressure — only cancel can interrupt
+	})
+	t.Cleanup(func() { _ = c.Close() })
+	if err := c.Connect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+	start := time.Now()
+	_, err := c.ReadHoldingRegisters(ctx, 11000, 1)
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatal("expected error from cancelled context")
+	}
+	if elapsed > time.Second {
+		t.Fatalf("cancellation ignored — elapsed %s", elapsed)
+	}
+	// The forced deadline surfaces as an I/O error, which must take the
+	// usual poison path so the resilience layer reconnects.
+	requireNextCallNotConnected(t, c)
+}
+
 func TestConnectionDropDuringResponse(t *testing.T) {
 	srv := newMockServer(t, func([]byte) ([]byte, *protocol.ExceptionError) {
 		return nil, nil // signal: close without reply
@@ -346,6 +400,44 @@ func TestTruncatedResponsePoisonsConnection(t *testing.T) {
 		t.Fatal("expected error on truncated response")
 	}
 	requireNextCallNotConnected(t, c)
+}
+
+func TestFC03OversizedResponseRejected(t *testing.T) {
+	srv := newMockServer(t, func([]byte) ([]byte, *protocol.ExceptionError) {
+		// Well-formed frame carrying 4 registers instead of the 2 the
+		// client asked for — a stale buffer replayed under a fresh TID.
+		return cannedFC03([]uint16{0x0001, 0x0002, 0x0003, 0x0004}), nil
+	})
+	c := newTestClient(t, srv.Port())
+	if err := c.Connect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	_, err := c.ReadHoldingRegisters(context.Background(), 11000, 2)
+	if err == nil || !contains(err.Error(), "returned 4 registers, requested 2") {
+		t.Fatalf("want count-mismatch error, got %v", err)
+	}
+	// The frame was fully consumed, so the stream is still in sync — a
+	// request whose count matches the canned reply must succeed.
+	if _, err := c.ReadHoldingRegisters(context.Background(), 11000, 4); err != nil {
+		t.Fatalf("stream desynced after count mismatch: %v", err)
+	}
+}
+
+func TestFC03UndersizedResponseRejected(t *testing.T) {
+	srv := newMockServer(t, func([]byte) ([]byte, *protocol.ExceptionError) {
+		return cannedFC03([]uint16{0x0001}), nil
+	})
+	c := newTestClient(t, srv.Port())
+	if err := c.Connect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	_, err := c.ReadHoldingRegisters(context.Background(), 11000, 2)
+	if err == nil || !contains(err.Error(), "returned 1 registers, requested 2") {
+		t.Fatalf("want count-mismatch error, got %v", err)
+	}
+	if _, err := c.ReadHoldingRegisters(context.Background(), 11000, 1); err != nil {
+		t.Fatalf("stream desynced after count mismatch: %v", err)
+	}
 }
 
 // --- concurrency ------------------------------------------------------------

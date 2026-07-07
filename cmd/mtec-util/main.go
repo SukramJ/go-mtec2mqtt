@@ -308,16 +308,35 @@ func (s *session) writeRegister() error {
 		}
 	} else {
 		// Direct write path for registers without an MQTT suffix.
-		v, err := strconv.ParseUint(value, 10, 16)
+		raw, err := directWriteValue(reg, value)
 		if err != nil {
-			return fmt.Errorf("invalid uint16 %q: %w", value, err)
+			return err
 		}
-		if err := s.client.WriteSingleRegister(ctx, reg.Address, uint16(v)); err != nil {
+		if err := s.client.WriteSingleRegister(ctx, reg.Address, raw); err != nil {
 			return err
 		}
 	}
 	s.println("OK — value written.")
 	return nil
+}
+
+// directWriteValue guards and coerces a value for the direct (no MQTT
+// suffix) write branch so it matches the daemon write path:
+// pseudo-registers are rejected (their Address is 0, so a raw write
+// would hit a real Modbus register), and the catalog Scale is applied
+// with the same uint16 range check as the daemon — the writable listing
+// prints the scale-divided decoded value, so re-entering that value
+// must round-trip to the raw value the device expects.
+func directWriteValue(reg *registers.Register, value string) (uint16, error) {
+	if !reg.IsModbus() {
+		return 0, fmt.Errorf("register %s (%s) is a pseudo-register and cannot be written",
+			reg.Key, reg.Name)
+	}
+	raw, err := modbus.ParseWriteValue(value, reg.Scale)
+	if err != nil {
+		return 0, fmt.Errorf("invalid value %q for register %s: %w", value, reg.Key, err)
+	}
+	return raw, nil
 }
 
 // --- I/O helpers ------------------------------------------------------------

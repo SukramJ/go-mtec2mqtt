@@ -49,17 +49,19 @@ const (
 )
 
 // applyDefaults fills in any field whose YAML+env round left it at its
-// zero value with the documented default. Fields without a default —
-// the mandatory connection parameters — are left at zero and caught by
-// [Validate].
-func applyDefaults(c *Config) {
+// zero value with the documented default. raw is the merged file+env
+// key set: MODBUS_RETRIES and HASS_BIRTH_GRACETIME document 0 as a
+// legal value (see [Validate]), so for those two fields key presence
+// in raw — not the zero value — decides whether the default applies.
+// Fields without a default — the mandatory connection parameters —
+// are left at zero and caught by [Validate].
+func applyDefaults(c *Config, raw map[string]any) {
 	if c.ModbusFramer == "" {
 		c.ModbusFramer = DefaultModbusFramer
 	}
-	if c.ModbusRetries == 0 {
-		// Note: zero retries is a legitimate value but matches the
-		// schema default anyway, so distinguishing the two adds no
-		// information.
+	if _, set := raw["MODBUS_RETRIES"]; !set {
+		// DefaultModbusRetries is 3, so an explicit MODBUS_RETRIES: 0
+		// must survive — only default when the key is truly absent.
 		c.ModbusRetries = DefaultModbusRetries
 	}
 	if c.MQTTFloatFormat == "" {
@@ -68,7 +70,9 @@ func applyDefaults(c *Config) {
 	if c.HASSBaseTopic == "" {
 		c.HASSBaseTopic = DefaultHASSBaseTopic
 	}
-	if c.HASSBirthGracetime == 0 {
+	if _, set := raw["HASS_BIRTH_GRACETIME"]; !set {
+		// An explicit HASS_BIRTH_GRACETIME: 0 disables the startup
+		// grace wait — only default when the key is truly absent.
 		c.HASSBirthGracetime = DefaultHASSBirthGracetime
 	}
 	if c.RefreshNow == 0 {
