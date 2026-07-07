@@ -79,7 +79,7 @@ func buildCatalog(t *testing.T) *registers.Map {
 
 "52003":
   name: Broken length
-  length: -1
+  length: 1
   type: U16
   mqtt: broken_length
   group: config
@@ -230,10 +230,12 @@ func TestReadRegisterHappy(t *testing.T) {
 }
 
 func TestReadRegisterClampsNegativeLength(t *testing.T) {
-	// The loader normalizes length 0 to 1 but lets negative values
-	// through — the reader must clamp them to a single-word read
-	// instead of wrapping to count=65535 on the wire.
+	// The loader now rejects negative lengths at parse time, but the
+	// reader must stay defensive against hand-built catalogs: clamp to
+	// a single-word read instead of wrapping to count=65535 on the
+	// wire. Inject the bad length after load to bypass validation.
 	catalog := buildCatalog(t)
+	catalog.ByKey["52003"].Length = -1
 	srv := newMockServer(t, func(req []byte) ([]byte, *protocol.ExceptionError) {
 		if count := binary.BigEndian.Uint16(req[3:5]); count != 1 {
 			t.Errorf("negative length must clamp to count=1, got %d", count)
@@ -375,7 +377,7 @@ func TestReadRegisterTransportError(t *testing.T) {
 	}
 }
 
-// --- parseWriteValue --------------------------------------------------------
+// --- ParseWriteValue --------------------------------------------------------
 
 func TestParseWriteValue(t *testing.T) {
 	cases := []struct {
@@ -408,18 +410,18 @@ func TestParseWriteValue(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := parseWriteValue(tc.in, tc.scale)
+			got, err := ParseWriteValue(tc.in, tc.scale)
 			if tc.wantErr {
 				if err == nil {
-					t.Fatalf("parseWriteValue(%q, %d) = %d, want error", tc.in, tc.scale, got)
+					t.Fatalf("ParseWriteValue(%q, %d) = %d, want error", tc.in, tc.scale, got)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("parseWriteValue(%q, %d): %v", tc.in, tc.scale, err)
+				t.Fatalf("ParseWriteValue(%q, %d): %v", tc.in, tc.scale, err)
 			}
 			if got != tc.want {
-				t.Fatalf("parseWriteValue(%q, %d) = %d, want %d", tc.in, tc.scale, got, tc.want)
+				t.Fatalf("ParseWriteValue(%q, %d) = %d, want %d", tc.in, tc.scale, got, tc.want)
 			}
 		})
 	}

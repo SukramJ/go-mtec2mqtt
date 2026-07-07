@@ -95,11 +95,15 @@ type Deps struct {
 type Coordinator struct {
 	deps Deps
 
-	// initialised in Run after the first STATIC read succeeds
+	// initialised in Run after the first STATIC read succeeds.
+	// serialNo/firmware/equipmentInfo are only accessed on the Run
+	// goroutine; topicBase is additionally read from the MQTT dispatch
+	// goroutine (onMessage) while Run may still be writing it, so it is
+	// stored atomically — use loadTopicBase to read it.
 	serialNo      string
 	firmware      string
 	equipmentInfo string
-	topicBase     string
+	topicBase     atomic.Value // string
 
 	// startedAt stamps construction so the web health view can report
 	// uptime. Set from Deps.Now in New.
@@ -160,7 +164,8 @@ func New(d Deps) *Coordinator {
 
 // Run executes the full daemon loop:
 //
-//  1. Modbus + MQTT connect (synchronous; first failure surfaces here)
+//  1. Modbus connect (synchronous, retried with bounded backoff until
+//     it succeeds or ctx is cancelled)
 //  2. Subscribe to the HASS status topic when HA discovery is enabled
 //     and wait HASS_BIRTH_GRACETIME for an "online" message
 //  3. Read the STATIC register group to learn the inverter's serial
@@ -171,8 +176,10 @@ func New(d Deps) *Coordinator {
 //     drainer; block until ctx is cancelled
 //  6. Disconnect cleanly
 //
-// The first stage runs serially so a hard failure (wrong IP, broker
-// down) surfaces immediately rather than from a background goroutine.
+// The first stage runs serially so nothing polls before the transport
+// is up; an unreachable inverter is retried (and logged) rather than
+// treated as fatal, because at boot a wrong IP and a gateway that is
+// still coming up look identical.
 func (c *Coordinator) Run(ctx context.Context) error {
 	log := c.deps.Logger
 
@@ -181,8 +188,8 @@ func (c *Coordinator) Run(ctx context.Context) error {
 		slog.String("mqtt", c.deps.Cfg.MQTTServer),
 		slog.Bool("hass", c.deps.Cfg.HASSEnable))
 
-	if err := c.deps.Modbus.Connect(ctx); err != nil {
-		return fmt.Errorf("coordinator: modbus connect: %w", err)
+	if err := c.connectModbus(ctx); err != nil {
+		return err
 	}
 	defer func() { _ = c.deps.Modbus.Close() }()
 
@@ -226,6 +233,9 @@ func (c *Coordinator) Run(ctx context.Context) error {
 	c.spawnPolls(runCtx, g)
 	g.Go(func() error { return c.writeWorker(runCtx) })
 	g.Go(func() error { return c.modbusWatchdog(runCtx) })
+	if c.deps.HASS != nil {
+		g.Go(func() error { return c.discoveryRepublisher(runCtx) })
+	}
 
 	err := g.Wait()
 	// Context cancellation is the expected exit, not a failure.
@@ -276,10 +286,21 @@ func (c *Coordinator) onMessage(msg *mqtt.Message) {
 		return
 	}
 	// Expected shape: <topic>/<serial>/<group>/<mqtt_key>/set
-	if c.topicBase == "" {
+	topicBase := c.loadTopicBase()
+	if topicBase == "" {
 		return // not initialised yet — drop silently
 	}
-	if !startsWith(topic, c.topicBase+"/") || !endsWith(topic, "/set") {
+	if !startsWith(topic, topicBase+"/") || !endsWith(topic, "/set") {
+		return
+	}
+	// A retained delivery is the broker replaying a past command on
+	// (re)subscribe, not a live request — writing it to the inverter on
+	// every restart and reconnect would keep overriding settings the
+	// user has since changed. Home Assistant never publishes commands
+	// retained, so dropping these loses nothing.
+	if msg.Retain {
+		log.Warn("coordinator.retained_command_ignored",
+			slog.String("topic", topic))
 		return
 	}
 	// We want the second-to-last path segment as the MQTT key.
@@ -305,6 +326,36 @@ func (c *Coordinator) waitForHASSBirth(ctx context.Context) {
 	select {
 	case <-ctx.Done():
 	case <-time.After(c.deps.Cfg.HASSBirthGracetimeDuration()):
+	}
+}
+
+// connectModbus retries the initial Modbus connect with bounded
+// exponential backoff until it succeeds or ctx is cancelled. Later
+// disconnects are already retried forever by modbusWatchdog; the
+// boot-time connect gets the same resilience so an inverter gateway
+// that is still rejoining the network (e.g. power-outage recovery)
+// doesn't kill the daemon. Cancellation returns ctx.Err().
+func (c *Coordinator) connectModbus(ctx context.Context) error {
+	log := c.deps.Logger
+	backoff := time.Second
+	const maxBackoff = 30 * time.Second
+	for {
+		err := c.deps.Modbus.Connect(ctx)
+		if err == nil {
+			return nil
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		log.Warn("coordinator.modbus_connect_retry",
+			slog.String("err", err.Error()),
+			slog.Duration("retry_in", backoff))
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+		}
+		backoff = min(2*backoff, maxBackoff)
 	}
 }
 
@@ -347,10 +398,18 @@ func (c *Coordinator) tryInitFromStatic(ctx context.Context) error {
 	if serial == "" {
 		return fmt.Errorf("coordinator: STATIC read missing serial_no")
 	}
+	// The serial becomes a level of every MQTT topic; a corrupt read
+	// (or a wrong device answering on the M-TEC register map) with a
+	// '/', wildcard or control character in it would poison the topic
+	// tree for the process lifetime. Reject it so the caller retries.
+	if !isTopicSafe(serial) {
+		return fmt.Errorf("coordinator: STATIC serial_no %q is not usable as an MQTT topic level", serial)
+	}
 	c.serialNo = serial
 	c.firmware = firmware
 	c.equipmentInfo = equip
-	c.topicBase = c.deps.Cfg.MQTTTopic + "/" + serial
+	topicBase := c.deps.Cfg.MQTTTopic + "/" + serial
+	c.topicBase.Store(topicBase)
 	if c.deps.Store != nil {
 		c.deps.Store.SetStatic(serial, firmware, equip, c.deps.Now())
 	}
@@ -358,8 +417,16 @@ func (c *Coordinator) tryInitFromStatic(ctx context.Context) error {
 		slog.String("serial", serial),
 		slog.String("firmware", firmware),
 		slog.String("equipment", equip),
-		slog.String("topic_base", c.topicBase))
+		slog.String("topic_base", topicBase))
 	return nil
+}
+
+// loadTopicBase returns the "<mqtt_topic>/<serial>" topic prefix, or
+// "" while static initialisation has not completed yet. Safe to call
+// from any goroutine.
+func (c *Coordinator) loadTopicBase() string {
+	tb, _ := c.topicBase.Load().(string)
+	return tb
 }
 
 // publishDiscovery sends every HA discovery payload with retain=true
@@ -388,6 +455,28 @@ func (c *Coordinator) publishDiscovery(ctx context.Context) map[string]bool {
 	c.discoverySent.Store(true)
 	log.Info("coordinator.discovery_sent", slog.Int("entries", len(entries)))
 	return published
+}
+
+// discoveryRepublisher re-sends the HA discovery configs after
+// onMessage clears discoverySent on a Home Assistant birth message —
+// the Python coordinator does the same so entities reappear even when
+// the broker lost its retained config topics. publishDiscovery is
+// idempotent (same retained payloads to the same topics), so an extra
+// pass is harmless.
+func (c *Coordinator) discoveryRepublisher(ctx context.Context) error {
+	const tick = 5 * time.Second
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(tick):
+		}
+		if c.discoverySent.Load() {
+			continue
+		}
+		c.deps.Logger.Info("coordinator.discovery_republish")
+		c.publishDiscovery(ctx)
+	}
 }
 
 // modbusWatchdog re-runs Connect when the transport reports a closed
@@ -446,6 +535,20 @@ func startsWith(s, prefix string) bool {
 
 func endsWith(s, suffix string) bool {
 	return len(s) >= len(suffix) && s[len(s)-len(suffix):] == suffix
+}
+
+// isTopicSafe reports whether s can be embedded as a single MQTT topic
+// level: no control characters (including NUL), no '/' level separator
+// and no '+'/'#' wildcards, all of which either break topic matching
+// or make every derived topic an invalid publish topic. Every real
+// (alphanumeric) inverter serial passes.
+func isTopicSafe(s string) bool {
+	for _, r := range s {
+		if r < 0x20 || r == '/' || r == '+' || r == '#' {
+			return false
+		}
+	}
+	return true
 }
 
 func splitPath(s string) []string {

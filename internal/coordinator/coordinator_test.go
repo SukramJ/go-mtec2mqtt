@@ -6,6 +6,7 @@ package coordinator
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -141,11 +142,17 @@ func (s *stubMQTT) Unsubscribe(_ context.Context, filter string) error {
 // adapter does proper wildcard matching internally; for tests we use a
 // substring rule that is good enough for our specific filters.
 func (s *stubMQTT) deliver(topic string, payload []byte) {
+	s.deliverMsg(&mqtt.Message{Topic: topic, Payload: payload})
+}
+
+// deliverMsg is deliver for a fully-formed message, preserving flags
+// such as Retain.
+func (s *stubMQTT) deliverMsg(msg *mqtt.Message) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for filter, h := range s.handlers {
-		if matchTopicFilter(filter, topic) {
-			h(&mqtt.Message{Topic: topic, Payload: payload})
+		if matchTopicFilter(filter, msg.Topic) {
+			h(msg)
 		}
 	}
 }
@@ -427,7 +434,7 @@ func TestRunHandlesIncomingSetCommand(t *testing.T) {
 		mqttStub.mu.Lock()
 		ready := len(mqttStub.handlers) > 0
 		mqttStub.mu.Unlock()
-		if ready && c.topicBase != "" {
+		if ready && c.loadTopicBase() != "" {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -444,6 +451,143 @@ func TestRunHandlesIncomingSetCommand(t *testing.T) {
 	writes := reader.snapshotWrites()
 	if len(writes) != 1 || writes[0].mqttKey != "mode" || writes[0].value != "Eco" {
 		t.Fatalf("expected one write (mode=Eco), got %+v", writes)
+	}
+}
+
+func TestRunIgnoresRetainedSetCommand(t *testing.T) {
+	c, reader, mqttStub, _ := buildDeps(t, false)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- c.Run(ctx) }()
+	// Wait until subscriptions are installed and init completed.
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		mqttStub.mu.Lock()
+		ready := len(mqttStub.handlers) > 0
+		mqttStub.mu.Unlock()
+		if ready && c.loadTopicBase() != "" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	// A retained delivery is the broker replaying an old command on
+	// (re)subscribe — it must never reach the inverter.
+	mqttStub.deliverMsg(&mqtt.Message{
+		Topic:   "MTEC/MTEC-TEST-001/config/mode/set",
+		Payload: []byte("Eco"),
+		Retain:  true,
+	})
+
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+	<-done
+
+	if writes := reader.snapshotWrites(); len(writes) != 0 {
+		t.Fatalf("retained command was written to the inverter: %+v", writes)
+	}
+}
+
+// TestOnMessageDuringStaticInitIsRaceFree pins the fix for the data
+// race between the MQTT dispatch goroutine reading topicBase in
+// onMessage and the Run goroutine writing it in tryInitFromStatic.
+// The race detector (`make test` runs with -race) flags the old
+// plain-string field under this workload.
+func TestOnMessageDuringStaticInitIsRaceFree(t *testing.T) {
+	c, _, _, _ := buildDeps(t, false)
+	// Silence the write-queue-full and static-init log chatter this
+	// tight loop produces.
+	c.deps.Logger = slog.New(slog.DiscardHandler)
+	ctx := context.Background()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for range 200 {
+			c.onMessage(&mqtt.Message{
+				Topic:   "MTEC/MTEC-TEST-001/config/mode/set",
+				Payload: []byte("Eco"),
+			})
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for range 200 {
+			if err := c.tryInitFromStatic(ctx); err != nil {
+				t.Errorf("tryInitFromStatic: %v", err)
+				return
+			}
+		}
+	}()
+	wg.Wait()
+}
+
+func TestTryInitFromStaticRejectsTopicUnsafeSerial(t *testing.T) {
+	for _, serial := range []string{
+		"BAD/SERIAL", "BAD+SERIAL", "BAD#SERIAL", "BAD\x00SERIAL", "BAD\nSERIAL",
+	} {
+		c, reader, _, _ := buildDeps(t, false)
+		reader.groupData[registers.GroupStatic]["serial_no"] = serial
+		if err := c.tryInitFromStatic(context.Background()); err == nil {
+			t.Errorf("serial %q was accepted", serial)
+		}
+		if tb := c.loadTopicBase(); tb != "" {
+			t.Errorf("topicBase %q was set despite unsafe serial %q", tb, serial)
+		}
+	}
+}
+
+// TestHASSBirthTriggersDiscoveryRepublish covers the full loop: HA
+// announces itself ("online" birth), onMessage clears discoverySent,
+// and the discoveryRepublisher goroutine re-sends every retained
+// discovery config. The republisher ticks every 5s, so this test —
+// like TestModbusWatchdogReconnects — polls for several seconds.
+func TestHASSBirthTriggersDiscoveryRepublish(t *testing.T) {
+	c, _, mqttStub, _ := buildDeps(t, true)
+	// The config loader maps 0 to the 15s default; skip the birth wait
+	// entirely so the initial discovery burst happens immediately.
+	c.deps.Cfg.HASSBirthGracetime = 0
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- c.Run(ctx) }()
+
+	countConfigs := func() int {
+		n := 0
+		for _, p := range mqttStub.snapshotPublishes() {
+			if p.retain && startsWith(p.topic, "homeassistant/") && endsWith(p.topic, "/config") {
+				n++
+			}
+		}
+		return n
+	}
+
+	// Wait for the initial discovery burst.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && countConfigs() == 0 {
+		time.Sleep(10 * time.Millisecond)
+	}
+	initial := countConfigs()
+	if initial == 0 {
+		t.Fatal("no initial discovery publishes")
+	}
+
+	// Home Assistant restarts and publishes its birth message.
+	mqttStub.deliver("homeassistant/status", []byte("online"))
+
+	deadline = time.Now().Add(7 * time.Second)
+	for time.Now().Before(deadline) && countConfigs() <= initial {
+		time.Sleep(50 * time.Millisecond)
+	}
+	cancel()
+	<-done
+
+	if got := countConfigs(); got <= initial {
+		t.Fatalf("discovery was not republished after HA birth: %d configs before, %d after",
+			initial, got)
 	}
 }
 
@@ -486,15 +630,32 @@ func TestModbusWatchdogReconnects(t *testing.T) {
 	}
 }
 
-func TestRunFailsFastOnInitialModbusConnect(t *testing.T) {
+// TestRunRetriesInitialModbusConnect proves the boot-time connect is
+// no longer fatal: an unreachable inverter (e.g. its gateway still
+// rejoining the network after a power outage) is retried with backoff
+// until ctx is cancelled, and cancellation surfaces as
+// context.Canceled — a normal stop, not a hard failure.
+func TestRunRetriesInitialModbusConnect(t *testing.T) {
 	c, _, _, modbusStub := buildDeps(t, false)
 	modbusStub.connectErr = errInjected{}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	err := c.Run(ctx)
-	if err == nil {
-		t.Fatal("expected initial-connect error to bubble")
+	done := make(chan error, 1)
+	go func() { done <- c.Run(ctx) }()
+
+	deadline := time.Now().Add(10 * time.Second)
+	for modbusStub.connectCalls.Load() < 2 {
+		if time.Now().After(deadline) {
+			t.Fatalf("Run did not retry the initial connect; calls = %d",
+				modbusStub.connectCalls.Load())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	cancel()
+	err := <-done
+	if err != nil && !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled startup returned %v, want nil or context.Canceled", err)
 	}
 }
 

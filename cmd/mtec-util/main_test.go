@@ -7,6 +7,8 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/SukramJ/go-mtec2mqtt/internal/registers"
 )
 
 // isolate steers config.Locate at the empty temp dir so the test
@@ -98,6 +100,68 @@ func TestEOFOnStdinExitsCleanly(t *testing.T) {
 	var out bytes.Buffer
 	if err := run("", "../../registers.yaml", in, &out); err != nil {
 		t.Fatalf("run: %v", err)
+	}
+}
+
+// TestDirectWriteValueRejectsPseudoRegister pins the guard on the
+// direct (no MQTT suffix) write branch: a pseudo-register has Address 0,
+// so an unguarded write would target a real Modbus register on the
+// device. Reachable when an operator marks a pseudo-register writable
+// in the operator-editable registers.yaml.
+func TestDirectWriteValueRejectsPseudoRegister(t *testing.T) {
+	reg := &registers.Register{
+		Key:      "consumption",
+		Name:     "Consumption",
+		Writable: true, // operator-edited catalog
+	}
+	if _, err := directWriteValue(reg, "42"); err == nil {
+		t.Fatal("expected pseudo-register write to be rejected")
+	} else if !strings.Contains(err.Error(), "pseudo-register") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// TestDirectWriteValueAppliesScale pins the display/write round-trip:
+// the writable listing shows the scale-divided decoded value, so
+// re-entering the displayed value must be multiplied by Scale before
+// hitting the wire — exactly like the daemon's WriteRegisterByMQTT path.
+func TestDirectWriteValueAppliesScale(t *testing.T) {
+	cases := []struct {
+		name    string
+		scale   int
+		value   string
+		want    uint16
+		wantErr bool
+	}{
+		{"unscaled", 0, "42", 42, false},
+		{"scaled int", 10, "25", 250, false},
+		{"scaled float", 10, "23.5", 235, false},
+		{"scaled out of range", 10, "6554", 0, true},
+		{"garbage", 1, "not-a-number", 0, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			reg := &registers.Register{
+				Key:      "52605",
+				Address:  52605,
+				Name:     "Experimental limit",
+				Scale:    tc.scale,
+				Writable: true,
+			}
+			got, err := directWriteValue(reg, tc.value)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("directWriteValue(%q) = %d, want error", tc.value, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("directWriteValue(%q): %v", tc.value, err)
+			}
+			if got != tc.want {
+				t.Fatalf("directWriteValue(%q) = %d, want %d", tc.value, got, tc.want)
+			}
+		})
 	}
 }
 

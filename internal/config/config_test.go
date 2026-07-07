@@ -57,6 +57,47 @@ func TestLoadHappyPathAppliesDefaults(t *testing.T) {
 	if c.GoFloatVerb() != "%.3f" {
 		t.Errorf("MQTT_FLOAT_FORMAT default not translated: %q", c.GoFloatVerb())
 	}
+	if c.ModbusRetries != DefaultModbusRetries {
+		t.Errorf("MODBUS_RETRIES default not applied: %d", c.ModbusRetries)
+	}
+	if c.HASSBirthGracetime != DefaultHASSBirthGracetime {
+		t.Errorf("HASS_BIRTH_GRACETIME default not applied: %d", c.HASSBirthGracetime)
+	}
+}
+
+// Validate documents 0 as a legal value for MODBUS_RETRIES and
+// HASS_BIRTH_GRACETIME, so an explicit 0 must not be replaced by the
+// nonzero defaults — key presence, not the zero value, decides.
+func TestLoadKeepsExplicitZeroRetriesAndGracetime(t *testing.T) {
+	t.Run("yaml", func(t *testing.T) {
+		yaml := minimumYAML + "MODBUS_RETRIES: 0\nHASS_BIRTH_GRACETIME: 0\n"
+		c, err := Load(strings.NewReader(yaml), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.ModbusRetries != 0 {
+			t.Errorf("explicit MODBUS_RETRIES: 0 overwritten, got %d", c.ModbusRetries)
+		}
+		if c.HASSBirthGracetime != 0 {
+			t.Errorf("explicit HASS_BIRTH_GRACETIME: 0 overwritten, got %d", c.HASSBirthGracetime)
+		}
+	})
+	t.Run("env", func(t *testing.T) {
+		env := fakeEnv{vars: map[string]string{
+			"MTEC_MODBUS_RETRIES":       "0",
+			"MTEC_HASS_BIRTH_GRACETIME": "0",
+		}}
+		c, err := Load(strings.NewReader(minimumYAML), env)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.ModbusRetries != 0 {
+			t.Errorf("MTEC_MODBUS_RETRIES=0 overwritten, got %d", c.ModbusRetries)
+		}
+		if c.HASSBirthGracetime != 0 {
+			t.Errorf("MTEC_HASS_BIRTH_GRACETIME=0 overwritten, got %d", c.HASSBirthGracetime)
+		}
+	})
 }
 
 func TestLoadAggregatesValidationErrors(t *testing.T) {
@@ -109,6 +150,44 @@ func TestEnvOverrideCoercion(t *testing.T) {
 	}
 	if c.DeviceName != "Wohnzimmer" {
 		t.Errorf("MTEC_DEVICE_NAME override: %q", c.DeviceName)
+	}
+}
+
+// TestEnvOverrideStringFieldsNotCoerced pins down that the bool/int/
+// float coercion ladder never touches values destined for string-typed
+// Config fields: a password "007" must not become "7", "True" must not
+// become "true", and a numeric-looking MQTT_TOPIC must not change the
+// topic layout.
+func TestEnvOverrideStringFieldsNotCoerced(t *testing.T) {
+	env := fakeEnv{vars: map[string]string{
+		"MTEC_MQTT_PASSWORD": "007",  // int-parseable, leading zeros
+		"MTEC_MQTT_LOGIN":    "1e5",  // float-parseable
+		"MTEC_MQTT_TOPIC":    "0055", // topic layout must stay verbatim
+		"MTEC_WEB_USER":      "True", // bool-parseable, case-sensitive
+		"MTEC_WEB_PASSWORD":  "false",
+		"MTEC_DEVICE_NAME":   "1.50",
+	}}
+	c, err := Load(strings.NewReader(minimumYAML), env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.MQTTPassword != "007" {
+		t.Errorf("MTEC_MQTT_PASSWORD mangled: %q", c.MQTTPassword)
+	}
+	if c.MQTTLogin != "1e5" {
+		t.Errorf("MTEC_MQTT_LOGIN mangled: %q", c.MQTTLogin)
+	}
+	if c.MQTTTopic != "0055" {
+		t.Errorf("MTEC_MQTT_TOPIC mangled: %q", c.MQTTTopic)
+	}
+	if c.WebUser != "True" {
+		t.Errorf("MTEC_WEB_USER mangled: %q", c.WebUser)
+	}
+	if c.WebPassword != "false" {
+		t.Errorf("MTEC_WEB_PASSWORD mangled: %q", c.WebPassword)
+	}
+	if c.DeviceName != "1.50" {
+		t.Errorf("MTEC_DEVICE_NAME mangled: %q", c.DeviceName)
 	}
 }
 

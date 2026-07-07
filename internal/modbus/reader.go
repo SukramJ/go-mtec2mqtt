@@ -189,17 +189,19 @@ func (r *Reader) WriteRegisterByMQTT(ctx context.Context, name, value string) er
 	// Fall through — caller may have sent the numeric code directly.
 
 	// 2/3) numeric parse + scale.
-	raw, err := parseWriteValue(value, reg.Scale)
+	raw, err := ParseWriteValue(value, reg.Scale)
 	if err != nil {
 		return fmt.Errorf("%w: mqtt=%q value=%q: %w", ErrValueParse, name, value, err)
 	}
 	return r.client.WriteSingleRegister(ctx, reg.Address, raw)
 }
 
-// parseWriteValue mirrors the value-coercion logic from
+// ParseWriteValue mirrors the value-coercion logic from
 // AsyncModbusClient.write_register: int wins over float, dots flip to
 // float-parse, scale multiplies, final cast narrows to uint16.
-func parseWriteValue(s string, scale int) (uint16, error) {
+// Exported so mtec-util's direct write branch applies the exact same
+// coercion as the daemon write path.
+func ParseWriteValue(s string, scale int) (uint16, error) {
 	if scale < 1 {
 		scale = 1
 	}
