@@ -129,6 +129,11 @@ etc. — no special test runner beyond `go test`.
 - **Commit style**: Conventional Commits with a scope, e.g.
   `feat(hass): add Home Assistant add-on...`, `fix(addon): ...`,
   `chore(deps): ...` (see `git log`).
+- **Release bookkeeping — three files move together.** A version bump
+  touches `internal/version/version.go` and `addon/config.yaml`, and
+  every `changelog.md` entry must ALWAYS be mirrored into
+  `addon/CHANGELOG.md` (the file Home Assistant renders in the add-on
+  UI's Changelog tab) — keep the two changelog files identical.
 - **CI** (`.github/workflows/ci.yml`) runs three jobs: `lint` (go vet +
   gofumpt check), `test` (matrix across ubuntu/macos/windows with the
   race detector), `build` (compiles both binaries and checks
