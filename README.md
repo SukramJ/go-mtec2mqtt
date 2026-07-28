@@ -221,7 +221,8 @@ Parts of go-mtec2mqtt are developed with agentic AI assistance, primarily
 also triaged and analysed with agentic help. Every change is still
 reviewed by a human maintainer and has to pass the project's test suite
 before it lands — the AI accelerates the work, it does not replace the
-review gate.
+review gate. The same rules apply to contributions: AI-assisted work is
+welcome under the [AI contribution policy](./AI_POLICY.md).
 
 ## Compatibility
 
