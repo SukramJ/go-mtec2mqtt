@@ -182,7 +182,10 @@
       64: "PV-Überspannung",
       128: "Bus-Spannungsfehler",
     }
-  hass_device_class: enum
+  # Deliberately no hass_device_class: the published state is a
+  # comma-separated list of active faults (or "OK"), which Home
+  # Assistant's options-based `enum` device class cannot represent.
+  # hass_value_items stays — it drives that label conversion.
 
 "10114":
   name: Fault flag2
@@ -209,7 +212,7 @@
       32: "Relais-Prüfung fehlgeschlagen",
       64: "Interner Lüfterfehler",
     }
-  hass_device_class: enum
+  # No hass_device_class — see 10112.
 
 # "10120":
 #   name: Fault flag3
@@ -217,7 +220,7 @@
 #   type: BIT
 #   mqtt: fault_flag_3
 #   group: now-base
-#   hass_device_class: enum
+#   # No hass_device_class — see 10112.
 
 "10994":
   name: Grid power phase A
@@ -1067,7 +1070,9 @@
   name: Battery temperature
   name_de: "Batterietemperatur"
   length: 1
-  type: U16
+  # Signed: battery temperatures go below 0 °C. Upstream (Python
+  # MTECmqtt) declares U16 here, which publishes -0.5 °C as 6553.1 °C.
+  type: I16
   unit: "°C"
   scale: 10
   mqtt: battery_temp
@@ -1080,7 +1085,8 @@
   name: Battery cell temperature max.
   name_de: "Batteriezellen-Temperatur max."
   length: 1
-  type: U16
+  # Signed — see 33003.
+  type: I16
   unit: "°C"
   scale: 10
   mqtt: battery_cell_t_max
@@ -1093,7 +1099,8 @@
   name: Battery cell temperature min.
   name_de: "Batteriezellen-Temperatur min."
   length: 1
-  type: U16
+  # Signed — see 33003.
+  type: I16
   unit: "°C"
   scale: 10
   mqtt: battery_cell_t_min
@@ -1334,7 +1341,7 @@
       8: "Relais-Fehler",
       16: "Zellschaden-Fehler",
     }
-  hass_device_class: enum
+  # No hass_device_class — see 10112.
 
 "53511":
   name: BMS Protection Code
@@ -1379,7 +1386,7 @@
       16384: "Umgebungs-Übertemperaturschutz",
       32768: "Fehlerstromschutz",
     }
-  hass_device_class: enum
+  # No hass_device_class — see 10112.
 
 "53513":
   name: BMS Alarm Code
@@ -1422,4 +1429,4 @@
       8192: "Umgebungs-Untertemperaturwarnung",
       16384: "Umgebungs-Übertemperaturwarnung",
     }
-  hass_device_class: enum
+  # No hass_device_class — see 10112.
