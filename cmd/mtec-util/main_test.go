@@ -8,6 +8,7 @@ import (
 	"net"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -190,7 +191,14 @@ func TestEnvOnlyConfigLazilyConnectsOnReadOption(t *testing.T) {
 // flag package in main(), so it can only be exercised as a real
 // subprocess rather than through the run() test seam.
 func TestVersionFlagPrintsBannerAndExitsZero(t *testing.T) {
-	bin := filepath.Join(t.TempDir(), "mtec-util-versiontest")
+	// Windows' CreateProcess only resolves executables by their .exe
+	// suffix; `go build -o` writes the file verbatim, so the suffix must
+	// be part of the name or exec fails with "not found in %PATH%".
+	name := "mtec-util-versiontest"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	bin := filepath.Join(t.TempDir(), name)
 	build := exec.Command("go", "build", "-o", bin, ".")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("go build: %v\n%s", err, out)

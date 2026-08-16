@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -351,11 +352,10 @@ func (c *Coordinator) retryWithBackoff(ctx context.Context, event string, fn fun
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		logAttrs := make([]slog.Attr, 0, len(attrs)+2)
-		logAttrs = append(logAttrs, attrs...)
-		logAttrs = append(logAttrs,
+		logAttrs := slices.Concat(attrs, []slog.Attr{
 			slog.String("err", err.Error()),
-			slog.Duration("retry_in", backoff))
+			slog.Duration("retry_in", backoff),
+		})
 		c.deps.Logger.LogAttrs(ctx, slog.LevelWarn, event, logAttrs...)
 		select {
 		case <-ctx.Done():
