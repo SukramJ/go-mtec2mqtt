@@ -37,6 +37,39 @@ func TestUpdateGroupSnapshotIsolated(t *testing.T) {
 	}
 }
 
+// TestUpdateGroupMergesPartialReads pins merge semantics: a cycle that
+// only returned part of the group (a cluster that timed out, a
+// reconnect window) must not make the other registers disappear from
+// the dashboard while UpdatedAt still advertises a fresh cycle.
+func TestUpdateGroupMergesPartialReads(t *testing.T) {
+	s := New()
+	s.UpdateGroup("now-base", map[string]any{"power": 1234.0, "soc": 80}, t0)
+
+	t1 := t0.Add(time.Minute)
+	s.UpdateGroup("now-base", map[string]any{"power": 999.0}, t1)
+
+	g := s.Snapshot().Groups["now-base"]
+	if g.Values["power"] != 999.0 {
+		t.Errorf("power = %v, want the fresh 999", g.Values["power"])
+	}
+	if g.Values["soc"] != 80 {
+		t.Errorf("soc = %v, want the previous 80 (absent from the partial read)", g.Values["soc"])
+	}
+	if len(g.Values) != 2 {
+		t.Errorf("group holds %d values, want 2", len(g.Values))
+	}
+	if !g.UpdatedAt.Equal(t1) {
+		t.Errorf("UpdatedAt = %v, want %v", g.UpdatedAt, t1)
+	}
+	// Merging must not leak the caller's map into the store either.
+	partial := map[string]any{"power": 1.0}
+	s.UpdateGroup("now-base", partial, t1)
+	partial["power"] = 2.0
+	if got := s.Snapshot().Groups["now-base"].Values["power"]; got != 1.0 {
+		t.Errorf("store kept a reference to the caller's map: %v", got)
+	}
+}
+
 func TestSetStatic(t *testing.T) {
 	s := New()
 	s.SetStatic("SN123", "V1.2", "Model-X", t0)

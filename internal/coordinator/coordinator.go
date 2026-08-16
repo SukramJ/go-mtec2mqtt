@@ -16,6 +16,7 @@ package coordinator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -28,8 +29,20 @@ import (
 
 	"github.com/SukramJ/go-mtec2mqtt/internal/config"
 	"github.com/SukramJ/go-mtec2mqtt/internal/hass"
+	"github.com/SukramJ/go-mtec2mqtt/internal/modbus"
 	"github.com/SukramJ/go-mtec2mqtt/internal/registers"
 	"github.com/SukramJ/go-mtec2mqtt/internal/state"
+)
+
+// Errors surfaced to synchronous (web UI) writers whose command never
+// reached the inverter. The MQTT command path only logs them.
+var (
+	// ErrWriteQueueFull means the write queue stayed full even after
+	// making room, so the command was not accepted.
+	ErrWriteQueueFull = errors.New("coordinator: write queue full")
+	// ErrWriteSuperseded means the queued command was dropped to make
+	// room for a newer one — the newer command is the one that runs.
+	ErrWriteSuperseded = errors.New("coordinator: write superseded by a newer command")
 )
 
 // ModbusClient is the subset of [*modbus.Client] the coordinator needs
@@ -111,7 +124,18 @@ type Coordinator struct {
 
 	secondaryIdx  atomic.Int32
 	discoverySent atomic.Bool
-	writeQueue    chan writeReq
+	// discoveryGen counts Home Assistant birth announcements.
+	// publishDiscovery samples it before its first publish and only marks
+	// discovery as sent when it is unchanged afterwards, so a birth that
+	// arrives mid-publish is not swallowed by the final Store(true).
+	discoveryGen atomic.Uint64
+	writeQueue   chan writeReq
+	// writeWorkerUp reports whether writeWorker is draining the queue.
+	// The synchronous web write path waits for a queued command's reply,
+	// which only ever arrives while the worker runs — before Run (or
+	// after it returned) that path dispatches inline instead of blocking
+	// on a queue nobody reads.
+	writeWorkerUp atomic.Bool
 
 	// hassStatusTopic caches "<hass_base>/status" so the message
 	// handler can compare topic strings without rebuilding it on
@@ -137,6 +161,23 @@ type Coordinator struct {
 type writeReq struct {
 	mqttKey string
 	value   string
+	// reply, when non-nil, receives the dispatch outcome exactly once so
+	// a synchronous caller (the web UI) can return it. Must be buffered
+	// (capacity 1) — the worker never blocks on a caller that gave up.
+	reply chan error
+}
+
+// replyTo delivers a result to a synchronous caller, if there is one.
+// Non-blocking: the buffer holds the single value a caller can consume,
+// and a caller whose context expired is simply gone.
+func replyTo(req writeReq, err error) {
+	if req.reply == nil {
+		return
+	}
+	select {
+	case req.reply <- err:
+	default:
+	}
 }
 
 // New constructs a Coordinator. It does not touch the network or
@@ -264,12 +305,65 @@ func (c *Coordinator) installInboundHandler(ctx context.Context) error {
 		c.hassStatusTopic,
 		c.deps.Cfg.MQTTTopic + "/+/+/+/set",
 	}
+	// A failing subscribe is retried with the same bounded backoff the
+	// Modbus connect uses instead of killing the daemon: a broker that
+	// is still booting alongside us looks exactly like a broker that
+	// will never accept the filter, and losing the command path for the
+	// process lifetime is the worse outcome. Only the filter that failed
+	// is retried, so a successful one is never re-subscribed.
 	for _, s := range subs {
-		if _, err := c.deps.MQTT.Subscribe(ctx, s, mqtt.QoS1, c.onMessage); err != nil {
+		err := c.retryWithBackoff(ctx, "coordinator.subscribe_retry",
+			func(ctx context.Context) error {
+				_, err := c.deps.MQTT.Subscribe(ctx, s, mqtt.QoS1, c.onMessage)
+				return err
+			},
+			slog.String("filter", s))
+		if err != nil {
 			return fmt.Errorf("coordinator: subscribe %s: %w", s, err)
 		}
 	}
 	return nil
+}
+
+// startupBackoff / startupMaxBackoff bound retryWithBackoff's wait
+// between attempts. Vars, not consts, so tests can shorten them.
+var (
+	startupBackoff    = time.Second
+	startupMaxBackoff = 30 * time.Second
+)
+
+// retryWithBackoff runs fn until it succeeds or ctx is cancelled,
+// backing off exponentially (1 s → 30 s) between attempts and logging
+// each failure under event. Returns ctx.Err() on cancellation.
+//
+// Every startup step that talks to a network peer goes through here:
+// at boot an unreachable peer and a peer that is still coming up are
+// indistinguishable, so retrying beats treating the first error as
+// fatal.
+func (c *Coordinator) retryWithBackoff(ctx context.Context, event string, fn func(context.Context) error, attrs ...slog.Attr) error {
+	backoff := startupBackoff
+	maxBackoff := startupMaxBackoff
+	for {
+		err := fn(ctx)
+		if err == nil {
+			return nil
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		logAttrs := make([]slog.Attr, 0, len(attrs)+2)
+		logAttrs = append(logAttrs, attrs...)
+		logAttrs = append(logAttrs,
+			slog.String("err", err.Error()),
+			slog.Duration("retry_in", backoff))
+		c.deps.Logger.LogAttrs(ctx, slog.LevelWarn, event, logAttrs...)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+		}
+		backoff = min(2*backoff, maxBackoff)
+	}
 }
 
 // onMessage dispatches one inbound publish. Errors are logged and
@@ -281,6 +375,11 @@ func (c *Coordinator) onMessage(msg *mqtt.Message) {
 	if topic == c.hassStatusTopic {
 		if string(payload) == "online" {
 			log.Info("coordinator.hass_birth_seen")
+			// Bump the generation first: a publishDiscovery already in
+			// flight compares it against the value it sampled and refuses
+			// to mark discovery as sent, so this birth cannot be lost in
+			// the gap between our Store(false) and its Store(true).
+			c.discoveryGen.Add(1)
 			c.discoverySent.Store(false) // trigger republish next chance
 		}
 		return
@@ -309,12 +408,44 @@ func (c *Coordinator) onMessage(msg *mqtt.Message) {
 		return
 	}
 	mqttKey := parts[len(parts)-2]
-	select {
-	case c.writeQueue <- writeReq{mqttKey: mqttKey, value: string(payload)}:
-	default:
-		log.Warn("coordinator.write_queue_full",
-			slog.String("mqtt_key", mqttKey))
+	// Errors are already logged by enqueueWrite; the MQTT path has no
+	// caller to report back to.
+	_ = c.enqueueWrite(writeReq{mqttKey: mqttKey, value: string(payload)})
+}
+
+// enqueueWrite puts req on the write queue, making room by dropping the
+// OLDEST pending command when the queue is full.
+//
+// Dropping the newest (what a plain non-blocking send does) strands the
+// inverter on an intermediate value: dragging a Home Assistant slider
+// emits a burst of commands, and the one that must survive is the value
+// the user released it at — the last one. The oldest entry is the most
+// stale, so it is the one worth losing.
+//
+// The attempt count is bounded because several producers (the MQTT
+// dispatch goroutine, web handler goroutines) can race here; without
+// the bound a pathological interleaving could spin.
+func (c *Coordinator) enqueueWrite(req writeReq) error {
+	const maxAttempts = 8
+	log := c.deps.Logger
+	for range maxAttempts {
+		select {
+		case c.writeQueue <- req:
+			return nil
+		default:
+		}
+		select {
+		case dropped := <-c.writeQueue:
+			log.Warn("coordinator.write_queue_full_dropped_oldest",
+				slog.String("dropped_mqtt_key", dropped.mqttKey),
+				slog.String("dropped_value", dropped.value),
+				slog.String("mqtt_key", req.mqttKey))
+			replyTo(dropped, ErrWriteSuperseded)
+		default:
+		}
 	}
+	log.Warn("coordinator.write_queue_full", slog.String("mqtt_key", req.mqttKey))
+	return ErrWriteQueueFull
 }
 
 // waitForHASSBirth subscribes to the HA status topic and sleeps the
@@ -336,27 +467,7 @@ func (c *Coordinator) waitForHASSBirth(ctx context.Context) {
 // that is still rejoining the network (e.g. power-outage recovery)
 // doesn't kill the daemon. Cancellation returns ctx.Err().
 func (c *Coordinator) connectModbus(ctx context.Context) error {
-	log := c.deps.Logger
-	backoff := time.Second
-	const maxBackoff = 30 * time.Second
-	for {
-		err := c.deps.Modbus.Connect(ctx)
-		if err == nil {
-			return nil
-		}
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		log.Warn("coordinator.modbus_connect_retry",
-			slog.String("err", err.Error()),
-			slog.Duration("retry_in", backoff))
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(backoff):
-		}
-		backoff = min(2*backoff, maxBackoff)
-	}
+	return c.retryWithBackoff(ctx, "coordinator.modbus_connect_retry", c.deps.Modbus.Connect)
 }
 
 // waitForStatic blocks until the STATIC group yields a usable serial
@@ -437,22 +548,42 @@ func (c *Coordinator) loadTopicBase() string {
 // It returns the set of config topics it advertised. A topic is included
 // even when its publish fails, so a transient broker error never makes
 // orphan reconciliation clear an entity we still intend to publish.
+//
+// discoverySent is only raised when the whole batch went out AND no
+// Home Assistant birth arrived meanwhile. Marking it sent
+// unconditionally left HA without any entities until the next daemon
+// restart whenever the broker was unavailable at startup (an open
+// circuit breaker publishes nothing at all), and let the final
+// Store(true) overwrite the Store(false) a concurrent birth had just
+// set. Leaving it false makes discoveryRepublisher try again in 5 s.
 func (c *Coordinator) publishDiscovery(ctx context.Context) map[string]bool {
 	if c.deps.HASS == nil {
 		return nil
 	}
 	log := c.deps.Logger
+	gen := c.discoveryGen.Load()
 	entries := c.deps.HASS.Entries()
 	published := make(map[string]bool, len(entries))
+	failed := 0
 	for _, e := range entries {
 		published[e.ConfigTopic] = true
 		if err := c.deps.MQTT.Publish(ctx, e.ConfigTopic, e.Payload, mqtt.QoS0, true); err != nil {
+			failed++
 			log.Warn("coordinator.discovery_publish",
 				slog.String("topic", e.ConfigTopic),
 				slog.String("err", err.Error()))
 		}
 	}
-	c.discoverySent.Store(true)
+	birthRaced := c.discoveryGen.Load() != gen
+	complete := failed == 0 && !birthRaced
+	c.discoverySent.Store(complete)
+	if !complete {
+		log.Warn("coordinator.discovery_incomplete",
+			slog.Int("entries", len(entries)),
+			slog.Int("failed", failed),
+			slog.Bool("birth_raced", birthRaced))
+		return published
+	}
 	log.Info("coordinator.discovery_sent", slog.Int("entries", len(entries)))
 	return published
 }
@@ -501,18 +632,31 @@ func (c *Coordinator) modbusWatchdog(ctx context.Context) error {
 	}
 }
 
-// writeWorker drains the queue of inbound HA commands, calling
-// WriteRegisterByMQTT for each. We process sequentially because the
-// Modbus client serialises wire transactions anyway, so parallelism
-// here would only deepen the queue without speeding the inverter up.
+// writeRetries / writeRetryDelay bound the writeWorker's retry of a
+// transient failure. Three attempts a second apart comfortably span the
+// watchdog's reconnect window without holding the queue hostage. Vars,
+// not consts, so tests can shorten the delay.
+var (
+	writeRetries    = 3
+	writeRetryDelay = time.Second
+)
+
+// writeWorker drains the queue of inbound commands (HA /set publishes
+// and web UI writes), calling WriteRegisterByMQTT for each. We process
+// sequentially because the Modbus client serialises wire transactions
+// anyway, so parallelism here would only deepen the queue without
+// speeding the inverter up.
 func (c *Coordinator) writeWorker(ctx context.Context) error {
 	log := c.deps.Logger
+	c.writeWorkerUp.Store(true)
+	defer c.writeWorkerUp.Store(false)
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
 		case req := <-c.writeQueue:
-			err := c.dispatchWrite(ctx, req.mqttKey, req.value)
+			err := c.dispatchWriteRetrying(ctx, req)
+			replyTo(req, err)
 			if err != nil {
 				log.Warn("coordinator.write_failed",
 					slog.String("mqtt_key", req.mqttKey),
@@ -525,6 +669,56 @@ func (c *Coordinator) writeWorker(ctx context.Context) error {
 				slog.String("value", req.value))
 		}
 	}
+}
+
+// dispatchWriteRetrying performs one queued write, retrying a transient
+// transport failure a few times. A command that lands in the watchdog's
+// reconnect window (or any other momentarily poisoned connection) used
+// to be dropped without a trace — Home Assistant showed the new value
+// while the inverter kept the old one, until the next poll snapped the
+// entity back.
+func (c *Coordinator) dispatchWriteRetrying(ctx context.Context, req writeReq) error {
+	log := c.deps.Logger
+	var err error
+	for attempt := 1; attempt <= writeRetries; attempt++ {
+		err = c.dispatchWrite(ctx, req.mqttKey, req.value)
+		if err == nil || !isTransientWriteErr(err) {
+			return err
+		}
+		if attempt == writeRetries {
+			break
+		}
+		log.Warn("coordinator.write_retry",
+			slog.String("mqtt_key", req.mqttKey),
+			slog.String("value", req.value),
+			slog.Int("attempt", attempt),
+			slog.String("err", err.Error()))
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(writeRetryDelay):
+		}
+	}
+	return err
+}
+
+// isTransientWriteErr reports whether a failed write is worth another
+// attempt. The reader's typed rejections (unknown register, read-only,
+// unparseable value, pseudo-register) and context errors are final —
+// retrying them only burns queue time. Everything else is a
+// transport-level failure (a poisoned connection, a timed-out
+// round-trip) and gets another shot.
+func isTransientWriteErr(err error) bool {
+	switch {
+	case errors.Is(err, modbus.ErrUnknownRegister),
+		errors.Is(err, modbus.ErrNotWritable),
+		errors.Is(err, modbus.ErrValueParse),
+		errors.Is(err, modbus.ErrPseudoUnsupported),
+		errors.Is(err, context.Canceled),
+		errors.Is(err, context.DeadlineExceeded):
+		return false
+	}
+	return true
 }
 
 // --- string helpers (avoid pulling "strings" for two predicates) ----------

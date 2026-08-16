@@ -37,13 +37,24 @@ func New() *Store {
 	}
 }
 
-// UpdateGroup replaces the cached values for one polling group and wakes
-// every subscriber. values is copied defensively so the caller may keep
-// mutating its map.
+// UpdateGroup merges the given values into the cached view for one
+// polling group and wakes every subscriber. values is copied
+// defensively so the caller may keep mutating its map.
+//
+// Merge, not replace: a partial read (a cluster that timed out, a
+// reconnect window) returns only some of the group's registers, and
+// replacing the whole group with that subset made the missing registers
+// vanish from the web UI while UpdatedAt still claimed a fresh cycle —
+// the dashboard showed holes for values the inverter still has. The
+// catalog is static for a process lifetime, so the worst case of
+// merging is a stale leftover value, which the age display already
+// qualifies. UpdatedAt always reflects the latest write.
 func (s *Store) UpdateGroup(group string, values map[string]any, now time.Time) {
-	cp := make(map[string]any, len(values))
-	maps.Copy(cp, values)
 	s.mu.Lock()
+	prev := s.groups[group].Values
+	cp := make(map[string]any, len(prev)+len(values))
+	maps.Copy(cp, prev)
+	maps.Copy(cp, values)
 	s.groups[group] = GroupView{UpdatedAt: now, Values: cp}
 	s.mu.Unlock()
 	s.notify()

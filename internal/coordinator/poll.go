@@ -81,7 +81,7 @@ func (c *Coordinator) pollSecondary(ctx context.Context, every time.Duration) er
 		slog.Int("rotation", len(secondaryGroups)))
 
 	step := func() {
-		idx := int(c.secondaryIdx.Load()) % len(secondaryGroups)
+		idx := secondaryIndex(c.secondaryIdx.Load())
 		group := registers.Group(secondaryGroups[idx])
 		c.secondaryIdx.Add(1)
 		c.publishGroupOnce(ctx, log.With(slog.String("subgroup", string(group))), group)
@@ -98,6 +98,15 @@ func (c *Coordinator) pollSecondary(ctx context.Context, every time.Duration) er
 			step()
 		}
 	}
+}
+
+// secondaryIndex maps the round-robin tick counter to a group index.
+// The counter runs for the whole process lifetime and wraps to negative
+// after 2^31 ticks; masking to unsigned before the modulo keeps the
+// result in range, where a plain `int(v) % len` would hand the slice a
+// negative index and panic.
+func secondaryIndex(v int32) int {
+	return int(uint32(v) % uint32(len(secondaryGroups))) //nolint:gosec // bit-pattern reinterpretation on purpose; the modulo result is < len(secondaryGroups)
 }
 
 // publishGroupOnce is the single-cycle worker: read the group from
@@ -117,10 +126,15 @@ func (c *Coordinator) publishGroupOnce(ctx context.Context, log *slog.Logger, gr
 		return
 	}
 	processed := processValues(c.deps.Catalog, raw, c.deps.Cfg.Language)
-	if pseudo := PseudoRegisters(string(group), processed, c.deps.Now()); pseudo != nil {
-		for k, v := range pseudo {
-			processed[k] = v
-		}
+	pseudo, skipped := PseudoRegisters(string(group), processed, c.deps.Now())
+	for k, v := range pseudo {
+		processed[k] = v
+	}
+	if len(skipped) > 0 {
+		// A partial read (cluster timeout / reconnect window) leaves one of
+		// the formula inputs out; publishing the derived value anyway would
+		// mean publishing a wrong number. Skip it this cycle instead.
+		log.Debug("coordinator.pseudo_skipped", slog.Any("keys", skipped))
 	}
 	// Derive the synthetic charge/discharge "active" switch states from
 	// the freshly processed limits so they ride the same store + MQTT

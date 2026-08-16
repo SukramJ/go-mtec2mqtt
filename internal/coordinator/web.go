@@ -6,6 +6,7 @@ package coordinator
 import (
 	"context"
 	"fmt"
+	"maps"
 
 	"github.com/SukramJ/go-mtec2mqtt/internal/hass"
 	"github.com/SukramJ/go-mtec2mqtt/internal/state"
@@ -108,7 +109,7 @@ func (c *Coordinator) Registers() []state.RegisterInfo {
 			Type:       string(r.Type),
 			Writable:   r.Writable,
 			Component:  r.HassComponentType,
-			ValueItems: r.LocalizedValueItems(lang),
+			ValueItems: copyValueItems(r.LocalizedValueItems(lang)),
 		})
 	}
 	for _, v := range c.deps.Virtual {
@@ -124,15 +125,50 @@ func (c *Coordinator) Registers() []state.RegisterInfo {
 	return out
 }
 
+// copyValueItems returns a private copy of an enum label map. The
+// catalog hands out its own map for the English case (and the register
+// objects live for the process lifetime), so passing it straight into a
+// [state.RegisterInfo] would let any consumer of the web API mutate the
+// shared catalog. Copying here rather than in registers.Register keeps
+// the poll hot path allocation-free — this runs once per /api/registers
+// request.
+func copyValueItems(items map[int]string) map[int]string {
+	if items == nil {
+		return nil
+	}
+	cp := make(map[int]string, len(items))
+	maps.Copy(cp, items)
+	return cp
+}
+
 // Write sets a writable register identified by its MQTT suffix. It runs
-// synchronously — the Modbus client serialises wire transactions, so
-// this safely interleaves with the poll goroutines — and surfaces the
+// synchronously — the caller gets the actual outcome — and surfaces the
 // transport's typed errors (ErrUnknownRegister / ErrNotWritable /
-// ErrValueParse) to the caller for HTTP status mapping. Synthetic
-// "active" switch keys are routed through the same toggle logic the HA
-// command path uses.
+// ErrValueParse) for HTTP status mapping. Synthetic "active" switch keys
+// are routed through the same toggle logic the HA command path uses.
+//
+// The command goes through the same queue as the HA /set path rather
+// than straight to the transport: two writes to one register issued at
+// the same moment from the web UI and from Home Assistant could
+// otherwise reach the inverter in either order, leaving it on the value
+// of whichever won the race. One queue, one worker, one order.
 func (c *Coordinator) Write(ctx context.Context, mqttKey, value string) error {
-	return c.dispatchWrite(ctx, mqttKey, value)
+	if !c.writeWorkerUp.Load() {
+		// No worker draining the queue (web server up before Run, or Run
+		// already returned) — dispatch inline so the request still gets a
+		// real answer instead of blocking until the client goes away.
+		return c.dispatchWrite(ctx, mqttKey, value)
+	}
+	reply := make(chan error, 1)
+	if err := c.enqueueWrite(writeReq{mqttKey: mqttKey, value: value, reply: reply}); err != nil {
+		return err
+	}
+	select {
+	case err := <-reply:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // Changes returns a coalesced change-notification channel for SSE, plus

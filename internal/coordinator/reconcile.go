@@ -17,6 +17,16 @@ import (
 // subscribe, so a brief window captures all of them.
 const reconcileCollectWindow = 2 * time.Second
 
+// unsubscribe retry budget for the discovery-config filter. Vars, not
+// consts, so tests can shorten the wait.
+var (
+	reconcileUnsubscribeTries = 3
+	reconcileUnsubscribeDelay = 250 * time.Millisecond
+	// reconcileUnsubscribeBudget caps the whole retry loop when it runs
+	// on an already-cancelled context (shutdown path).
+	reconcileUnsubscribeBudget = 2 * time.Second
+)
+
 // reconcileOrphans clears this daemon's retained Home Assistant discovery
 // configs that are no longer in the just-published set (entities that were
 // removed, renamed or re-platformed across catalog or daemon versions), so
@@ -53,13 +63,16 @@ func (c *Coordinator) reconcileOrphans(ctx context.Context, published map[string
 		// Retained configs arrive right after subscribe; collect briefly.
 		select {
 		case <-ctx.Done():
-			// ctx is cancelled here; derive a non-cancelled child so the
-			// unsubscribe still goes out without breaking the context chain.
-			_ = c.deps.MQTT.Unsubscribe(context.WithoutCancel(ctx), filter)
+			// ctx is cancelled here; derive a non-cancelled child (with a
+			// deadline of its own) so the unsubscribe still goes out
+			// without breaking the context chain or hanging on shutdown.
+			uctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), reconcileUnsubscribeBudget)
+			defer cancel()
+			c.unsubscribeWithRetry(uctx, filter)
 			return
 		case <-time.After(reconcileCollectWindow):
 		}
-		_ = c.deps.MQTT.Unsubscribe(ctx, filter)
+		c.unsubscribeWithRetry(ctx, filter)
 
 		mu.Lock()
 		orphans := c.orphanTopics(retained, published)
@@ -76,6 +89,41 @@ func (c *Coordinator) reconcileOrphans(ctx context.Context, published map[string
 			log.Info("coordinator.discovery_orphans_cleared", slog.Int("count", cleared))
 		}
 	}()
+}
+
+// unsubscribeWithRetry drops the discovery-config subscription, retrying
+// a failure a few times before giving up loudly.
+//
+// A silently ignored failure leaves this daemon subscribed to
+// homeassistant/+/+/config for the rest of the process: the client
+// replays the filter on every reconnect, the collector callback keeps
+// appending every retained config the broker sends into a map nobody
+// reads again, and both the traffic and the map grow for the process
+// lifetime.
+func (c *Coordinator) unsubscribeWithRetry(ctx context.Context, filter string) {
+	log := c.deps.Logger
+	var err error
+	for attempt := 1; attempt <= reconcileUnsubscribeTries; attempt++ {
+		err = c.deps.MQTT.Unsubscribe(ctx, filter)
+		if err == nil {
+			return
+		}
+		log.Warn("coordinator.reconcile_unsubscribe_retry",
+			slog.String("filter", filter),
+			slog.Int("attempt", attempt),
+			slog.String("err", err.Error()))
+		if attempt == reconcileUnsubscribeTries {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(reconcileUnsubscribeDelay):
+		}
+	}
+	log.Warn("coordinator.reconcile_unsubscribe_failed",
+		slog.String("filter", filter),
+		slog.String("err", err.Error()))
 }
 
 // orphanTopics returns the retained config topics that are ours

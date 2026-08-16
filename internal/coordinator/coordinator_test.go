@@ -6,7 +6,10 @@ package coordinator
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"math"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -17,7 +20,9 @@ import (
 
 	"github.com/SukramJ/go-mtec2mqtt/internal/config"
 	"github.com/SukramJ/go-mtec2mqtt/internal/hass"
+	"github.com/SukramJ/go-mtec2mqtt/internal/modbus"
 	"github.com/SukramJ/go-mtec2mqtt/internal/registers"
+	"github.com/SukramJ/go-mtec2mqtt/internal/state"
 )
 
 // --- stubs -----------------------------------------------------------------
@@ -29,6 +34,12 @@ type stubReader struct {
 	calls     map[registers.Group]int
 	writes    []writeCall
 	failReads map[registers.Group]error
+	// writeFailures counts down: while positive, WriteRegisterByMQTT
+	// returns writeErr instead of recording the write. writeAttempts
+	// counts every call, failed or not.
+	writeFailures int
+	writeErr      error
+	writeAttempts int
 }
 
 type writeCall struct{ mqttKey, value string }
@@ -63,9 +74,27 @@ func (s *stubReader) ReadRegister(_ context.Context, _ string) (any, error) {
 
 func (s *stubReader) WriteRegisterByMQTT(_ context.Context, key, value string) error {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.writeAttempts++
+	if s.writeFailures > 0 {
+		s.writeFailures--
+		return s.writeErr
+	}
 	s.writes = append(s.writes, writeCall{key, value})
-	s.mu.Unlock()
 	return nil
+}
+
+// failWrites makes the next n writes return err.
+func (s *stubReader) failWrites(n int, err error) {
+	s.mu.Lock()
+	s.writeFailures, s.writeErr = n, err
+	s.mu.Unlock()
+}
+
+func (s *stubReader) attempts() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.writeAttempts
 }
 
 func (s *stubReader) snapshotWrites() []writeCall {
@@ -98,10 +127,21 @@ func (s *stubModbus) IsConnected() bool { return s.connected.Load() }
 
 // stubMQTT captures publishes and subscribe handlers.
 type stubMQTT struct {
-	mu         sync.Mutex
-	publishes  []publishCall
-	handlers   map[string]mqtt.MessageHandler
-	subscribes []string
+	mu           sync.Mutex
+	publishes    []publishCall
+	handlers     map[string]mqtt.MessageHandler
+	subscribes   []string
+	unsubscribes []string
+	// publishErr, when non-nil, fails every Publish (models an open
+	// circuit breaker). subscribeFailures / unsubscribeFailures count
+	// down the number of calls that fail before the first success.
+	publishErr          error
+	subscribeFailures   int
+	unsubscribeFailures int
+	// beforePublish, when set, runs before each Publish is recorded —
+	// the hook tests use to inject an event mid-batch. Called without
+	// the stub's lock held.
+	beforePublish func(topic string)
 }
 
 type publishCall struct {
@@ -116,6 +156,15 @@ func newStubMQTT() *stubMQTT {
 
 func (s *stubMQTT) Publish(_ context.Context, topic string, payload []byte, _ mqtt.QoS, retain bool, _ ...mqtt.PublishOption) error {
 	s.mu.Lock()
+	hook, err := s.beforePublish, s.publishErr
+	s.mu.Unlock()
+	if hook != nil {
+		hook(topic)
+	}
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
 	defer s.mu.Unlock()
 	cp := make([]byte, len(payload))
 	copy(cp, payload)
@@ -127,6 +176,10 @@ func (s *stubMQTT) Subscribe(_ context.Context, filter string, _ mqtt.QoS, h mqt
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.subscribes = append(s.subscribes, filter)
+	if s.subscribeFailures > 0 {
+		s.subscribeFailures--
+		return mqtt.SubscribeResult{}, errInjected{}
+	}
 	s.handlers[filter] = h
 	return mqtt.SubscribeResult{}, nil
 }
@@ -134,8 +187,50 @@ func (s *stubMQTT) Subscribe(_ context.Context, filter string, _ mqtt.QoS, h mqt
 func (s *stubMQTT) Unsubscribe(_ context.Context, filter string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.unsubscribes = append(s.unsubscribes, filter)
+	if s.unsubscribeFailures > 0 {
+		s.unsubscribeFailures--
+		return errInjected{}
+	}
 	delete(s.handlers, filter)
 	return nil
+}
+
+// setPublishErr makes every subsequent Publish fail with err (nil clears).
+func (s *stubMQTT) setPublishErr(err error) {
+	s.mu.Lock()
+	s.publishErr = err
+	s.mu.Unlock()
+}
+
+func (s *stubMQTT) setBeforePublish(f func(topic string)) {
+	s.mu.Lock()
+	s.beforePublish = f
+	s.mu.Unlock()
+}
+
+func (s *stubMQTT) countSubscribes(filter string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for _, f := range s.subscribes {
+		if f == filter {
+			n++
+		}
+	}
+	return n
+}
+
+func (s *stubMQTT) countUnsubscribes(filter string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for _, f := range s.unsubscribes {
+		if f == filter {
+			n++
+		}
+	}
+	return n
 }
 
 // deliver invokes every handler whose filter matches topic. The TCPClient
@@ -657,6 +752,409 @@ func TestRunRetriesInitialModbusConnect(t *testing.T) {
 	if err != nil && !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled startup returned %v, want nil or context.Canceled", err)
 	}
+}
+
+// --- discovery completeness ------------------------------------------------
+
+// TestPublishDiscoveryNotMarkedSentWhenPublishFails pins the fix for a
+// silent, restart-only failure mode: with the broker refusing publishes
+// at startup (an open circuit breaker publishes nothing at all),
+// discoverySent used to be raised anyway, so the republisher never
+// retried and Home Assistant stayed without entities until the daemon
+// was restarted.
+func TestPublishDiscoveryNotMarkedSentWhenPublishFails(t *testing.T) {
+	c, _, mqttStub, _ := buildDeps(t, true)
+	c.deps.Logger = slog.New(slog.DiscardHandler)
+	c.deps.HASS.Initialize("MTEC-TEST-001", "V1", "model")
+
+	mqttStub.setPublishErr(errInjected{})
+	published := c.publishDiscovery(context.Background())
+	if c.discoverySent.Load() {
+		t.Fatal("discovery marked as sent although every publish failed")
+	}
+	if len(published) == 0 {
+		t.Fatal("the advertised set must still list the topics, so reconcile keeps them")
+	}
+
+	// Broker recovers → the next pass completes and latches.
+	mqttStub.setPublishErr(nil)
+	c.publishDiscovery(context.Background())
+	if !c.discoverySent.Load() {
+		t.Fatal("a fully successful batch must mark discovery as sent")
+	}
+}
+
+// TestPublishDiscoveryKeepsBirthArrivingMidPublish covers the lost
+// update between onMessage and publishDiscovery: a Home Assistant birth
+// that lands while we are publishing used to be erased by the final
+// Store(true), so the entities HA asked for were never re-sent.
+func TestPublishDiscoveryKeepsBirthArrivingMidPublish(t *testing.T) {
+	c, _, mqttStub, _ := buildDeps(t, true)
+	c.deps.Logger = slog.New(slog.DiscardHandler)
+	c.deps.HASS.Initialize("MTEC-TEST-001", "V1", "model")
+
+	var once sync.Once
+	mqttStub.setBeforePublish(func(string) {
+		once.Do(func() {
+			c.onMessage(&mqtt.Message{
+				Topic:   c.hassStatusTopic,
+				Payload: []byte("online"),
+			})
+		})
+	})
+
+	c.publishDiscovery(context.Background())
+	if c.discoverySent.Load() {
+		t.Fatal("birth seen during publishDiscovery was swallowed; republisher will not run")
+	}
+}
+
+// --- write queue -----------------------------------------------------------
+
+// TestEnqueueWriteDropsOldestCommand pins drop-oldest: dragging an HA
+// slider emits a burst of commands and the one that must reach the
+// inverter is the value the user released it at. Dropping the newest
+// left the inverter on an intermediate value.
+func TestEnqueueWriteDropsOldestCommand(t *testing.T) {
+	c, _, _, _ := buildDeps(t, false)
+	c.deps.Logger = slog.New(slog.DiscardHandler)
+
+	depth := cap(c.writeQueue)
+	for i := range depth {
+		if err := c.enqueueWrite(writeReq{mqttKey: "charge_limit", value: strconv.Itoa(i)}); err != nil {
+			t.Fatalf("enqueue %d: %v", i, err)
+		}
+	}
+	if err := c.enqueueWrite(writeReq{mqttKey: "charge_limit", value: "newest"}); err != nil {
+		t.Fatalf("enqueue into a full queue: %v", err)
+	}
+
+	drained := make([]string, 0, depth)
+	for len(c.writeQueue) > 0 {
+		drained = append(drained, (<-c.writeQueue).value)
+	}
+	if len(drained) != depth {
+		t.Fatalf("queue holds %d entries, want %d", len(drained), depth)
+	}
+	if drained[len(drained)-1] != "newest" {
+		t.Errorf("newest command was dropped; queue tail = %q", drained[len(drained)-1])
+	}
+	if drained[0] != "1" {
+		t.Errorf("oldest command was not the one dropped; queue head = %q", drained[0])
+	}
+}
+
+// TestEnqueueWriteRepliesToDroppedCaller makes sure a synchronous caller
+// whose command is dropped is told, instead of waiting for a reply that
+// will never come.
+func TestEnqueueWriteRepliesToDroppedCaller(t *testing.T) {
+	c, _, _, _ := buildDeps(t, false)
+	c.deps.Logger = slog.New(slog.DiscardHandler)
+
+	reply := make(chan error, 1)
+	if err := c.enqueueWrite(writeReq{mqttKey: "mode", value: "oldest", reply: reply}); err != nil {
+		t.Fatal(err)
+	}
+	for i := 1; i < cap(c.writeQueue); i++ {
+		if err := c.enqueueWrite(writeReq{mqttKey: "mode", value: strconv.Itoa(i)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := c.enqueueWrite(writeReq{mqttKey: "mode", value: "newest"}); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case err := <-reply:
+		if !errors.Is(err, ErrWriteSuperseded) {
+			t.Fatalf("dropped caller got %v, want ErrWriteSuperseded", err)
+		}
+	default:
+		t.Fatal("dropped caller was left waiting for a reply")
+	}
+}
+
+// TestWebWriteIsSerialisedThroughTheQueue proves the web path shares the
+// HA command queue: a command queued earlier runs first, and the web
+// call still returns the real outcome synchronously. Bypassing the queue
+// let a web write and an HA write for the same register reach the
+// inverter in either order.
+func TestWebWriteIsSerialisedThroughTheQueue(t *testing.T) {
+	c, reader, _, _ := buildDeps(t, false)
+	c.deps.Logger = slog.New(slog.DiscardHandler)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// A Home Assistant command is already waiting.
+	if err := c.enqueueWrite(writeReq{mqttKey: "mode", value: "from-hass"}); err != nil {
+		t.Fatal(err)
+	}
+	// Worker not started yet, but the queued path is what Write must take.
+	c.writeWorkerUp.Store(true)
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- c.Write(ctx, "mode", "from-web") }()
+
+	time.Sleep(50 * time.Millisecond)
+	if n := len(reader.snapshotWrites()); n != 0 {
+		t.Fatalf("web write went straight to the transport: %d writes before the worker ran", n)
+	}
+
+	workerDone := make(chan error, 1)
+	go func() { workerDone <- c.writeWorker(ctx) }()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("web write returned %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("web write never received its reply")
+	}
+	cancel()
+	<-workerDone
+
+	writes := reader.snapshotWrites()
+	if len(writes) != 2 || writes[0].value != "from-hass" || writes[1].value != "from-web" {
+		t.Fatalf("writes = %+v, want from-hass then from-web", writes)
+	}
+}
+
+// TestWebWriteDispatchesInlineWithoutWorker keeps the web API answerable
+// when no writeWorker is draining the queue (server up before Run, or
+// Run already returned) instead of blocking until the client gives up.
+func TestWebWriteDispatchesInlineWithoutWorker(t *testing.T) {
+	c, reader, _, _ := buildDeps(t, false)
+	if err := c.Write(context.Background(), "mode", "Eco"); err != nil {
+		t.Fatal(err)
+	}
+	writes := reader.snapshotWrites()
+	if len(writes) != 1 || writes[0] != (writeCall{"mode", "Eco"}) {
+		t.Fatalf("writes = %+v, want one inline mode=Eco", writes)
+	}
+}
+
+// --- write retry -----------------------------------------------------------
+
+// shortenWriteRetry makes the writeWorker's retry delay test-fast.
+func shortenWriteRetry(t *testing.T) {
+	t.Helper()
+	old := writeRetryDelay
+	writeRetryDelay = time.Millisecond
+	t.Cleanup(func() { writeRetryDelay = old })
+}
+
+// TestWriteRetriesTransientModbusError covers commands issued inside the
+// watchdog's reconnect window: the transport is momentarily poisoned,
+// and the command used to be logged and dropped, leaving HA showing a
+// value the inverter never received.
+func TestWriteRetriesTransientModbusError(t *testing.T) {
+	c, reader, _, _ := buildDeps(t, false)
+	c.deps.Logger = slog.New(slog.DiscardHandler)
+	shortenWriteRetry(t)
+
+	reader.failWrites(2, modbus.ErrNotConnected)
+	err := c.dispatchWriteRetrying(context.Background(),
+		writeReq{mqttKey: "mode", value: "Eco"})
+	if err != nil {
+		t.Fatalf("transient failure was not retried to success: %v", err)
+	}
+	if got := reader.attempts(); got != 3 {
+		t.Errorf("attempts = %d, want 3 (two failures + the success)", got)
+	}
+	writes := reader.snapshotWrites()
+	if len(writes) != 1 || writes[0] != (writeCall{"mode", "Eco"}) {
+		t.Errorf("writes = %+v, want a single mode=Eco", writes)
+	}
+}
+
+// TestWriteDoesNotRetryPermanentRejection keeps the retry from burning
+// queue time on a command the reader has already judged impossible.
+func TestWriteDoesNotRetryPermanentRejection(t *testing.T) {
+	c, reader, _, _ := buildDeps(t, false)
+	c.deps.Logger = slog.New(slog.DiscardHandler)
+	shortenWriteRetry(t)
+
+	reader.failWrites(5, fmt.Errorf("%w: mqtt=%q", modbus.ErrNotWritable, "mode"))
+	err := c.dispatchWriteRetrying(context.Background(),
+		writeReq{mqttKey: "mode", value: "Eco"})
+	if !errors.Is(err, modbus.ErrNotWritable) {
+		t.Fatalf("err = %v, want ErrNotWritable", err)
+	}
+	if got := reader.attempts(); got != 1 {
+		t.Errorf("attempts = %d, want 1 (a read-only register never becomes writable)", got)
+	}
+}
+
+// TestWriteGivesUpAfterRetries checks the final failure is surfaced to a
+// synchronous caller rather than swallowed.
+func TestWriteGivesUpAfterRetries(t *testing.T) {
+	c, reader, _, _ := buildDeps(t, false)
+	c.deps.Logger = slog.New(slog.DiscardHandler)
+	shortenWriteRetry(t)
+
+	reader.failWrites(writeRetries+5, modbus.ErrNotConnected)
+	err := c.dispatchWriteRetrying(context.Background(),
+		writeReq{mqttKey: "mode", value: "Eco"})
+	if !errors.Is(err, modbus.ErrNotConnected) {
+		t.Fatalf("err = %v, want ErrNotConnected", err)
+	}
+	if got := reader.attempts(); got != writeRetries {
+		t.Errorf("attempts = %d, want %d", got, writeRetries)
+	}
+}
+
+// --- startup subscribe -----------------------------------------------------
+
+// shortenStartupBackoff makes the startup retry loop test-fast.
+func shortenStartupBackoff(t *testing.T) {
+	t.Helper()
+	oldStart, oldMax := startupBackoff, startupMaxBackoff
+	startupBackoff, startupMaxBackoff = time.Millisecond, 5*time.Millisecond
+	t.Cleanup(func() { startupBackoff, startupMaxBackoff = oldStart, oldMax })
+}
+
+// TestInstallInboundHandlerRetriesSubscribe: a broker that is still
+// coming up alongside the daemon used to be fatal here, killing the
+// whole command path while every other startup step retried.
+func TestInstallInboundHandlerRetriesSubscribe(t *testing.T) {
+	c, _, mqttStub, _ := buildDeps(t, false)
+	c.deps.Logger = slog.New(slog.DiscardHandler)
+	shortenStartupBackoff(t)
+
+	mqttStub.mu.Lock()
+	mqttStub.subscribeFailures = 2
+	mqttStub.mu.Unlock()
+
+	if err := c.installInboundHandler(context.Background()); err != nil {
+		t.Fatalf("installInboundHandler = %v, want nil after retries", err)
+	}
+	if got := mqttStub.countSubscribes(c.hassStatusTopic); got != 3 {
+		t.Errorf("status filter subscribed %d times, want 3 (two failures + success)", got)
+	}
+	// The second filter succeeded first try — retries must not re-subscribe
+	// a filter that is already installed.
+	setFilter := c.deps.Cfg.MQTTTopic + "/+/+/+/set"
+	if got := mqttStub.countSubscribes(setFilter); got != 1 {
+		t.Errorf("set filter subscribed %d times, want 1", got)
+	}
+}
+
+func TestInstallInboundHandlerStopsOnCancelledContext(t *testing.T) {
+	c, _, mqttStub, _ := buildDeps(t, false)
+	c.deps.Logger = slog.New(slog.DiscardHandler)
+	shortenStartupBackoff(t)
+
+	mqttStub.mu.Lock()
+	mqttStub.subscribeFailures = 1 << 20 // never succeeds
+	mqttStub.mu.Unlock()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := c.installInboundHandler(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+}
+
+// --- reconcile unsubscribe -------------------------------------------------
+
+func TestUnsubscribeWithRetrySucceedsAfterFailures(t *testing.T) {
+	c, _, mqttStub, _ := buildDeps(t, true)
+	c.deps.Logger = slog.New(slog.DiscardHandler)
+	oldDelay := reconcileUnsubscribeDelay
+	reconcileUnsubscribeDelay = time.Millisecond
+	t.Cleanup(func() { reconcileUnsubscribeDelay = oldDelay })
+
+	const filter = "homeassistant/+/+/config"
+	mqttStub.mu.Lock()
+	mqttStub.unsubscribeFailures = 2
+	mqttStub.mu.Unlock()
+
+	c.unsubscribeWithRetry(context.Background(), filter)
+	if got := mqttStub.countUnsubscribes(filter); got != 3 {
+		t.Fatalf("unsubscribe attempts = %d, want 3", got)
+	}
+	mqttStub.mu.Lock()
+	_, still := mqttStub.handlers[filter]
+	mqttStub.mu.Unlock()
+	if still {
+		t.Error("collector subscription survived; it would replay on every reconnect")
+	}
+}
+
+func TestUnsubscribeWithRetryGivesUpBounded(t *testing.T) {
+	c, _, mqttStub, _ := buildDeps(t, true)
+	c.deps.Logger = slog.New(slog.DiscardHandler)
+	oldDelay := reconcileUnsubscribeDelay
+	reconcileUnsubscribeDelay = time.Millisecond
+	t.Cleanup(func() { reconcileUnsubscribeDelay = oldDelay })
+
+	const filter = "homeassistant/+/+/config"
+	mqttStub.mu.Lock()
+	mqttStub.unsubscribeFailures = 100
+	mqttStub.mu.Unlock()
+
+	c.unsubscribeWithRetry(context.Background(), filter)
+	if got := mqttStub.countUnsubscribes(filter); got != reconcileUnsubscribeTries {
+		t.Fatalf("unsubscribe attempts = %d, want %d", got, reconcileUnsubscribeTries)
+	}
+}
+
+// --- secondary round-robin -------------------------------------------------
+
+// TestSecondaryIndexSurvivesCounterOverflow: the tick counter wraps to
+// negative after 2^31 ticks, and `int(v) % len` would then hand the
+// slice a negative index and panic.
+func TestSecondaryIndexSurvivesCounterOverflow(t *testing.T) {
+	for _, v := range []int32{
+		0, 1, 4, 5,
+		math.MaxInt32 - 1, math.MaxInt32,
+		math.MinInt32, math.MinInt32 + 1, -1,
+	} {
+		idx := secondaryIndex(v)
+		if idx < 0 || idx >= len(secondaryGroups) {
+			t.Fatalf("secondaryIndex(%d) = %d, out of range [0,%d)", v, idx, len(secondaryGroups))
+		}
+	}
+	// The rotation stays contiguous across the wrap.
+	if got, want := secondaryIndex(math.MinInt32), (secondaryIndex(math.MaxInt32)+1)%len(secondaryGroups); got != want {
+		t.Errorf("index after wrap = %d, want %d", got, want)
+	}
+}
+
+// --- web catalog projection ------------------------------------------------
+
+// TestRegistersCopiesValueItems: the catalog hands out its own enum map
+// for the English case, so returning it unguarded let any consumer of
+// the web API mutate the shared, process-lifetime catalog.
+func TestRegistersCopiesValueItems(t *testing.T) {
+	c, _, _, _ := buildDeps(t, false)
+
+	items := valueItemsOf(t, c.Registers(), "mode")
+	if items[1] != "Eco" {
+		t.Fatalf("unexpected catalog labels: %v", items)
+	}
+	items[1] = "MUTATED"
+	items[99] = "injected"
+
+	fresh := valueItemsOf(t, c.Registers(), "mode")
+	if fresh[1] != "Eco" {
+		t.Errorf("catalog label was mutated through the web projection: %q", fresh[1])
+	}
+	if _, ok := fresh[99]; ok {
+		t.Error("an entry injected via the web projection reached the catalog")
+	}
+}
+
+func valueItemsOf(t *testing.T, regs []state.RegisterInfo, mqttKey string) map[int]string {
+	t.Helper()
+	for i := range regs {
+		if regs[i].MQTT == mqttKey {
+			return regs[i].ValueItems
+		}
+	}
+	t.Fatalf("register %q missing from the projection", mqttKey)
+	return nil
 }
 
 // --- helpers ---------------------------------------------------------------
