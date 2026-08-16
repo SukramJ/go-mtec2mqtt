@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -286,6 +287,178 @@ func TestContextCancelInterruptsInflightIO(t *testing.T) {
 	// The forced deadline surfaces as an I/O error, which must take the
 	// usual poison path so the resilience layer reconnects.
 	requireNextCallNotConnected(t, c)
+}
+
+// --- cancel-hook lifetime ---------------------------------------------------
+
+// newScriptedClient wires a Client to an in-memory connection so a test
+// can drive the exact read/deadline interleaving a real socket only
+// produces by chance.
+func newScriptedClient(t *testing.T, conn net.Conn) *Client {
+	t.Helper()
+	c := New(Config{Host: "127.0.0.1", Port: 1, UnitID: testUnitID, Timeout: 5 * time.Second})
+	c.mu.Lock()
+	c.setConnLocked(conn)
+	c.mu.Unlock()
+	t.Cleanup(func() { _ = c.Close() })
+	return c
+}
+
+func TestCancelHookCannotPoisonNextTransaction(t *testing.T) {
+	conn := newScriptedConn()
+	c := newScriptedClient(t, conn)
+
+	// Each round cancels the first transaction's context at the exact
+	// moment its response has been fully read — the window in which the
+	// hook used to outlive do() — and then runs a deliberately slow
+	// second transaction on a context of its own. A leftover hook forces
+	// an immediate deadline on the shared socket and aborts it.
+	const rounds = 25
+	for i := range rounds {
+		ctx, cancel := context.WithCancel(context.Background())
+		conn.setAfterFinalRead(cancel)
+		if _, err := c.ReadHoldingRegisters(ctx, 11000, 1); err != nil {
+			cancel()
+			t.Fatalf("round %d: first transaction failed: %v", i, err)
+		}
+		conn.setAfterFinalRead(nil)
+
+		conn.setDelay(10 * time.Millisecond)
+		_, err := c.ReadHoldingRegisters(context.Background(), 11000, 1)
+		conn.setDelay(0)
+		cancel()
+		if err != nil {
+			t.Fatalf("round %d: stale cancel hook of the previous transaction killed a fresh-context read: %v", i, err)
+		}
+	}
+}
+
+func TestDeadlineHookForcesDeadlineWhileArmed(t *testing.T) {
+	conn := newScriptedConn()
+	ctx, cancel := context.WithCancel(context.Background())
+	h := armDeadlineHook(ctx, conn)
+	defer h.disarm()
+
+	cancel()
+	giveUp := time.After(2 * time.Second)
+	for conn.forcedDeadlines() == 0 {
+		select {
+		case <-giveUp:
+			t.Fatal("armed hook did not force a deadline after cancel")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+}
+
+func TestDeadlineHookIgnoresCancelAfterDisarm(t *testing.T) {
+	conn := newScriptedConn()
+	ctx, cancel := context.WithCancel(context.Background())
+	h := armDeadlineHook(ctx, conn)
+	h.disarm()
+
+	cancel()
+	time.Sleep(50 * time.Millisecond)
+	if n := conn.forcedDeadlines(); n != 0 {
+		t.Fatalf("disarmed hook forced %d deadline(s) on the socket", n)
+	}
+}
+
+func TestDeadlineHookDisarmWaitsForRunningHook(t *testing.T) {
+	conn := newScriptedConn()
+	ctx, cancel := context.WithCancel(context.Background())
+	h := armDeadlineHook(ctx, conn)
+
+	cancel()   // the hook may already be running
+	h.disarm() // must not return while it is mid-flight
+	before := conn.forcedDeadlines()
+	time.Sleep(50 * time.Millisecond)
+	if after := conn.forcedDeadlines(); after != before {
+		t.Fatalf("hook touched the socket after disarm returned (%d → %d)", before, after)
+	}
+}
+
+// --- lock-free connection state ---------------------------------------------
+
+func TestIsConnectedDoesNotBlockOnInflightTransaction(t *testing.T) {
+	srv := newMockServer(t, func([]byte) ([]byte, *protocol.ExceptionError) {
+		return cannedFC03([]uint16{0}), nil
+	}).withDelay(300 * time.Millisecond)
+
+	c := New(Config{
+		Host:    "127.0.0.1",
+		Port:    srv.Port(),
+		UnitID:  testUnitID,
+		Timeout: 5 * time.Second,
+	})
+	t.Cleanup(func() { _ = c.Close() })
+	if err := c.Connect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := c.ReadHoldingRegisters(context.Background(), 11000, 1)
+		done <- err
+	}()
+	time.Sleep(50 * time.Millisecond) // let the read take the transaction lock
+
+	start := time.Now()
+	connected := c.IsConnected()
+	elapsed := time.Since(start)
+	if !connected {
+		t.Fatal("IsConnected must report the live socket during a transaction")
+	}
+	// /api/health and every SSE event call this — it must not queue
+	// behind a transaction that may run for MODBUS_TIMEOUT.
+	if elapsed > 50*time.Millisecond {
+		t.Fatalf("IsConnected blocked %s on the transaction lock", elapsed)
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("in-flight read: %v", err)
+	}
+}
+
+func TestCloseInterruptsInflightTransaction(t *testing.T) {
+	srv := newMockServer(t, func([]byte) ([]byte, *protocol.ExceptionError) {
+		return cannedFC03([]uint16{0}), nil
+	}).withDelay(time.Second)
+
+	c := New(Config{
+		Host:    "127.0.0.1",
+		Port:    srv.Port(),
+		UnitID:  testUnitID,
+		Timeout: 60 * time.Second, // shutdown must not wait this out
+	})
+	if err := c.Connect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := c.ReadHoldingRegisters(context.Background(), 11000, 1)
+		done <- err
+	}()
+	time.Sleep(50 * time.Millisecond) // let the read block on the socket
+
+	start := time.Now()
+	if err := c.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
+		t.Fatalf("Close waited %s for the in-flight transaction", elapsed)
+	}
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("transaction interrupted by Close must report an error")
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("Close did not interrupt the in-flight transaction")
+	}
+	if c.IsConnected() {
+		t.Fatal("client must report disconnected after Close")
+	}
 }
 
 func TestConnectionDropDuringResponse(t *testing.T) {
