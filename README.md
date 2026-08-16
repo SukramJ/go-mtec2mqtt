@@ -46,7 +46,7 @@ curl -sSfL https://raw.githubusercontent.com/SukramJ/go-mtec2mqtt/main/script/in
 Pin a specific version:
 
 ```bash
-curl -sSfL https://raw.githubusercontent.com/SukramJ/go-mtec2mqtt/main/script/install.sh | sudo bash -s -- 1.0.0
+curl -sSfL https://raw.githubusercontent.com/SukramJ/go-mtec2mqtt/main/script/install.sh | sudo bash -s -- 1.8.0
 ```
 
 The wizard prompts read from `/dev/tty` so they work fine over the
@@ -156,6 +156,18 @@ enabling this on an existing install does not orphan established entities
 or lose their history; only newly created entities pick up the nicer id.
 Leave it empty to keep the previous behaviour. The MQTT topic tree also
 stays keyed on the inverter serial regardless.
+
+Running **several daemon instances against one Home Assistant
+installation** (one per inverter) additionally needs
+`HASS_UNIQUE_ID_INCLUDE_SERIAL: true` on every instance: by default the
+HA `unique_id`s are serial-less (`MTEC_grid_power`, matching
+`aiomtec2mqtt`), so two instances would overwrite each other's retained
+discovery configs and their entities would flap between the devices.
+The opt-in scopes every `unique_id` and discovery topic by the inverter
+serial (`MTEC_<serial>_grid_power`). Beware on an existing single-inverter
+install: enabling it changes every `unique_id`, which creates fresh HA
+entities and orphans the established ones together with their history —
+MQTT discovery has no `unique_id` migration.
 
 Every config key can be overridden at runtime via an `MTEC_<KEY>` env
 var — useful in Docker / systemd setups:
