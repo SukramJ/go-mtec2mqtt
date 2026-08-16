@@ -1,3 +1,28 @@
+# Version 1.8.0 (2026-08-16)
+
+## What's Changed
+
+### Changed
+
+- **MQTT client updated to `github.com/SukramJ/go-mqtt` v1.3.0**, an
+  audit release fixing 42 findings in the transport. No API changes
+  were needed on this side — `TCPConfig`, `Lifecycle`, and `Breaker`
+  usage here compiles and behaves unchanged.
+- **Reconnect flap damping is on by default now** (new
+  `LifecycleConfig.FlapWindow`, defaulting to 10s, applies
+  automatically since the daemon builds its lifecycle from
+  `mqtt.DefaultLifecycle()`): if the broker link dies again within 10s
+  of a (re)connect, the daemon now backs off exponentially instead of
+  reconnecting immediately. A broker that stays up longer than that
+  between drops sees no change.
+- **The publish-side circuit breaker no longer opens on client-side
+  validation errors** (malformed topic/payload) — only genuine
+  broker-side ack failures trip it now, so a single bad outbound
+  publish can no longer stall unrelated publishes behind
+  `mqtt.ErrCircuitOpen`.
+- Graceful shutdown (`mqttLifecycle.Stop`) no longer risks a spurious
+  reconnect racing the intentional disconnect.
+
 # Version 1.7.0 (2026-07-07)
 
 ## What's Changed
