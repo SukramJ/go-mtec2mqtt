@@ -18,8 +18,8 @@ import (
 //     double space and reformat as "Vx.x.x.x-Vy.y.y.y"
 //   - register 10008 (equipment_info): parse the two-byte payload and
 //     look up the inverter model code
-//   - any register with hass_device_class=enum + hass_value_items:
-//     translate codes / bit-fields into human-readable labels
+//   - any register with hass_value_items: translate codes / bit-fields
+//     into human-readable labels
 //
 // The input is a map keyed by MQTT suffix (Name fallback) as returned
 // by modbus.Reader.ReadGroup; the returned map has the same keys but
@@ -59,7 +59,13 @@ func processOne(reg *registers.Register, val any, lang string) any {
 		}
 	}
 
-	if reg.HassDeviceClass == "enum" && reg.HassValueItems != nil {
+	// The presence of hass_value_items is the only criterion: it is what
+	// makes a raw code translatable. Tying this to
+	// hass_device_class=enum used to silently disable the conversion for
+	// every register that carries labels without claiming the enum
+	// device class (the BIT fault/alarm registers, selects), publishing
+	// raw bit strings instead of fault names.
+	if reg.HassValueItems != nil {
 		return convertCode(val, reg.LocalizedValueItems(lang))
 	}
 	return val
@@ -128,7 +134,13 @@ func parseEquipmentBytes(s string) (hi, lo int, ok bool) {
 //     missing)
 //   - string value (BIT register output, e.g. "0000000000000001
 //     1000000000000000") → comma-joined list of every label whose
-//     bit is set; "OK" when the field is all zeroes
+//     mask matches; "OK" when the field is all zeroes
+//
+// For the BIT case the hass_value_items keys are bit MASKS, not bit
+// positions: registers.yaml declares 1, 2, 4, … 32768 (fault_flag_2
+// starts at 2, the BMS protection/alarm codes run up to 32768). Testing
+// `1<<key` instead of `key` reported the wrong fault for every mask
+// beyond 1 and could not match the high masks at all.
 func convertCode(val any, items map[int]string) string {
 	if iv, ok := toInt(val); ok {
 		if label, has := items[iv]; has {
@@ -146,15 +158,19 @@ func convertCode(val any, items map[int]string) string {
 	}
 	bits, err := strconv.ParseUint(flat, 2, 64)
 	if err != nil {
-		return "OK"
+		// Unparseable bit field (garbage, or wider than 64 bits): we
+		// cannot prove the device is fault-free, so report it as unknown
+		// rather than fail open with a reassuring "OK" — same contract
+		// as the integer path.
+		return "Unknown"
 	}
 	if bits == 0 {
 		return "OK"
 	}
-	// Sort by bit position so the output is deterministic — Python's
-	// dict iteration order is insertion-ordered (YAML order); Go's is
-	// randomised. Sorting by code matches the spirit (lowest bits
-	// first) and keeps tests reproducible.
+	// Sort by mask value so the output is deterministic — Python's dict
+	// iteration order is insertion-ordered (YAML order); Go's is
+	// randomised. Ascending masks means lowest bits first, matching the
+	// catalog order.
 	codes := make([]int, 0, len(items))
 	for c := range items {
 		codes = append(codes, c)
@@ -162,7 +178,11 @@ func convertCode(val any, items map[int]string) string {
 	sortInts(codes)
 	var faults []string
 	for _, c := range codes {
-		if bits&(1<<uint(c)) != 0 {
+		if c <= 0 {
+			continue // 0 (and any negative) is not a usable mask
+		}
+		mask := uint64(c)
+		if bits&mask != 0 {
 			faults = append(faults, items[c])
 		}
 	}
@@ -173,12 +193,16 @@ func convertCode(val any, items map[int]string) string {
 }
 
 // toInt accepts int, int64, float64 and returns the corresponding int.
-// Reader values flow through `any` so an inverter_status register
-// might land as either an int (raw U16) or a float64 (after scaling).
+// Reader values flow through `any` so an inverter_status register may
+// land as an int (raw U16/S16), an int64 (U32/S32 — 64-bit-wide so the
+// decoder cannot overflow on a 32-bit platform) or a float64 (after
+// scaling).
 func toInt(v any) (int, bool) {
 	switch x := v.(type) {
 	case int:
 		return x, true
+	case int32:
+		return int(x), true
 	case int64:
 		return int(x), true
 	case float64:
@@ -208,6 +232,11 @@ func findRegisterByOutputKey(catalog *registers.Map, key string) *registers.Regi
 // shape matches Python's coordinator: floats go through the
 // MQTT_FLOAT_FORMAT spec, booleans become "1" / "0", everything else
 // is Sprintf-stringified.
+//
+// Integers deliberately share the default branch: %v renders int, int32
+// and the int64 an unscaled U32/S32 register decodes to identically
+// (no exponent, no thousands separator), so a wide register publishes
+// its full value without a width-specific case here.
 func formatValue(v any, floatFmt string) string {
 	switch x := v.(type) {
 	case float64:
