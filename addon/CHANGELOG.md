@@ -1,3 +1,103 @@
+# Version 1.9.0 (2026-08-16)
+
+## What's Changed
+
+### Fixed
+
+- **Fault/alarm flags decoded with the wrong bit semantics** — the
+  `hass_value_items` keys of the BIT registers (fault_flag_1/2, BMS
+  error/protection/alarm) are bitmasks, but the decoder treated them as
+  bit *positions*. A real "Mains Lost" fault published as `OK`, other
+  faults carried a neighbour's label, and every mask ≥ 64 could never
+  fire. Unparseable bit fields now report `Unknown` instead of a
+  fail-open `OK`. (Inherited from the Python ancestor, which has the
+  same bug.)
+- **`curl | bash` installer was broken for every release since v1.2.0**:
+  the download URL used the bare version as the release tag
+  (`…/download/1.8.0/…` → 404); it now uses the real `v`-prefixed tag
+  with a bare-tag fallback for the old pre-`v` releases, and backs up an
+  existing systemd unit instead of silently overwriting hand edits.
+- **Battery temperature registers (33003/33009/33011) are now signed
+  (I16)** — −0.5 °C used to publish as 6553.1 °C straight into HA
+  long-term statistics. Positive readings are unchanged. (Deliberate
+  divergence from `aiomtec2mqtt`, which still decodes them unsigned.)
+- **Enum sensors now advertise the mandatory `options` list** in their
+  HA discovery payload (inverter/BMS status); the BIT fault-flag sensors
+  drop `device_class: enum` (their comma-joined fault lists cannot be
+  enumerated) and publish as plain text sensors — label conversion is
+  now keyed on `hass_value_items`, not on the device class.
+- **Pseudo-registers are no longer computed from incomplete reads**: a
+  failed cluster read used to feed 0 into `consumption`/`autarky`/
+  `own_consumption`, publishing confidently wrong values into HA
+  statistics; affected pseudo-registers are now skipped for that cycle.
+- **Discovery republish is reliable**: `discoverySent` is only latched
+  after every config published successfully and no HA birth arrived
+  mid-publish — a broker brownout during startup no longer leaves HA
+  without entities until the next restart.
+- **Write path hardening**: a full write queue now drops the oldest
+  command instead of the newest (an HA slider ends on its target value,
+  not a stale intermediate), web UI writes are serialized through the
+  same queue as HA commands, transient Modbus errors are retried, a
+  failed startup subscribe retries with backoff instead of killing the
+  daemon, and the discovery-reconcile unsubscribe retries instead of
+  leaking a permanent `homeassistant/+/+/config` subscription.
+- **Modbus transport**: a cancelled caller's deadline hook can no longer
+  fire late and poison the *next* healthy transaction; `IsConnected()`
+  answers instantly instead of blocking on an in-flight transaction (up
+  to `MODBUS_TIMEOUT`); `Close()` interrupts in-flight I/O for a prompt
+  shutdown; MQTT write payloads are whitespace-trimmed.
+- **Register catalog loader** now rejects type/length contradictions
+  (e.g. `U32` with `length: 1` used to fail on every poll with no
+  startup diagnostic), warns about unknown YAML fields (a `writeable:`
+  typo was silently ignored), rejects explicit `scale: 0`/`length: 0`
+  and duplicate addresses via leading zeros; `U32` decodes via `int64`
+  (no more wrap to −1 on 32-bit/armv7 builds); string registers strip
+  `0xFF` padding (no more `ÿÿÿÿ` serial numbers in topics and HA device
+  identifiers).
+- **Config loading**: an explicit `REFRESH_*: 0` now fails validation
+  instead of being silently replaced by the default, presence checks are
+  case-insensitive (lowercase keys no longer lose explicit zeros),
+  `MTEC_*` env values are whitespace-trimmed, and a merge failure names
+  the applied env keys. `config-template.yaml` no longer documents the
+  invalid `binary` framer or a one-space `MQTT_LOGIN`.
+- **Web UI**: all routes now carry a write deadline (slow-read clients
+  can no longer pin goroutines/file descriptors forever — previously
+  only SSE and the write endpoint were protected), `web.listening` is
+  logged only after a successful bind, the CSRF origin check trusts
+  `Sec-Fetch-Site: same-origin` (robust behind the HA Ingress proxy),
+  raw Modbus transport errors stay in the server log instead of the API
+  response, JSON encode failures are logged, and the frontend i18n no
+  longer passes user input as a `String.replace` replacement pattern.
+- **mtec-util** now supports the env-only (`MTEC_*`) configuration mode
+  like the daemon, connects lazily (catalog listing works offline; no
+  more silent multi-second connect before the menu) with a visible
+  "connecting…" notice, and gained `--version`.
+- **CI/workflows**: `workflow_dispatch` tag inputs are passed via `env:`
+  (expression-injection fix), image/release workflows only trigger on
+  `v*.*.*` tags (an arbitrary tag can no longer overwrite `:latest`),
+  and a new `audit` CI job runs `make vuln` + `make licenses` on every
+  push — the license/vulnerability gates previously existed only as
+  local Makefile targets.
+- **Toolchain updated to Go 1.26.6**, fixing four reachable stdlib
+  vulnerabilities (GO-2026-6090, GO-2026-6089, GO-2026-5972,
+  GO-2026-5856) present when building with 1.26.4.
+
+### Added
+
+- **`HASS_UNIQUE_ID_INCLUDE_SERIAL`** (config + add-on option, default
+  off): opt-in serial-scoped HA unique_ids (`MTEC_<serial>_<key>`) so
+  several daemon instances — one per inverter — can share one Home
+  Assistant installation without overwriting each other's retained
+  discovery configs. Enabling it on an existing install creates fresh
+  entities and orphans the old ones (no unique_id migration in MQTT
+  discovery), hence the explicit opt-in.
+- **`mtec2mqtt --healthcheck`** probes the local web UI health endpoint
+  (exit 0/1); the Docker image now ships a matching `HEALTHCHECK` so
+  restart policies can detect a hung daemon.
+- **linux/arm (armv7) release binaries** — `make release` and the
+  installer now cover 32-bit ARM, matching the Docker image and HA
+  add-on architectures.
+
 # Version 1.8.0 (2026-08-16)
 
 ## What's Changed
