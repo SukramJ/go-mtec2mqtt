@@ -338,6 +338,222 @@ func TestLoadSkipsDuplicateMQTTKeys(t *testing.T) {
 	}
 }
 
+// TestLoadRejectsTypeLengthMismatch: the loader must reject entries
+// whose declared word count cannot satisfy the decoder for that type.
+// Such an entry would otherwise fail on every poll cycle, forever.
+func TestLoadRejectsTypeLengthMismatch(t *testing.T) {
+	const broken = `
+"31200":
+  name: U32 with default length
+  type: U32
+  group: total
+"31201":
+  name: S32 too short
+  type: S32
+  length: 1
+  group: total
+"31202":
+  name: I32 too short
+  type: I32
+  length: 1
+  group: total
+"31203":
+  name: DAT too short
+  type: DAT
+  length: 2
+  group: static
+"31204":
+  name: BYTE with unsupported length
+  type: BYTE
+  length: 3
+  group: static
+"31205":
+  name: BIT past 64 bits
+  type: BIT
+  length: 5
+  group: now-base
+"31210":
+  name: Healthy BIT at the 64-bit limit
+  type: BIT
+  length: 4
+  group: now-base
+"31215":
+  name: Healthy STR of arbitrary length
+  type: STR
+  length: 7
+  group: static
+"31220":
+  name: Healthy U32
+  type: U32
+  length: 2
+  group: total
+`
+	m, diag, err := parse(strings.NewReader(broken), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantKeys := []string{"31210", "31215", "31220"}
+	if len(m.All) != len(wantKeys) {
+		t.Fatalf("kept registers: got %+v, want keys %v", m.All, wantKeys)
+	}
+	for i, w := range wantKeys {
+		if m.All[i].Key != w {
+			t.Errorf("All[%d].Key = %q, want %q", i, m.All[i].Key, w)
+		}
+	}
+	if len(diag) != 6 {
+		t.Fatalf("diagnostics: got %d (%v), want 6", len(diag), diag)
+	}
+	for i, key := range []string{"31200", "31201", "31202", "31203", "31204", "31205"} {
+		if !strings.HasPrefix(diag[i], "skip ") || !strings.Contains(diag[i], key) {
+			t.Errorf("diag[%d] = %q, want skip diagnostic for %q", i, diag[i], key)
+		}
+	}
+}
+
+// TestLoadWarnsOnUnknownFields: yaml.Node decoding drops keys it cannot
+// map without a word, so a `writeable:` typo would silently strip the
+// write path off a config register. The entry stays usable, so this is
+// a warning rather than a skip — but it must not be silent.
+func TestLoadWarnsOnUnknownFields(t *testing.T) {
+	const typo = `
+"52000":
+  name: Typoed writable flag
+  writeable: true
+  Scale: 10
+  mqtt: mode
+  group: config
+"52001":
+  name: Clean register
+  writable: true
+  mqtt: mode2
+  group: config
+`
+	m, diag, err := parse(strings.NewReader(typo), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m.All) != 2 {
+		t.Fatalf("both registers must be kept, got %+v", m.All)
+	}
+	reg := m.ByAddr[52000]
+	if reg.Writable {
+		t.Error("the typoed field must not be applied")
+	}
+	if reg.Scale != 1 {
+		t.Errorf("mis-cased 'Scale' must not be applied, got %d", reg.Scale)
+	}
+	if len(diag) != 2 {
+		t.Fatalf("diagnostics: got %d (%v), want 2", len(diag), diag)
+	}
+	for i, field := range []string{"writeable", "Scale"} {
+		if !strings.HasPrefix(diag[i], "keep ") || !strings.Contains(diag[i], field) ||
+			!strings.Contains(diag[i], "52000") {
+			t.Errorf("diag[%d] = %q, want keep diagnostic naming %q", i, diag[i], field)
+		}
+	}
+}
+
+// TestLoadRejectsExplicitZeroLengthAndScale: the loader defaults absent
+// length/scale to 1, but an explicitly written 0 is a catalog bug — a
+// scale of 0 would divide by zero — and must not be rescued silently.
+func TestLoadRejectsExplicitZeroLengthAndScale(t *testing.T) {
+	const broken = `
+"31300":
+  name: Explicit zero length
+  length: 0
+  group: day
+"31301":
+  name: Explicit zero scale
+  scale: 0
+  group: day
+"zero-pseudo":
+  name: Explicit zero length on a pseudo register
+  length: 0
+  group: day
+"31310":
+  name: Omitted length and scale
+  group: day
+`
+	m, diag, err := parse(strings.NewReader(broken), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m.All) != 1 || m.All[0].Key != "31310" {
+		t.Fatalf("kept registers: got %+v, want only 31310", m.All)
+	}
+	if r := m.All[0]; r.Length != 1 || r.Scale != 1 {
+		t.Errorf("omitted fields must still default to 1, got length=%d scale=%d",
+			r.Length, r.Scale)
+	}
+	if len(diag) != 3 {
+		t.Fatalf("diagnostics: got %d (%v), want 3", len(diag), diag)
+	}
+	for i, key := range []string{"31300", "31301", "zero-pseudo"} {
+		if !strings.HasPrefix(diag[i], "skip ") || !strings.Contains(diag[i], key) {
+			t.Errorf("diag[%d] = %q, want skip diagnostic for %q", i, diag[i], key)
+		}
+	}
+}
+
+// TestLoadSkipsDuplicateAddresses: "010105" and "10105" are distinct
+// YAML keys that parse to the same Modbus address. ByAddr/Clusterize
+// would keep the first, the mqtt-driven write path the last — so the
+// poll and write paths could disagree about the same register.
+func TestLoadSkipsDuplicateAddresses(t *testing.T) {
+	const dup = `
+"10105":
+  name: Canonical spelling
+  scale: 10
+  mqtt: inverter_status
+  group: now-base
+"010105":
+  name: Leading-zero spelling
+  scale: 100
+  mqtt: inverter_status_2
+  group: now-base
+`
+	m, diag, err := parse(strings.NewReader(dup), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m.All) != 1 || m.All[0].Key != "10105" {
+		t.Fatalf("expected only the first definition, got %+v", m.All)
+	}
+	if r := m.ByAddr[10105]; r == nil || r.Scale != 10 {
+		t.Errorf("ByAddr kept %+v, want the first definition (scale 10)", r)
+	}
+	if m.FindByMQTT("inverter_status_2") != nil {
+		t.Error("the shadowed duplicate must not reach the write path")
+	}
+	if len(diag) != 1 || !strings.Contains(diag[0], "010105") ||
+		!strings.Contains(diag[0], "duplicate Modbus address") {
+		t.Fatalf("expected duplicate-address diagnostic for 010105, got %v", diag)
+	}
+}
+
+// TestKnownRegisterFieldsMatchSchema is a canary for the reflection
+// helper: if it ever returned an empty (or partial) set, every catalog
+// field would be reported as unknown.
+func TestKnownRegisterFieldsMatchSchema(t *testing.T) {
+	for _, f := range []string{
+		"name", "name_de", "length", "type", "unit", "scale", "mqtt", "group",
+		"writable", "hass_component_type", "hass_device_class", "hass_state_class",
+		"hass_value_template", "hass_value_items", "hass_value_items_de",
+		"hass_payload_on", "hass_payload_off",
+	} {
+		if !knownRegisterFields[f] {
+			t.Errorf("field %q missing from knownRegisterFields", f)
+		}
+	}
+	// Loader-computed fields are tagged "-" and must stay unsettable.
+	for _, f := range []string{"-", "Key", "Address", ""} {
+		if knownRegisterFields[f] {
+			t.Errorf("field %q must not be settable from YAML", f)
+		}
+	}
+}
+
 // Smoke-test against the real registers.yaml shipped with the repo:
 // it must parse cleanly and contain at least the registers the
 // coordinator references by address (serial number + grid power).
@@ -357,6 +573,79 @@ func TestLoadRealCatalog(t *testing.T) {
 	for _, addr := range []uint16{10000 /* serial */, 11000 /* grid power */} {
 		if _, ok := m.ByAddr[addr]; !ok {
 			t.Errorf("expected register %d to be present in catalog", addr)
+		}
+	}
+}
+
+// TestCatalogTemperatureRegistersAreSigned pins the deliberate
+// divergence from the Python upstream: battery temperatures are signed.
+// Declared as U16 (as upstream does), −0.5 °C would be published as
+// 6553.1 °C — a value HA happily records as a temperature spike.
+func TestCatalogTemperatureRegistersAreSigned(t *testing.T) {
+	m, _, err := Load("../../registers.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, addr := range []uint16{33003, 33009, 33011} {
+		r := m.ByAddr[addr]
+		if r == nil {
+			t.Errorf("register %d missing from catalog", addr)
+			continue
+		}
+		if r.Type != DataI16 {
+			t.Errorf("register %d: type = %q, want %q", addr, r.Type, DataI16)
+		}
+		if r.Scale != 10 {
+			t.Errorf("register %d: scale = %d, want 10", addr, r.Scale)
+		}
+		// 0xFFFB == −5 raw → −0.5 °C after scaling.
+		v, decErr := Decode(r, []uint16{0xFFFB})
+		if decErr != nil {
+			t.Errorf("register %d: decode: %v", addr, decErr)
+			continue
+		}
+		if f, ok := v.(float64); !ok || f != -0.5 {
+			t.Errorf("register %d: got %v (%T), want -0.5 float64", addr, v, v)
+		}
+	}
+}
+
+// TestCatalogBitRegistersHaveNoEnumDeviceClass: BIT registers publish a
+// comma-separated fault list, which HA's options-based `enum` device
+// class cannot validate — they must stay plain text sensors while
+// keeping their value-item labels. The integer enums keep theirs.
+func TestCatalogBitRegistersHaveNoEnumDeviceClass(t *testing.T) {
+	m, _, err := Load("../../registers.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, addr := range []uint16{10112, 10114, 53509, 53511, 53513} {
+		r := m.ByAddr[addr]
+		if r == nil {
+			t.Errorf("register %d missing from catalog", addr)
+			continue
+		}
+		if r.Type != DataBIT {
+			t.Errorf("register %d: type = %q, want %q", addr, r.Type, DataBIT)
+		}
+		if r.HassDeviceClass != "" {
+			t.Errorf("register %d: hass_device_class = %q, want none",
+				addr, r.HassDeviceClass)
+		}
+		// The label maps drive the fault-list conversion — losing them
+		// would publish raw bit strings to HA.
+		if len(r.HassValueItems) == 0 || len(r.HassValueItemsDE) == 0 {
+			t.Errorf("register %d: value-item labels must be kept (en=%d de=%d)",
+				addr, len(r.HassValueItems), len(r.HassValueItemsDE))
+		}
+		if !r.HasHassHints() {
+			t.Errorf("register %d must still be advertised to Home Assistant", addr)
+		}
+	}
+	for _, addr := range []uint16{10105, 30256, 33002} {
+		if r := m.ByAddr[addr]; r == nil || r.HassDeviceClass != "enum" {
+			t.Errorf("integer enum register %d must keep hass_device_class enum, got %+v",
+				addr, r)
 		}
 	}
 }

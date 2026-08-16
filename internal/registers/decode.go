@@ -20,9 +20,14 @@ var ErrDecodeBounds = errors.New("registers: decode bounds exceeded")
 //
 // The returned value is one of:
 //
-//   - int      (unscaled U16/S16/U32/S32/I16/I32)
+//   - int      (unscaled U16/S16/S32/I16/I32)
+//   - int64    (unscaled U32 — see below)
 //   - float64  (scaled numeric, divided by Scale)
 //   - string   (BYTE / BIT / DAT / STR)
+//
+// U32 deliberately widens to int64: `int` is 32 bits on the armv7
+// builds (Home Assistant add-on, Raspberry Pi) where a full-range
+// counter like 0xFFFFFFFF would otherwise wrap to −1.
 //
 // `raw` must contain at least reg.Length 16-bit words starting at the
 // register's offset within a cluster read; pass the right window.
@@ -47,7 +52,9 @@ func Decode(reg *Register, raw []uint16) (any, error) {
 			return nil, fmt.Errorf("%w: U32 requires length>=2, got %d",
 				ErrDecodeBounds, length)
 		}
-		val = int(uint32(raw[0])<<16 | uint32(raw[1]))
+		// int64, not int: on 32-bit GOARCHs (armv7 add-on image) an
+		// int is 32 bits wide and 0xFFFFFFFF would wrap to −1.
+		val = int64(uint32(raw[0])<<16 | uint32(raw[1]))
 	case DataS32, DataI32:
 		if length < 2 {
 			return nil, fmt.Errorf("%w: %s requires length>=2, got %d",
@@ -72,9 +79,14 @@ func Decode(reg *Register, raw []uint16) (any, error) {
 
 	// Scaling applies to integer-typed values only. Python uses true
 	// division (`/`) which always yields a float — match that so the
-	// MQTT_FLOAT_FORMAT path is reached for scaled registers.
+	// MQTT_FLOAT_FORMAT path is reached for scaled registers. Both
+	// integer widths the decoder produces must be covered, otherwise a
+	// scaled U32 register would silently publish its raw counter.
 	if reg.Scale > 1 {
-		if iv, ok := val.(int); ok {
+		switch iv := val.(type) {
+		case int:
+			return float64(iv) / float64(reg.Scale), nil
+		case int64:
 			return float64(iv) / float64(reg.Scale), nil
 		}
 	}
@@ -158,6 +170,19 @@ func decodeSTR(raw []uint16) string {
 	buf := make([]byte, 0, len(raw)*2)
 	for _, w := range raw {
 		buf = append(buf, byte(w>>8), byte(w&0xFF))
+	}
+	// Strip the device's padding on the *byte* level, before any
+	// charset decision: inverters pad short strings with 0xFF (erased
+	// flash) or 0x00. 0xFF is not valid UTF-8, so it would push the
+	// whole string into the Latin-1 fallback and survive as "ÿÿÿÿ" —
+	// and a serial number carrying that lands verbatim in the MQTT
+	// topic and in the Home Assistant device identifier.
+	for len(buf) > 0 {
+		last := buf[len(buf)-1]
+		if last != 0xFF && last != 0x00 {
+			break
+		}
+		buf = buf[:len(buf)-1]
 	}
 	var s string
 	if utf8.Valid(buf) {

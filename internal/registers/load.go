@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 
@@ -63,6 +64,61 @@ var knownDataTypes = map[DataType]bool{
 // so a register carrying one would fail on every poll cycle.
 const mqttWildcards = "+#\x00"
 
+// maxBITWords caps the word count of a BIT register. The coordinator
+// turns the decoder's binary string back into a bitmask via
+// strconv.ParseUint(..., 2, 64), so anything past 64 bits (4 words)
+// would silently degrade to "OK" — no fault would ever be reported.
+const maxBITWords = 4
+
+// mergeKey is YAML's merge-key indicator. yaml.Node.Decode resolves it
+// itself, so the unknown-field scan must not flag it.
+const mergeKey = "<<"
+
+// knownRegisterFields is the set of YAML keys a Register accepts,
+// derived from the struct's `yaml:` tags so schema and validation can
+// never drift apart. Fields tagged "-" (Key, Address) are computed by
+// the loader and not settable from the catalog.
+var knownRegisterFields = buildKnownRegisterFields()
+
+func buildKnownRegisterFields() map[string]bool {
+	t := reflect.TypeOf(Register{})
+	fields := make(map[string]bool, t.NumField())
+	for i := range t.NumField() {
+		name, _, _ := strings.Cut(t.Field(i).Tag.Get("yaml"), ",")
+		if name == "" || name == "-" {
+			continue
+		}
+		fields[name] = true
+	}
+	return fields
+}
+
+// scanFields walks a register's mapping node and reports which schema
+// fields the YAML actually spells out, plus any key that is not part
+// of the schema at all.
+//
+// Both results exist because yaml.Node.Decode has no KnownFields
+// equivalent: without this, a mistyped `writeable:` (or a mis-cased
+// `Scale:`) is dropped without a trace, and an explicit `scale: 0`
+// is indistinguishable from an omitted one.
+func scanFields(n *yaml.Node) (present map[string]bool, unknown []string) {
+	if n == nil || n.Kind != yaml.MappingNode {
+		return nil, nil
+	}
+	present = make(map[string]bool, len(n.Content)/2)
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		switch name := n.Content[i].Value; {
+		case name == mergeKey:
+			// Resolved by Decode; not a schema field of its own.
+		case knownRegisterFields[name]:
+			present[name] = true
+		default:
+			unknown = append(unknown, name)
+		}
+	}
+	return present, unknown
+}
+
 // isAllDigits reports whether s is a non-empty run of ASCII digits —
 // i.e. a key that was clearly meant as a Modbus address.
 func isAllDigits(s string) bool {
@@ -77,8 +133,13 @@ func isAllDigits(s string) bool {
 // silently unscaled values). Returns a skip reason, or "" to keep the
 // entry.
 func validateEntry(reg *Register, isModbus bool, addr uint16) string {
+	// A zero or negative length is nonsense for both register kinds —
+	// only the upper bound is Modbus-specific (FC03 read limit).
+	if reg.Length < 1 {
+		return fmt.Sprintf("field 'length' %d must be >= 1", reg.Length)
+	}
 	if isModbus {
-		if reg.Length < 1 || reg.Length > maxReadWords {
+		if reg.Length > maxReadWords {
 			return fmt.Sprintf("field 'length' %d out of range 1..%d", reg.Length, maxReadWords)
 		}
 		if int(addr)+reg.Length > 0x10000 {
@@ -91,6 +152,39 @@ func validateEntry(reg *Register, isModbus bool, addr uint16) string {
 	}
 	if !knownDataTypes[reg.Type] {
 		return fmt.Sprintf("unknown data type %q", reg.Type)
+	}
+	return validateTypeLength(reg.Type, reg.Length)
+}
+
+// validateTypeLength cross-checks the declared word count against what
+// the decoder in decode.go actually consumes for that type. Without it
+// a mis-declared entry (`type: U32` with the default `length: 1`) is
+// accepted at load time and then fails on every single poll — for the
+// whole cluster's worth of neighbours, once per refresh interval.
+func validateTypeLength(typ DataType, length int) string {
+	switch typ {
+	case DataU32, DataS32, DataI32:
+		// Decode reads raw[0] and raw[1].
+		if length < 2 {
+			return fmt.Sprintf("type %s requires 'length' >= 2, got %d", typ, length)
+		}
+	case DataDAT:
+		// formatDAT reads raw[0..2] (date, time, seconds).
+		if length < 3 {
+			return fmt.Sprintf("type %s requires 'length' >= 3, got %d", typ, length)
+		}
+	case DataBYTE:
+		// formatBYTE only implements these three layouts.
+		if length != 1 && length != 2 && length != 4 {
+			return fmt.Sprintf("type %s supports 'length' 1, 2 or 4, got %d", typ, length)
+		}
+	case DataBIT:
+		if length > maxBITWords {
+			return fmt.Sprintf("type %s supports at most %d words (64 bits), got %d",
+				typ, maxBITWords, length)
+		}
+	case DataU16, DataS16, DataI16, DataSTR, "":
+		// Single-word types ignore any extra words; STR spans any count.
 	}
 	return ""
 }
@@ -117,6 +211,7 @@ func parse(r io.Reader, source string) (*Map, []string, error) {
 	var diagnostics []string
 	seenGroups := make(map[Group]bool)
 	seenMQTT := make(map[string]string) // mqtt suffix → first YAML key
+	seenAddr := make(map[uint16]string) // modbus address → first YAML key
 
 	// MappingNode.Content is a flat [key, value, key, value, ...] list.
 	for i := 0; i+1 < len(top.Content); i += 2 {
@@ -134,6 +229,8 @@ func parse(r io.Reader, source string) (*Map, []string, error) {
 			continue
 		}
 
+		present, unknown := scanFields(valNode)
+
 		reg := &Register{Key: key}
 		// Defaults match init_register_map's OPTIONAL_PARAMETERS table.
 		reg.Length = 1
@@ -144,20 +241,29 @@ func parse(r io.Reader, source string) (*Map, []string, error) {
 				fmt.Sprintf("skip %q: decode error: %v", key, err))
 			continue
 		}
+		// A field yaml.v3 cannot map is dropped without a word, so a
+		// `writeable:` typo silently turns a writable register into a
+		// read-only one. The entry itself is still usable — warn and
+		// keep it rather than making one typo delete an entity.
+		for _, name := range unknown {
+			diagnostics = append(diagnostics,
+				fmt.Sprintf("keep %q: unknown field %q is not part of the register schema "+
+					"and was ignored", key, name))
+		}
 		if reg.Name == "" {
 			diagnostics = append(diagnostics,
 				fmt.Sprintf("skip %q: missing mandatory field 'name'", key))
 			continue
 		}
 
-		// Re-apply defaults that Decode silently overwrote with zero
-		// values when the YAML omits the field. yaml.v3 has no way to
-		// distinguish "missing" from "explicit zero", so we restore
-		// the documented defaults after the fact.
-		if reg.Length == 0 {
+		// Restore the documented defaults only for fields the YAML does
+		// not mention. An explicitly written `length: 0` / `scale: 0` is
+		// a catalog bug (a scale of 0 would be a division by zero) and
+		// must reach validateEntry instead of being papered over here.
+		if !present["length"] && reg.Length == 0 {
 			reg.Length = 1
 		}
-		if reg.Scale == 0 {
+		if !present["scale"] && reg.Scale == 0 {
 			reg.Scale = 1
 		}
 		if reg.Type == "" {
@@ -182,6 +288,21 @@ func parse(r io.Reader, source string) (*Map, []string, error) {
 			diagnostics = append(diagnostics,
 				fmt.Sprintf("skip %q: %s", key, reason))
 			continue
+		}
+
+		// Two keys can spell the same address ("010105" and "10105"),
+		// which ByKey happily keeps apart while ByAddr/Clusterize keep
+		// the first and FindByMQTT-driven writes may land on the last —
+		// the poll and write paths would disagree about which register
+		// they are talking about. Keep the first definition.
+		if isModbus {
+			if first, dup := seenAddr[uint16(addr)]; dup {
+				diagnostics = append(diagnostics,
+					fmt.Sprintf("skip %q: duplicate Modbus address %d (already defined by %q)",
+						key, addr, first))
+				continue
+			}
+			seenAddr[uint16(addr)] = key
 		}
 
 		// The mqtt suffix (or, when it is empty, the register name) and
