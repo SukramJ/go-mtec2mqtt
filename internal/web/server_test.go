@@ -5,9 +5,11 @@ package web
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -69,6 +71,48 @@ func (f *fakeBackend) Changes() (events <-chan struct{}, cancel func()) {
 
 func newTestServer(cfg Config, b Backend) *httptest.Server {
 	return httptest.NewServer(New(cfg, b).handler)
+}
+
+// bigRegisterBackend wraps fakeBackend to serve an arbitrarily large
+// register catalog — used to force a JSON response body big enough to
+// overflow shrunk socket buffers in
+// TestWriteDeadlineDisconnectsStalledReaderOnNormalRoute.
+type bigRegisterBackend struct {
+	fakeBackend
+	regs []state.RegisterInfo
+}
+
+func (b *bigRegisterBackend) Registers() []state.RegisterInfo { return b.regs }
+
+// bufLimitListener shrinks the OS send buffer on every accepted
+// connection so a stalled reader can fill it (combined with a shrunk
+// client-side receive window) without needing a multi-megabyte response
+// body to reliably provoke a blocking Write().
+type bufLimitListener struct{ net.Listener }
+
+func (l *bufLimitListener) Accept() (net.Conn, error) {
+	c, err := l.Listener.Accept()
+	if err != nil {
+		return c, err
+	}
+	if tc, ok := c.(*net.TCPConn); ok {
+		_ = tc.SetWriteBuffer(2048)
+	}
+	return c, nil
+}
+
+// signalWriter is an io.Writer that pings a buffered channel (dropping
+// the ping if the channel is already full) on every Write — used to
+// observe that a slog.Logger call happened without racily inspecting a
+// shared buffer from another goroutine.
+type signalWriter struct{ ch chan struct{} }
+
+func (w *signalWriter) Write(p []byte) (int, error) {
+	select {
+	case w.ch <- struct{}{}:
+	default:
+	}
+	return len(p), nil
 }
 
 func TestHealthEndpoint(t *testing.T) {
@@ -153,6 +197,34 @@ func TestWriteErrorMapping(t *testing.T) {
 				t.Errorf("status = %d, want %d", res.StatusCode, c.want)
 			}
 		})
+	}
+}
+
+// TestWriteTransportFailureHidesDetailFromClient proves that a raw
+// Modbus transport/framing error (the default branch of handleWrite's
+// error switch) never reaches the client body verbatim — only a generic
+// message does; the error detail is logged server-side only.
+func TestWriteTransportFailureHidesDetailFromClient(t *testing.T) {
+	ts := newTestServer(Config{}, &fakeBackend{writeErr: io.ErrUnexpectedEOF})
+	defer ts.Close()
+
+	res, err := http.Post(ts.URL+"/api/write", "application/json", strings.NewReader(`{"key":"x","value":1}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusBadGateway {
+		t.Fatalf("status = %d, want %d", res.StatusCode, http.StatusBadGateway)
+	}
+	var body map[string]string
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(body["error"], io.ErrUnexpectedEOF.Error()) {
+		t.Errorf("raw transport error leaked to client: %q", body["error"])
+	}
+	if body["error"] != "write failed" {
+		t.Errorf("error = %q, want generic \"write failed\"", body["error"])
 	}
 }
 
@@ -265,6 +337,33 @@ func TestWriteAllowsSameOriginAndNoOrigin(t *testing.T) {
 	_ = res2.Body.Close()
 	if res2.StatusCode != http.StatusOK {
 		t.Fatalf("same-origin status = %d, want 200", res2.StatusCode)
+	}
+}
+
+// TestWriteAllowsSameOriginViaSecFetchSiteDespiteMismatchedForwardedHost
+// proves that a browser-asserted Sec-Fetch-Site: same-origin bypasses the
+// Origin/Host comparison entirely — needed behind the Home Assistant
+// Ingress supervisor proxy, which may not set X-Forwarded-Host, or may
+// set it to something that doesn't match the browser's Origin.
+func TestWriteAllowsSameOriginViaSecFetchSiteDespiteMismatchedForwardedHost(t *testing.T) {
+	ts := newTestServer(Config{}, &fakeBackend{})
+	defer ts.Close()
+
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/write", strings.NewReader(`{"key":"x","value":1}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	// Both disagree with the request's own Host — simulating a proxy
+	// that rewrites/omits X-Forwarded-Host. Sec-Fetch-Site: same-origin
+	// is guaranteed by the browser itself and must win over this.
+	req.Header.Set("Origin", "https://unrelated.example")
+	req.Header.Set("X-Forwarded-Host", "also-unrelated.example")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (Sec-Fetch-Site: same-origin must bypass the Origin/Host check)", res.StatusCode)
 	}
 }
 
@@ -414,6 +513,106 @@ func TestWriteTrickledBodyTimesOut(t *testing.T) {
 	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400 after body read deadline", res.StatusCode)
+	}
+}
+
+// TestRunReturnsBindErrorWithoutLoggingListening proves that Run reports a
+// bind failure as a returned error and never logs "web.listening" for a
+// socket it never actually bound — logging readiness ahead of a
+// successful net.Listen would be a lie.
+func TestRunReturnsBindErrorWithoutLoggingListening(t *testing.T) {
+	// Occupy a port so the second bind attempt (inside Run) fails.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	addr := ln.Addr().String()
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+
+	srv := New(Config{Bind: addr, Logger: logger}, &fakeBackend{})
+	if err := srv.Run(context.Background()); err == nil {
+		t.Fatal("expected a bind error, got nil")
+	}
+	if strings.Contains(buf.String(), "web.listening") {
+		t.Errorf("web.listening logged despite the bind failing: %s", buf.String())
+	}
+}
+
+// TestWriteDeadlineDisconnectsStalledReaderOnNormalRoute proves that a
+// client which issues a normal (non-SSE) GET request and then never
+// reads the response cannot pin the handler goroutine forever: once the
+// (deliberately shrunk) socket buffers fill, withWriteDeadline's per
+// -request write deadline errors the blocked write inside writeJSON's
+// Encode call. That failure is only observable via the log (see
+// TestWriteJSONLogsEncodeFailure) since the status is already committed
+// — its arrival proves the handler returned instead of hanging.
+func TestWriteDeadlineDisconnectsStalledReaderOnNormalRoute(t *testing.T) {
+	old := writeDeadline
+	writeDeadline = 200 * time.Millisecond
+	defer func() { writeDeadline = old }()
+
+	// A register catalog large enough that the JSON body overflows the
+	// shrunk socket buffers below, so the write actually blocks instead
+	// of completing in a single non-blocking syscall.
+	regs := make([]state.RegisterInfo, 20000)
+	for i := range regs {
+		regs[i] = state.RegisterInfo{
+			Key: "40000", Name: "Padding register name for bulk transfer", MQTT: "padding_key", Unit: "W",
+		}
+	}
+	fb := &bigRegisterBackend{regs: regs}
+
+	sig := make(chan struct{}, 1)
+	logger := slog.New(slog.NewTextHandler(&signalWriter{ch: sig}, nil))
+
+	ts := httptest.NewUnstartedServer(New(Config{Logger: logger}, fb).handler)
+	ts.Listener = &bufLimitListener{Listener: ts.Listener}
+	ts.Start()
+	defer ts.Close()
+
+	conn, err := net.Dial("tcp", ts.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	if tc, ok := conn.(*net.TCPConn); ok {
+		// Shrink the receive buffer so the advertised window fills fast.
+		_ = tc.SetReadBuffer(2048)
+	}
+	if _, err := conn.Write([]byte("GET /api/registers HTTP/1.1\r\nHost: stalled.test\r\n\r\n")); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case <-sig:
+		// writeJSON logged the encode failure — the deadline fired and
+		// the handler returned instead of blocking indefinitely.
+	case <-time.After(10 * time.Second):
+		t.Fatal("write deadline did not unblock a stalled client on a normal (non-SSE) route")
+	}
+}
+
+// TestWriteJSONLogsEncodeFailure proves that writeJSON no longer silently
+// discards an Encode failure (which can only happen after the status is
+// already committed via WriteHeader, so it can't be turned into an error
+// response) — it must be logged instead.
+func TestWriteJSONLogsEncodeFailure(t *testing.T) {
+	sig := make(chan struct{}, 1)
+	logger := slog.New(slog.NewTextHandler(&signalWriter{ch: sig}, nil))
+	s := New(Config{Logger: logger}, &fakeBackend{})
+
+	rec := httptest.NewRecorder()
+	// Channels aren't JSON-marshalable, so Encode fails deterministically
+	// without needing a real stalled connection.
+	s.writeJSON(rec, http.StatusOK, map[string]any{"bad": make(chan int)})
+
+	select {
+	case <-sig:
+	case <-time.After(time.Second):
+		t.Error("encode failure was not logged")
 	}
 }
 
