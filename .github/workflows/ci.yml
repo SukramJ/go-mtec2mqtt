@@ -1,10 +1,12 @@
 # GitHub Actions CI for go-mtec2mqtt.
 #
-# Three jobs: lint (gofumpt + go vet), test (matrix across the OS
+# Four jobs: lint (gofumpt + go vet), test (matrix across the OS
 # triplet the daemon supports — race detector on, so CGo enabled for
 # this single step), build (sanity-check that the binary produces a
-# version banner). Concurrency cancels stale runs on the same ref so
-# a fast-pushing developer isn't billed for outdated commits.
+# version banner), audit (govulncheck + go-licenses, so `make vuln` /
+# `make licenses` actually run somewhere instead of only locally).
+# Concurrency cancels stale runs on the same ref so a fast-pushing
+# developer isn't billed for outdated commits.
 name: ci
 
 on:
@@ -22,7 +24,7 @@ concurrency:
 
 env:
   CGO_ENABLED: "0"
-  GO_VERSION: "1.26"
+  GO_VERSION: "1.26.6"
 
 jobs:
   lint:
@@ -78,3 +80,21 @@ jobs:
         run: make build
       - name: version banner
         run: ./bin/mtec2mqtt --version
+
+  audit:
+    name: audit (vuln + licenses)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: install govulncheck + go-licenses
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          go install github.com/google/go-licenses@latest
+      - name: govulncheck
+        run: make vuln
+      - name: license check
+        run: make licenses

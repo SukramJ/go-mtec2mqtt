@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
 
 	"github.com/SukramJ/go-mtec2mqtt/internal/registers"
 )
@@ -162,9 +163,15 @@ func (r *Reader) ReadRegister(ctx context.Context, key string) (any, error) {
 //  4. The final value is range-checked to fit in uint16 before being
 //     handed to the wire.
 //
+// The payload is trimmed first: MQTT publishers routinely append a
+// newline (`mosquitto_pub -f`, shell pipelines) or pad the value, and an
+// untrimmed "30\n" would miss both the value_items lookup and the
+// numeric parse. Mirrors the trimming in internal/coordinator.
+//
 // Returns ErrUnknownRegister, ErrNotWritable, or ErrValueParse for the
 // well-defined failure modes; other errors come from the transport.
 func (r *Reader) WriteRegisterByMQTT(ctx context.Context, name, value string) error {
+	value = strings.TrimSpace(value)
 	reg := r.catalog.FindByMQTT(name)
 	if reg == nil {
 		return fmt.Errorf("%w: mqtt=%q", ErrUnknownRegister, name)

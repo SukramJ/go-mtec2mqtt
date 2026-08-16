@@ -50,7 +50,11 @@ function t(key) {
 // tf looks up key and substitutes {name} placeholders from params.
 function tf(key, params) {
   let s = t(key);
-  for (const k in params) s = s.replace("{" + k + "}", params[k]);
+  // Replacement is passed as a function, not a string: params[k] may be
+  // user-supplied (e.g. a register value typed into the write form), and
+  // String.replace() would otherwise interpret "$&", "$$", "$1" etc. in a
+  // string replacement as special patterns.
+  for (const k in params) s = s.replace("{" + k + "}", () => params[k]);
   return s;
 }
 

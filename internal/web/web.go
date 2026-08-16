@@ -8,6 +8,7 @@ import (
 	"crypto/subtle"
 	"embed"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"mime"
@@ -55,7 +56,7 @@ func New(cfg Config, backend Backend) *Server {
 		log = slog.Default()
 	}
 	s := &Server{cfg: cfg, backend: backend, log: log}
-	s.handler = s.withSecurityHeaders(s.withAuth(s.routes()))
+	s.handler = s.withSecurityHeaders(s.withAuth(s.withWriteDeadline(s.routes())))
 	return s
 }
 
@@ -123,7 +124,7 @@ func (s *Server) requireSameOriginJSON(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 		if err != nil || mediaType != "application/json" {
-			writeError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
+			s.writeError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
 			return
 		}
 
@@ -131,8 +132,9 @@ func (s *Server) requireSameOriginJSON(next http.Handler) http.Handler {
 		// spoofable from script; when present it is the most reliable
 		// signal. "same-origin" and "none" (browser-initiated, e.g. a
 		// bookmarklet or address-bar navigation) are fine.
-		if site := r.Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" && site != "none" {
-			writeError(w, http.StatusForbidden, "cross-site request rejected")
+		site := r.Header.Get("Sec-Fetch-Site")
+		if site != "" && site != "same-origin" && site != "none" {
+			s.writeError(w, http.StatusForbidden, "cross-site request rejected")
 			return
 		}
 
@@ -149,11 +151,21 @@ func (s *Server) requireSameOriginJSON(next http.Handler) http.Handler {
 		// against — setting a custom header forces a CORS preflight,
 		// which the browser blocks here since no
 		// Access-Control-Allow-Origin is ever returned.
-		if origin := r.Header.Get("Origin"); origin != "" {
-			originURL, err := url.Parse(origin)
-			if err != nil || (originURL.Host != r.Host && originURL.Host != r.Header.Get("X-Forwarded-Host")) {
-				writeError(w, http.StatusForbidden, "cross-origin request rejected")
-				return
+		//
+		// Sec-Fetch-Site: same-origin is a stronger, browser-guaranteed
+		// signal than the Origin/Host comparison below, so when it is
+		// present this comparison is skipped entirely. That matters
+		// behind the Home Assistant Ingress supervisor proxy, which may
+		// not set X-Forwarded-Host (or may set it to something that
+		// doesn't match the browser's Origin) — without this bypass a
+		// legitimate same-origin request would 403 in that setup.
+		if site != "same-origin" {
+			if origin := r.Header.Get("Origin"); origin != "" {
+				originURL, err := url.Parse(origin)
+				if err != nil || (originURL.Host != r.Host && originURL.Host != r.Header.Get("X-Forwarded-Host")) {
+					s.writeError(w, http.StatusForbidden, "cross-origin request rejected")
+					return
+				}
 			}
 		}
 
@@ -173,6 +185,33 @@ func (s *Server) withSecurityHeaders(next http.Handler) http.Handler {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "no-referrer")
 		h.Set("Content-Security-Policy", csp)
+		next.ServeHTTP(w, r)
+	})
+}
+
+// writeDeadline bounds how long the response write for a normal
+// (non-streaming) request may take, measured from the moment the request
+// enters withWriteDeadline. Without it, a client that stops reading mid
+// -response (a "slow-read" client) blocks the handler's write call
+// indefinitely — the server has no WriteTimeout (that would kill the SSE
+// stream, see [Server.Run]) — pinning the handler goroutine and its file
+// descriptor forever. A var, not a const, so tests can shorten it.
+var writeDeadline = 30 * time.Second
+
+// withWriteDeadline sets a per-request response write deadline via
+// [http.ResponseController] on every route except the SSE stream
+// (/api/events), which manages its own per-frame deadlines instead (see
+// handleEvents / sseWriteTimeout) — a single request-scoped deadline
+// would be far too short for a stream that is meant to stay open.
+func (s *Server) withWriteDeadline(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/events" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		// Best-effort: not every ResponseWriter supports write deadlines,
+		// and a failure to set one just means the pre-existing behaviour.
+		_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(writeDeadline))
 		next.ServeHTTP(w, r)
 	})
 }
@@ -201,12 +240,23 @@ func (s *Server) Run(ctx context.Context) error {
 		BaseContext: func(net.Listener) context.Context { return ctx },
 	}
 
-	errc := make(chan error, 1)
-	go func() { errc <- srv.ListenAndServe() }()
+	// Bind synchronously so a failure (port in use, permission denied, …)
+	// surfaces as a returned error before anything is logged as
+	// listening — logging "web.listening" ahead of a successful bind
+	// would claim readiness that was never achieved. A ListenConfig (vs.
+	// the package-level net.Listen) ties the bind syscall to ctx too.
+	var lc net.ListenConfig
+	ln, err := lc.Listen(ctx, "tcp", s.cfg.Bind)
+	if err != nil {
+		return fmt.Errorf("web: listen on %s: %w", s.cfg.Bind, err)
+	}
 
 	s.log.Info("web.listening",
 		slog.String("bind", s.cfg.Bind),
 		slog.Bool("auth", s.cfg.User != ""))
+
+	errc := make(chan error, 1)
+	go func() { errc <- srv.Serve(ln) }()
 
 	select {
 	case <-ctx.Done():

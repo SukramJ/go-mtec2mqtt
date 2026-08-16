@@ -637,3 +637,110 @@ func equalAny(a, b any) bool {
 	}
 	return false
 }
+
+// --- enum options ------------------------------------------------------------
+
+func TestEnumSensorCarriesOptions(t *testing.T) {
+	d := newDiscovery(t)
+	payload := unmarshalEntry(t, findEntry(t, d, "MTEC_fault_flag"))
+	raw, ok := payload["options"].([]any)
+	if !ok {
+		t.Fatalf("enum sensor payload has no options list: %v", payload)
+	}
+	got := make([]string, len(raw))
+	for i, v := range raw {
+		got[i], _ = v.(string)
+	}
+	want := []string{"Mains Lost", "Grid Voltage Fault", "Unknown"}
+	if len(got) != len(want) {
+		t.Fatalf("options = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("options[%d] = %q, want %q (full: %v)", i, got[i], want[i], got)
+		}
+	}
+	// options excludes unit_of_measurement; the empty unit key must be gone.
+	if _, has := payload["unit_of_measurement"]; has {
+		t.Fatalf("enum sensor payload still carries unit_of_measurement: %v", payload)
+	}
+}
+
+func TestNonEnumSensorHasNoOptions(t *testing.T) {
+	d := newDiscovery(t)
+	payload := unmarshalEntry(t, findEntry(t, d, "MTEC_grid_power"))
+	if _, has := payload["options"]; has {
+		t.Fatalf("non-enum sensor payload unexpectedly carries options: %v", payload)
+	}
+}
+
+// --- serial-scoped unique_ids ------------------------------------------------
+
+func TestSerialScopedUniqueIDsOptIn(t *testing.T) {
+	d := New("homeassistant", "MTEC", loadCatalog(t), "en", nil, "")
+	d.IncludeSerialInUniqueIDs(true)
+	d.Initialize("SN12345", "V27.52.4.0", "8.0K-25A-3P")
+
+	e := findEntry(t, d, "MTEC_SN12345_grid_power")
+	payload := unmarshalEntry(t, e)
+	if got := payload["unique_id"]; got != "MTEC_SN12345_grid_power" {
+		t.Fatalf("unique_id = %v, want MTEC_SN12345_grid_power", got)
+	}
+	if want := "homeassistant/sensor/MTEC_SN12345_grid_power/config"; e.ConfigTopic != want {
+		t.Fatalf("ConfigTopic = %q, want %q", e.ConfigTopic, want)
+	}
+}
+
+func TestSerialScopingDefaultsOff(t *testing.T) {
+	d := newDiscovery(t)
+	e := findEntry(t, d, "MTEC_grid_power")
+	payload := unmarshalEntry(t, e)
+	if got := payload["unique_id"]; got != "MTEC_grid_power" {
+		t.Fatalf("unique_id = %v, want legacy MTEC_grid_power", got)
+	}
+}
+
+func TestIsOwnConfigSerialScoped(t *testing.T) {
+	d := New("homeassistant", "MTEC", loadCatalog(t), "en", nil, "")
+	d.IncludeSerialInUniqueIDs(true)
+	d.Initialize("SN12345", "V27.52.4.0", "8.0K-25A-3P")
+
+	cases := []struct {
+		name    string
+		payload string
+		want    bool
+	}{
+		{
+			name:    "own scoped id",
+			payload: `{"unique_id":"MTEC_SN12345_grid_power","state_topic":"MTEC/SN12345/now-base/grid_power/state"}`,
+			want:    true,
+		},
+		{
+			name: "own legacy id, our serial in state topic",
+			// Retained leftover from before the opt-in was enabled —
+			// still ours, must be reconcilable.
+			payload: `{"unique_id":"MTEC_grid_power","state_topic":"MTEC/SN12345/now-base/grid_power/state"}`,
+			want:    true,
+		},
+		{
+			name:    "sibling instance, different serial",
+			payload: `{"unique_id":"MTEC_grid_power","state_topic":"MTEC/OTHER99/now-base/grid_power/state"}`,
+			want:    false,
+		},
+		{
+			name:    "foreign integration",
+			payload: `{"unique_id":"zigbee_thing","state_topic":"MTEC/SN12345/x/state"}`,
+			want:    false,
+		},
+		{
+			name:    "no state topic is not claimable when scoped",
+			payload: `{"unique_id":"MTEC_grid_power"}`,
+			want:    false,
+		},
+	}
+	for _, tc := range cases {
+		if got := d.IsOwnConfig([]byte(tc.payload)); got != tc.want {
+			t.Errorf("%s: IsOwnConfig = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}

@@ -24,22 +24,22 @@ type liveView struct {
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, s.backend.Health())
+	s.writeJSON(w, http.StatusOK, s.backend.Health())
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, liveView{
+	s.writeJSON(w, http.StatusOK, liveView{
 		Health:   s.backend.Health(),
 		Snapshot: s.backend.Snapshot(),
 	})
 }
 
 func (s *Server) handleRegisters(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, s.backend.Registers())
+	s.writeJSON(w, http.StatusOK, s.backend.Registers())
 }
 
 func (s *Server) handleConfig(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, s.backend.Config())
+	s.writeJSON(w, http.StatusOK, s.backend.Config())
 }
 
 // writeRequest is the body of POST /api/write. Value is decoded as a raw
@@ -65,11 +65,11 @@ func (s *Server) handleWrite(w http.ResponseWriter, r *http.Request) {
 
 	var req writeRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+		s.writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
 		return
 	}
 	if req.Key == "" {
-		writeError(w, http.StatusBadRequest, "missing 'key'")
+		s.writeError(w, http.StatusBadRequest, "missing 'key'")
 		return
 	}
 	value := normaliseValue(req.Value)
@@ -79,23 +79,26 @@ func (s *Server) handleWrite(w http.ResponseWriter, r *http.Request) {
 	case err == nil:
 		s.log.Info("web.write_ok",
 			slog.String("key", req.Key), slog.String("value", value))
-		writeJSON(w, http.StatusOK, map[string]any{
+		s.writeJSON(w, http.StatusOK, map[string]any{
 			"ok": true, "key": req.Key, "value": value,
 		})
 	case errors.Is(err, modbus.ErrUnknownRegister):
-		writeError(w, http.StatusNotFound, err.Error())
+		s.writeError(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, modbus.ErrNotWritable),
 		errors.Is(err, modbus.ErrValueParse),
 		errors.Is(err, modbus.ErrPseudoUnsupported):
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, modbus.ErrNotConnected):
-		writeError(w, http.StatusServiceUnavailable, err.Error())
+		s.writeError(w, http.StatusServiceUnavailable, err.Error())
 	default:
 		// Transport / framing failures — the inverter is reachable in
-		// config but the round-trip failed.
+		// config but the round-trip failed. The raw error can contain
+		// internal details (addresses, protocol state), so only a
+		// generic message goes to the client; the specifics are logged
+		// server-side only.
 		s.log.Warn("web.write_failed",
 			slog.String("key", req.Key), slog.String("err", err.Error()))
-		writeError(w, http.StatusBadGateway, err.Error())
+		s.writeError(w, http.StatusBadGateway, "write failed")
 	}
 }
 
@@ -114,7 +117,7 @@ var sseWriteTimeout = 15 * time.Second
 // idle proxies.
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	if _, ok := w.(http.Flusher); !ok {
-		writeError(w, http.StatusInternalServerError, "streaming unsupported")
+		s.writeError(w, http.StatusInternalServerError, "streaming unsupported")
 		return
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -194,14 +197,21 @@ func normaliseValue(v any) string {
 	}
 }
 
-// writeJSON encodes v as the response body with the given status.
-func writeJSON(w http.ResponseWriter, status int, v any) {
+// writeJSON encodes v as the response body with the given status. The
+// status is already committed via WriteHeader by the time Encode runs, so
+// an encode failure (a disconnected client, or the write deadline from
+// [Server.withWriteDeadline] expiring) can no longer be turned into an
+// error response — it is logged instead of being silently discarded.
+func (s *Server) writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		s.log.Warn("web.response_encode_failed",
+			slog.Int("status", status), slog.String("err", err.Error()))
+	}
 }
 
 // writeError sends a small JSON error envelope.
-func writeError(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"error": msg})
+func (s *Server) writeError(w http.ResponseWriter, status int, msg string) {
+	s.writeJSON(w, status, map[string]string{"error": msg})
 }

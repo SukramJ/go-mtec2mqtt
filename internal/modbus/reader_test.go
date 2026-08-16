@@ -318,6 +318,49 @@ func TestWriteRegisterAppliesScale(t *testing.T) {
 	}
 }
 
+func TestWriteRegisterTrimsPayload(t *testing.T) {
+	catalog := buildCatalog(t)
+	var captured atomic.Uint32
+	srv := newMockServer(t, func(req []byte) ([]byte, *protocol.ExceptionError) {
+		addr := binary.BigEndian.Uint16(req[1:3])
+		val := binary.BigEndian.Uint16(req[3:5])
+		captured.Store(uint32(val))
+		return cannedFC06(addr, val), nil
+	})
+	c := newTestClient(t, srv.Port())
+	if err := c.Connect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	r := NewReader(c, catalog)
+
+	// MQTT payloads routinely arrive with a trailing newline
+	// (`mosquitto_pub -f`, shell pipelines) or padding — none of that may
+	// reach the label lookup or the numeric parse.
+	cases := []struct {
+		name    string
+		mqtt    string
+		payload string
+		want    uint32
+	}{
+		{"trailing newline", "grid_inject_limit", "30\n", 300},
+		{"leading space", "grid_inject_limit", " 30", 300},
+		{"crlf", "grid_inject_limit", "30\r\n", 300},
+		{"float padded", "grid_inject_limit", "  230.5\t", 2305},
+		{"value_items label padded", "mode", " Eco\n", 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			captured.Store(0xFFFF)
+			if err := r.WriteRegisterByMQTT(context.Background(), tc.mqtt, tc.payload); err != nil {
+				t.Fatalf("payload %q: %v", tc.payload, err)
+			}
+			if got := captured.Load(); got != tc.want {
+				t.Fatalf("payload %q: wire value %d, want %d", tc.payload, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestWriteRegisterRejectsReadOnly(t *testing.T) {
 	r := NewReader(nil, buildCatalog(t))
 	err := r.WriteRegisterByMQTT(context.Background(), "grid_power", "1")

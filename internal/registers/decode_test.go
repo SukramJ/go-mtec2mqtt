@@ -52,8 +52,44 @@ func TestDecodeI16AliasMatchesS16(t *testing.T) {
 func TestDecodeU32(t *testing.T) {
 	r := &Register{Type: DataU32, Length: 2}
 	v, err := Decode(r, []uint16{0x0001, 0x0000})
-	if err != nil || v.(int) != 0x0001_0000 {
+	if err != nil || v.(int64) != 0x0001_0000 {
 		t.Fatalf("U32: got %v / %v", v, err)
+	}
+}
+
+// TestDecodeU32FullRangeIsInt64 pins the width of the U32 result: on a
+// 32-bit GOARCH (armv7 — the Home Assistant add-on image, Raspberry Pi)
+// `int` is 32 bits, so an int-typed U32 would wrap 0xFFFFFFFF to −1 and
+// publish a negative lifetime energy counter.
+func TestDecodeU32FullRangeIsInt64(t *testing.T) {
+	r := &Register{Type: DataU32, Length: 2}
+	v, err := Decode(r, []uint16{0xFFFF, 0xFFFF})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := v.(int64)
+	if !ok {
+		t.Fatalf("U32 must decode to int64 on every GOARCH, got %T", v)
+	}
+	if got != 4294967295 {
+		t.Fatalf("U32 0xFFFFFFFF: got %d, want 4294967295", got)
+	}
+	// 0x80000000 must not flip sign either.
+	v, _ = Decode(r, []uint16{0x8000, 0x0000})
+	if got := v.(int64); got != 2147483648 {
+		t.Fatalf("U32 0x80000000: got %d, want 2147483648", got)
+	}
+}
+
+// TestDecodeU32ScaledStillFloat guards the scaling branch: it type-
+// switches on the integer form, so widening U32 to int64 must not drop
+// scaled U32 registers (e.g. total energy, scale 10) back to raw ints.
+func TestDecodeU32ScaledStillFloat(t *testing.T) {
+	r := &Register{Type: DataU32, Length: 2, Scale: 10}
+	v, err := Decode(r, []uint16{0x0001, 0x0000})
+	f, ok := v.(float64)
+	if err != nil || !ok || f != 6553.6 {
+		t.Fatalf("scaled U32: got %v (%T) / %v, want 6553.6 float64", v, v, err)
 	}
 }
 
@@ -165,9 +201,68 @@ func TestDecodeSTRTrimsNullsAndSpaces(t *testing.T) {
 	}
 }
 
+// TestDecodeSTRTrims0xFFPadding: inverters pad short strings with 0xFF
+// (erased flash). 0xFF is invalid UTF-8, so the whole string used to
+// fall into the Latin-1 branch and keep the padding as "ÿÿÿÿ" — which
+// then ended up in the MQTT topic (serial number) and in the Home
+// Assistant device identifier.
+func TestDecodeSTRTrims0xFFPadding(t *testing.T) {
+	r := &Register{Type: DataSTR, Length: 8}
+	cases := []struct {
+		name string
+		raw  []uint16
+		want string
+	}{
+		{
+			name: "0xFF padding",
+			raw: []uint16{
+				0x4D2D, 0x5445, 0x432D, 0x534E,
+				0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF,
+			},
+			want: "M-TEC-SN",
+		},
+		{
+			name: "mixed 0xFF and NUL padding",
+			raw: []uint16{
+				0x4D2D, 0x5445, 0x432D, 0x534E,
+				0xFF00, 0x00FF, 0xFFFF, 0x0000,
+			},
+			want: "M-TEC-SN",
+		},
+		{
+			name: "odd number of padding bytes",
+			raw: []uint16{
+				0x4D2D, 0x5445, 0x432D, 0x53FF,
+				0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF,
+			},
+			want: "M-TEC-S",
+		},
+		{
+			name: "all padding",
+			raw: []uint16{
+				0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF,
+				0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF,
+			},
+			want: "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			v, err := Decode(r, tc.raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := v.(string); got != tc.want {
+				t.Fatalf("STR: got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestDecodeSTRLatin1Fallback(t *testing.T) {
-	// 0xC4 is 'Ä' in Latin-1 but not a valid UTF-8 start byte on its own.
-	// Trailing 0xFF padding stays as Latin-1 too — should not panic.
+	// 0xC4 is 'Ä' in Latin-1 but not a valid UTF-8 start byte on its own,
+	// so the decoder must fall back to Latin-1 instead of producing
+	// replacement characters (or panicking).
 	r := &Register{Type: DataSTR, Length: 2}
 	v, err := Decode(r, []uint16{0xC400, 0x4100})
 	if err != nil {

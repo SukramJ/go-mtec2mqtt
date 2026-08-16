@@ -5,6 +5,11 @@ package main
 
 import (
 	"bytes"
+	"net"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -77,6 +82,134 @@ func TestReadGroupWithoutConnectionReportsError(t *testing.T) {
 	body := out.String()
 	if !strings.Contains(body, "no Modbus connection") {
 		t.Errorf("expected no-connection notice in output\n----\n%s\n----", body)
+	}
+}
+
+// closedTCPPort returns a TCP port on 127.0.0.1 that is not being
+// listened on, so a subsequent Dial to it fails immediately with
+// "connection refused" instead of blocking for the full Modbus
+// timeout. Reserving then releasing a real listener keeps the port
+// grab honest without hard-coding a number that might already be in
+// use on the test host.
+func closedTCPPort(t *testing.T) int {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve tcp port: %v", err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	if err := ln.Close(); err != nil {
+		t.Fatalf("release tcp port: %v", err)
+	}
+	return port
+}
+
+// setEnvOnlyModbusConfig sets the minimal MTEC_* environment variables
+// needed for config.Validate to accept a pure environment config (no
+// config.yaml on disk anywhere in the search path) — mirrors what the
+// HA add-on / an env-only `docker run` provides. host/port/timeout
+// drive the Modbus side that mtec-util actually dials; the MQTT_*
+// values only exist to satisfy Validate (mtec-util never touches MQTT).
+func setEnvOnlyModbusConfig(t *testing.T, host string, port, timeoutSeconds int) {
+	t.Helper()
+	t.Setenv("MTEC_MODBUS_IP", host)
+	t.Setenv("MTEC_MODBUS_PORT", strconv.Itoa(port))
+	t.Setenv("MTEC_MODBUS_TIMEOUT", strconv.Itoa(timeoutSeconds))
+	t.Setenv("MTEC_MQTT_SERVER", "localhost")
+	t.Setenv("MTEC_MQTT_PORT", "1883")
+	t.Setenv("MTEC_MQTT_TOPIC", "mtec")
+}
+
+// TestEnvOnlyConfigEnablesMenuWithoutConfigFile pins the fix for the
+// "mtec-util has no env-only fallback" finding: when no config.yaml is
+// found anywhere in the search path, mtec-util must fall back to a
+// pure MTEC_*-environment config — like the daemon's loadConfig — and
+// keep the read/write menu options enabled, instead of disabling them
+// permanently just because no file exists. Only option "1" (catalog
+// listing) is exercised here, and it must stay dial-free even though a
+// usable Modbus config exists — pinning the lazy-connect fix at the
+// same time.
+func TestEnvOnlyConfigEnablesMenuWithoutConfigFile(t *testing.T) {
+	isolate(t)
+	setEnvOnlyModbusConfig(t, "127.0.0.1", closedTCPPort(t), 2)
+
+	in := strings.NewReader("1\nx\n")
+	var out bytes.Buffer
+	if err := run("", "../../registers.yaml", in, &out); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	body := out.String()
+	if !strings.Contains(body, "using MTEC_* environment variables only") {
+		t.Errorf("expected env-only fallback notice\n----\n%s\n----", body)
+	}
+	if strings.Contains(body, "no Modbus connection") {
+		t.Errorf("env-only config should have enabled the read/write menu\n----\n%s\n----", body)
+	}
+	if strings.Contains(body, "connecting to") {
+		t.Errorf("catalog-only option must stay fully offline\n----\n%s\n----", body)
+	}
+}
+
+// TestEnvOnlyConfigLazilyConnectsOnReadOption pins the fix for the
+// "blocking connect before the menu is shown" finding: the Modbus dial
+// must not happen until a menu option that actually needs it runs, and
+// a one-line notice must appear right before it — MODBUS_TIMEOUT is
+// configurable up to 600s, and a silent multi-minute pause looks like
+// a hang otherwise. The reserved-then-released port guarantees a fast
+// "connection refused" instead of a real timeout wait.
+func TestEnvOnlyConfigLazilyConnectsOnReadOption(t *testing.T) {
+	isolate(t)
+	port := closedTCPPort(t)
+	setEnvOnlyModbusConfig(t, "127.0.0.1", port, 2)
+
+	// "4" (read single register) → any register key → "x" to exit; the
+	// connect attempt happens before the key is even looked up in the
+	// catalog, so the key value itself does not matter here.
+	in := strings.NewReader("4\n1\nx\n")
+	var out bytes.Buffer
+	if err := run("", "../../registers.yaml", in, &out); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	body := out.String()
+	wantConnecting := "connecting to 127.0.0.1:" + strconv.Itoa(port) + " (timeout 2s)"
+	if !strings.Contains(body, wantConnecting) {
+		t.Errorf("expected connect notice %q\n----\n%s\n----", wantConnecting, body)
+	}
+	if !strings.Contains(body, "error: modbus connect 127.0.0.1:"+strconv.Itoa(port)) {
+		t.Errorf("expected the connect failure to surface as a menu error\n----\n%s\n----", body)
+	}
+	if strings.Contains(body, "no Modbus connection") {
+		t.Errorf("env-only config should have enabled the read/write menu\n----\n%s\n----", body)
+	}
+}
+
+// TestVersionFlagPrintsBannerAndExitsZero builds the mtec-util binary
+// and runs it with --version. The daemon (cmd/mtec2mqtt) already has a
+// --version flag that prints internal/version.String() and exits 0;
+// mtec-util previously had none at all ("flag provided but not
+// defined"). The flag is parsed straight off os.Args by the top-level
+// flag package in main(), so it can only be exercised as a real
+// subprocess rather than through the run() test seam.
+func TestVersionFlagPrintsBannerAndExitsZero(t *testing.T) {
+	// Windows' CreateProcess only resolves executables by their .exe
+	// suffix; `go build -o` writes the file verbatim, so the suffix must
+	// be part of the name or exec fails with "not found in %PATH%".
+	name := "mtec-util-versiontest"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	bin := filepath.Join(t.TempDir(), name)
+	build := exec.Command("go", "build", "-o", bin, ".")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("go build: %v\n%s", err, out)
+	}
+	cmd := exec.Command(bin, "--version")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("mtec-util --version: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "go-mtec2mqtt") {
+		t.Errorf("expected version banner containing %q, got %q", "go-mtec2mqtt", out)
 	}
 }
 

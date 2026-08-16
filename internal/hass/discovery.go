@@ -134,6 +134,16 @@ type Discovery struct {
 	device        map[string]any
 	entries       []Entry
 	initialized   bool
+
+	// serialInUniqueID scopes every unique_id (and thus every discovery
+	// config topic) by the inverter serial so several daemon instances —
+	// one per inverter — can share a single HA installation without
+	// overwriting each other's retained discovery configs. Off by
+	// default: enabling it changes every unique_id, which orphans the
+	// entities an existing installation already tracks (MQTT discovery
+	// has no unique_id migration), so it is a deliberate operator opt-in
+	// via HASS_UNIQUE_ID_INCLUDE_SERIAL.
+	serialInUniqueID bool
 }
 
 // New constructs a Discovery for the given topic roots and catalog.
@@ -225,14 +235,27 @@ func (d *Discovery) defaultEntityID(p Platform, englishName string) string {
 	return string(p) + "." + d.entityIDBase(englishName)
 }
 
+// IncludeSerialInUniqueIDs opts into serial-scoped unique_ids
+// ("MTEC_<serial>_<key>" instead of "MTEC_<key>"). Must be called
+// before [Discovery.Initialize]; the serial itself only becomes part of
+// the ids once Initialize has supplied it.
+func (d *Discovery) IncludeSerialInUniqueIDs(on bool) {
+	d.serialInUniqueID = on
+}
+
 // uniqueID returns the entity unique_id: the "MTEC_" namespace prefix
 // plus the entity key. It deliberately never folds in the device slug —
 // unique_id is the identity Home Assistant tracks an entity by, so
 // changing it would orphan the old entity and drop all its history,
 // customisations and dashboard/automation references (MQTT discovery has
 // no clean unique_id migration). A configured device name therefore only
-// affects the display name and entity_id seed, never this value.
+// affects the display name and entity_id seed, never this value. The
+// inverter serial is folded in only under the explicit
+// HASS_UNIQUE_ID_INCLUDE_SERIAL opt-in (see [Discovery.IncludeSerialInUniqueIDs]).
 func (d *Discovery) uniqueID(key string) string {
+	if d.serialInUniqueID && d.serialNo != "" {
+		return uniqueIDPrefix + d.serialNo + "_" + key
+	}
 	return uniqueIDPrefix + key
 }
 
@@ -298,6 +321,12 @@ func (d *Discovery) ConfigFilter() string {
 // its state_topic (when present) is under our MQTT publish root. Orphan
 // cleanup uses this as a guard so it never clears the discovery configs of
 // another integration that happens to share the discovery prefix.
+//
+// With serial-scoped unique_ids enabled the state_topic must additionally
+// sit under this inverter's serial ("<root>/<serial>/…") — every entity this
+// daemon ever published carries that prefix (in the legacy and the scoped
+// id format alike), while a sibling instance's entities carry a different
+// serial and must never be treated as ours.
 func (d *Discovery) IsOwnConfig(payload []byte) bool {
 	var cfg struct {
 		UniqueID   string `json:"unique_id"`
@@ -306,8 +335,15 @@ func (d *Discovery) IsOwnConfig(payload []byte) bool {
 	if json.Unmarshal(payload, &cfg) != nil {
 		return false
 	}
-	return strings.HasPrefix(cfg.UniqueID, uniqueIDPrefix) &&
-		(cfg.StateTopic == "" || strings.HasPrefix(cfg.StateTopic, d.mqttTopic+"/"))
+	if !strings.HasPrefix(cfg.UniqueID, uniqueIDPrefix) {
+		return false
+	}
+	root := d.mqttTopic + "/"
+	if d.serialInUniqueID && d.serialNo != "" {
+		root += d.serialNo + "/"
+		return strings.HasPrefix(cfg.StateTopic, root)
+	}
+	return cfg.StateTopic == "" || strings.HasPrefix(cfg.StateTopic, root)
 }
 
 // buildEntries iterates the catalog and dispatches each
@@ -389,6 +425,17 @@ func (d *Discovery) appendSensor(r *registers.Register) {
 	}
 	if r.HassDeviceClass != "" {
 		payload["device_class"] = r.HassDeviceClass
+	}
+	// HA requires the full state-value list for enum sensors and rejects
+	// the entity without it. The coordinator publishes the localized
+	// labels plus "Unknown" for unmapped codes, so the option list is
+	// exactly that set. options excludes unit_of_measurement, so the
+	// (always empty for enums) unit key is dropped alongside.
+	if r.HassDeviceClass == "enum" && len(r.HassValueItems) > 0 {
+		payload["options"] = append(valueItemsValues(r.LocalizedValueItems(d.lang)), "Unknown")
+		if r.Unit == "" {
+			delete(payload, "unit_of_measurement")
+		}
 	}
 	if r.HassValueTemplate != "" {
 		payload["value_template"] = r.HassValueTemplate

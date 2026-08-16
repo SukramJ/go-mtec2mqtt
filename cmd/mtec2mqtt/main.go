@@ -20,6 +20,8 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -52,11 +54,16 @@ func main() {
 	registersPath := flag.String("registers", "",
 		"explicit registers.yaml path (defaults next to the binary)")
 	showVersion := flag.Bool("version", false, "print build info and exit")
+	healthcheck := flag.Bool("healthcheck", false,
+		"probe the local web UI health endpoint and exit 0 (healthy) or 1; container HEALTHCHECK hook")
 	flag.Parse()
 
 	if *showVersion {
 		fmt.Println(version.String())
 		return
+	}
+	if *healthcheck {
+		os.Exit(runHealthcheck(*configPath))
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -187,6 +194,7 @@ func run(configPath, registersPath string, logger *slog.Logger) error {
 	var discovery *hass.Discovery
 	if cfg.HASSEnable {
 		discovery = hass.New(cfg.HASSBaseTopic, cfg.MQTTTopic, catalog, cfg.Language, virtualSwitches, cfg.DeviceName)
+		discovery.IncludeSerialInUniqueIDs(cfg.HassUniqueIDIncludeSerial)
 	}
 
 	// --- web ui (optional) ---
@@ -278,6 +286,47 @@ func announceAvailability(pub coordinator.MQTTPublisher, topic, payload string, 
 				slog.String("err", err.Error()))
 		}
 	}
+}
+
+// runHealthcheck implements the container HEALTHCHECK hook: it loads
+// the same config the daemon runs with and probes the web UI's
+// /api/health endpoint. Exit 0 means healthy — or "no signal
+// available" (web UI disabled, config unreadable), so the hook stays a
+// no-op instead of flapping a container whose operator turned the UI
+// off. Exit 1 means the daemon should be serving but does not answer.
+func runHealthcheck(configPath string) int {
+	cfg, err := loadConfig(configPath, slog.New(slog.DiscardHandler))
+	if err != nil || !cfg.WebEnable {
+		return 0
+	}
+	host, port, err := net.SplitHostPort(cfg.WebBind)
+	if err != nil {
+		return 0
+	}
+	// A wildcard bind is reachable via loopback from inside the
+	// container; an explicit host is probed as configured.
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		"http://"+net.JoinHostPort(host, port)+"/api/health", http.NoBody)
+	if err != nil {
+		return 1
+	}
+	if cfg.WebUser != "" && cfg.WebPassword != "" {
+		req.SetBasicAuth(cfg.WebUser, cfg.WebPassword)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 1
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode == http.StatusOK {
+		return 0
+	}
+	return 1
 }
 
 // loadConfig finds and parses the daemon's YAML config. An explicit

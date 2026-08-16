@@ -12,7 +12,7 @@
 # meant to be operator-patched.
 
 # ---------- Stage 1: build ----------
-FROM golang:1.26-alpine AS builder
+FROM golang:1.26.6-alpine AS builder
 WORKDIR /src
 
 # Cache go.mod / go.sum separately so unrelated source edits don't
@@ -59,6 +59,12 @@ ENV XDG_CONFIG_HOME=/config
 # 0.0.0.0:8080 (the 127.0.0.1 default is unreachable from outside the
 # container) and publish the port with `docker run -p 8080:8080`.
 EXPOSE 8080
+
+# Exec form — distroless has no shell to run a CMD-string healthcheck.
+# Contract with the daemon's --healthcheck flag: exit 0 when healthy or
+# when the diagnostic web UI is disabled, exit 1 when unhealthy.
+HEALTHCHECK --interval=60s --timeout=5s --start-period=30s --retries=3 \
+  CMD ["/app/mtec2mqtt", "--healthcheck"]
 
 USER nonroot:nonroot
 ENTRYPOINT ["/app/mtec2mqtt"]

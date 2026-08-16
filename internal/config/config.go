@@ -82,6 +82,24 @@ type Config struct {
 	// the nicer id. Leave empty to keep the previous behaviour unchanged.
 	// The MQTT topic tree also stays keyed on the inverter serial regardless.
 	DeviceName string `yaml:"DEVICE_NAME"`
+	// HassUniqueIDIncludeSerial is an opt-in: when true, the inverter's
+	// serial number is folded into every Home Assistant entity's
+	// unique_id and into the MQTT discovery topics, so multiple
+	// inverters (multiple instances of this daemon) can share one Home
+	// Assistant installation without their entities colliding. Off by
+	// default — existing single-inverter installs keep behaving exactly
+	// as before.
+	//
+	// WARNING: flipping this to true on an EXISTING installation
+	// creates a brand-new set of unique_ids. The previously discovered
+	// entities become orphaned: MQTT discovery has no migration path
+	// for a unique_id change, so Home Assistant cannot rename the
+	// existing entity — it only discovers the new unique_id as a fresh
+	// entity, leaving history and any manual customisation (dashboards,
+	// automations, entity renames) behind on the orphaned one. Only
+	// enable this before the first HA discovery, or be prepared to
+	// manually re-apply customisations to the newly created entities.
+	HassUniqueIDIncludeSerial bool `yaml:"HASS_UNIQUE_ID_INCLUDE_SERIAL"`
 
 	// --- Refresh intervals (seconds) ---
 	RefreshNow    int `yaml:"REFRESH_NOW"`

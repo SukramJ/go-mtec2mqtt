@@ -68,6 +68,16 @@ type Client struct {
 	mu      sync.Mutex
 	conn    net.Conn
 	nextTID atomic.Uint32 // logical uint16 — see nextTransactionID
+
+	// connected and activeConn mirror conn for the two callers that must
+	// never queue behind a wire transaction: IsConnected (polled by
+	// /api/health and by every SSE event) and Close (shutdown). do holds
+	// mu for a full round-trip — up to MODBUS_TIMEOUT, which operators
+	// may raise to minutes — so both work off these lock-free views
+	// instead. Every mutation of conn goes through setConnLocked so the
+	// three stay in sync.
+	connected  atomic.Bool
+	activeConn atomic.Pointer[net.Conn]
 }
 
 // New constructs a Client; it does not open a TCP connection. Call
@@ -98,16 +108,25 @@ func (c *Client) Connect(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("modbus: dial %s: %w", c.addr, err)
 	}
-	c.conn = conn
+	c.setConnLocked(conn)
 	c.logger.Info("modbus.connected", slog.String("addr", c.addr))
 	return nil
 }
 
 // Close tears down the TCP connection. Safe to call repeatedly.
+//
+// A transaction that is parked in Read/Write on the socket is cut short
+// first: forcing an already-expired deadline aborts the blocked I/O
+// immediately, so shutdown does not wait out MODBUS_TIMEOUT on mu. The
+// interrupted transaction takes its usual poison path and observes the
+// socket as gone.
 func (c *Client) Close() error {
+	if cp := c.activeConn.Load(); cp != nil {
+		_ = (*cp).SetDeadline(time.Now())
+	}
 	c.mu.Lock()
 	conn := c.conn
-	c.conn = nil
+	c.setConnLocked(nil)
 	c.mu.Unlock()
 	if conn == nil {
 		return nil
@@ -120,10 +139,25 @@ func (c *Client) Close() error {
 // IsConnected reports whether the client currently holds a TCP socket.
 // Note: a "yes" here means the socket exists in our bookkeeping; the
 // peer may still have closed it without us noticing yet.
+//
+// Reads the lock-free mirror of conn on purpose: health checks and the
+// SSE stream call this on every tick and must not block behind an
+// in-flight wire transaction.
 func (c *Client) IsConnected() bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.conn != nil
+	return c.connected.Load()
+}
+
+// setConnLocked installs conn (nil to clear) and republishes it to the
+// lock-free views used by IsConnected and Close. Caller must hold c.mu.
+func (c *Client) setConnLocked(conn net.Conn) {
+	c.conn = conn
+	if conn == nil {
+		c.activeConn.Store(nil)
+		c.connected.Store(false)
+		return
+	}
+	c.activeConn.Store(&conn)
+	c.connected.Store(true)
 }
 
 // ReadHoldingRegisters issues FC03 and returns the raw 16-bit values.
@@ -204,13 +238,14 @@ func (c *Client) do(ctx context.Context, pdu []byte) ([]byte, error) {
 	// no deadline (signal.NotifyContext), so without this hook a blocked
 	// Write/ReadFull would run until now+Timeout after SIGTERM. Forcing
 	// an immediate deadline surfaces a timeout error that takes the
-	// existing poisonLocked path. The closure captures the conn value —
-	// not the c.conn field, which is nilled under mu by poisonLocked —
-	// and is registered after the SetDeadline above so a cancellation
-	// firing in between cannot be overwritten.
-	conn := c.conn
-	stop := context.AfterFunc(ctx, func() { _ = conn.SetDeadline(time.Now()) })
-	defer stop()
+	// existing poisonLocked path. The hook captures the conn value — not
+	// the c.conn field, which is nilled under mu by poisonLocked — and is
+	// armed after the SetDeadline above so a cancellation firing in
+	// between cannot be overwritten. disarm runs before mu is released
+	// (defers unwind LIFO), so the hook can never reach the transaction
+	// of the next caller.
+	hook := armDeadlineHook(ctx, c.conn)
+	defer hook.disarm()
 
 	if _, err := c.conn.Write(frame); err != nil {
 		c.poisonLocked()
@@ -244,6 +279,43 @@ func (c *Client) do(ctx context.Context, pdu []byte) ([]byte, error) {
 	return respPDU, nil
 }
 
+// deadlineHook forces an immediate deadline on one connection when a
+// transaction's context is cancelled, and can be disarmed race-free.
+//
+// context.AfterFunc's own stop is not enough: it reports that the hook
+// had already started but does not wait for it. A cancellation arriving
+// at the very tail of a transaction could therefore expire the deadline
+// after do() had released mu — killing the unrelated next transaction of
+// another caller on the same socket.
+type deadlineHook struct {
+	mu   sync.Mutex
+	done bool
+	stop func() bool
+}
+
+// armDeadlineHook registers the cancellation hook for conn on ctx.
+func armDeadlineHook(ctx context.Context, conn net.Conn) *deadlineHook {
+	h := &deadlineHook{}
+	h.stop = context.AfterFunc(ctx, func() {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		if h.done {
+			return
+		}
+		_ = conn.SetDeadline(time.Now())
+	})
+	return h
+}
+
+// disarm blocks any future hook run and waits out one already in flight.
+// Once it returns, no SetDeadline from this hook can reach the socket.
+func (h *deadlineHook) disarm() {
+	h.mu.Lock()
+	h.done = true
+	h.mu.Unlock()
+	h.stop()
+}
+
 // effectiveDeadline takes the tighter of (ctx deadline, now + Timeout).
 // Pure helper, no mutation, no I/O.
 func (c *Client) effectiveDeadline(ctx context.Context) time.Time {
@@ -260,8 +332,8 @@ func (c *Client) effectiveDeadline(ctx context.Context) time.Time {
 func (c *Client) poisonLocked() {
 	if c.conn != nil {
 		_ = c.conn.Close()
-		c.conn = nil
 	}
+	c.setConnLocked(nil)
 }
 
 // nextTransactionID returns a non-zero uint16. We avoid 0 so the value
