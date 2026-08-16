@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -54,8 +55,9 @@ func Load(r io.Reader, env Env) (*Config, error) {
 		raw = map[string]any{}
 	}
 
+	var appliedEnv []string
 	if env != nil {
-		applyEnvOverrides(raw, env)
+		appliedEnv = applyEnvOverrides(raw, env)
 	}
 
 	// Round-trip through yaml.v3 so the typed Config sees the merged
@@ -66,6 +68,14 @@ func Load(r io.Reader, env Env) (*Config, error) {
 	}
 	var cfg Config
 	if err := yaml.Unmarshal(bs, &cfg); err != nil {
+		// A decode failure here almost always means an MTEC_* env
+		// override coerced to a type the target field can't accept
+		// (e.g. a non-numeric MTEC_MODBUS_PORT). Name the applied
+		// overrides so the operator does not have to guess which one.
+		if len(appliedEnv) > 0 {
+			return nil, fmt.Errorf("config: decode merged config (env overrides applied: %s): %w",
+				strings.Join(appliedEnv, ", "), err)
+		}
 		return nil, fmt.Errorf("config: decode merged config: %w", err)
 	}
 
@@ -147,18 +157,22 @@ var stringYAMLKeys = sync.OnceValue(func() map[string]struct{} {
 })
 
 // applyEnvOverrides walks every MTEC_<KEY>=value pair in env and sets
-// raw[KEY] = coerced(value). The raw map is mutated in place.
+// raw[KEY] = coerced(value). The raw map is mutated in place. It
+// returns the sorted list of MTEC_* env-var names (with prefix) that
+// were actually applied, so [Load] can name the culprit when the
+// merged config subsequently fails to decode.
 //
 // Values destined for string-typed Config fields (credentials, topics,
 // device name, ...) are stored verbatim. All other keys go through the
 // coercion ladder, whose order matches the Python helper
 // _coerce_env_value:
 //
-//  1. "true"/"false" (case-insensitive) → bool
+//  1. "true"/"false" (case-insensitive, surrounding whitespace ignored) → bool
 //  2. parseable as int → int
 //  3. parseable as float → float64
 //  4. fallback → string
-func applyEnvOverrides(raw map[string]any, env Env) {
+func applyEnvOverrides(raw map[string]any, env Env) []string {
+	var applied []string
 	for _, kv := range env.Environ() {
 		eq := strings.IndexByte(kv, '=')
 		if eq < 0 {
@@ -172,18 +186,30 @@ func applyEnvOverrides(raw map[string]any, env Env) {
 		if cfgKey == "" {
 			continue
 		}
+		applied = append(applied, key)
 		if _, isString := stringYAMLKeys()[cfgKey]; isString {
 			raw[cfgKey] = val // string field: keep the raw value untouched
 			continue
 		}
 		raw[cfgKey] = coerceEnvValue(val)
 	}
+	sort.Strings(applied)
+	return applied
 }
 
 // coerceEnvValue applies the bool → int → float → string ladder.
 // Exported only via applyEnvOverrides; tested via Load.
+//
+// The input is trimmed once, up front, before any parse attempt —
+// not just for the bool comparison — so an operator-supplied value
+// like `MTEC_MODBUS_PORT=" 502"` (stray whitespace from a shell
+// export, a systemd EnvironmentFile, ...) still parses as the int 502
+// instead of falling through to the string branch, which would only
+// surface much later as a cryptic YAML decode error that never
+// mentions the offending MTEC_* key.
 func coerceEnvValue(s string) any {
-	switch strings.ToLower(strings.TrimSpace(s)) {
+	s = strings.TrimSpace(s)
+	switch strings.ToLower(s) {
 	case "true":
 		return true
 	case "false":

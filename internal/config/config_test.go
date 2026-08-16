@@ -100,6 +100,74 @@ func TestLoadKeepsExplicitZeroRetriesAndGracetime(t *testing.T) {
 	})
 }
 
+// Reproduction for the zero-value/case-sensitivity findings: an
+// explicit REFRESH_NOW: 0 (0 is out of Validate's 1..3600 range) must
+// surface as a validation error, not be silently replaced by the
+// nonzero default — regardless of the YAML key's case.
+func TestLoadExplicitZeroRefreshNowIsValidationError(t *testing.T) {
+	t.Run("uppercase key", func(t *testing.T) {
+		yaml := minimumYAML + "REFRESH_NOW: 0\n"
+		_, err := Load(strings.NewReader(yaml), nil)
+		var v *ValidationError
+		if !errors.As(err, &v) {
+			t.Fatalf("expected *ValidationError, got %T (%v)", err, err)
+		}
+		if !strings.Contains(err.Error(), "REFRESH_NOW") {
+			t.Errorf("expected REFRESH_NOW in error, got %v", err)
+		}
+	})
+	t.Run("lowercase key", func(t *testing.T) {
+		// yaml.v3 binds struct fields case-insensitively, so
+		// "refresh_now: 0" decodes into Config.RefreshNow just like
+		// "REFRESH_NOW: 0" does. The raw-map presence check that
+		// decides whether to apply the default must recognise the
+		// lower-case key too, or it wrongly treats the explicit 0 as
+		// absent and silently resets it to the default.
+		yaml := minimumYAML + "refresh_now: 0\n"
+		_, err := Load(strings.NewReader(yaml), nil)
+		var v *ValidationError
+		if !errors.As(err, &v) {
+			t.Fatalf("expected *ValidationError, got %T (%v)", err, err)
+		}
+		if !strings.Contains(err.Error(), "REFRESH_NOW") {
+			t.Errorf("expected REFRESH_NOW in error, got %v", err)
+		}
+	})
+}
+
+// Reproduction for the case-sensitivity finding on the existing
+// MODBUS_RETRIES presence check: MODBUS_RETRIES allows 0 (see
+// validate.go, range 0..20), so a lower-case "modbus_retries: 0" must
+// survive as 0 without triggering a validation error — proving the
+// case-insensitive presence check, not just the zero-value check,
+// is what keeps the explicit value from being overwritten.
+func TestLoadLowercaseModbusRetriesZeroSurvives(t *testing.T) {
+	yaml := minimumYAML + "modbus_retries: 0\n"
+	c, err := Load(strings.NewReader(yaml), nil)
+	if err != nil {
+		t.Fatalf("expected no validation error (0 is a legal MODBUS_RETRIES value), got %v", err)
+	}
+	if c.ModbusRetries != 0 {
+		t.Errorf("lowercase modbus_retries: 0 overwritten, got %d", c.ModbusRetries)
+	}
+}
+
+// Reproduction for the zero-value finding on CHARGE_ACTIVE_VALUE /
+// DISCHARGE_ACTIVE_VALUE: both require >= 1 (see validate.go), so an
+// explicit 0 must surface as a validation error rather than being
+// silently replaced by the default of 50.
+func TestLoadExplicitZeroChargeActiveValueIsValidationError(t *testing.T) {
+	yaml := minimumYAML + "CHARGE_ACTIVE_VALUE: 0\nDISCHARGE_ACTIVE_VALUE: 0\n"
+	_, err := Load(strings.NewReader(yaml), nil)
+	var v *ValidationError
+	if !errors.As(err, &v) {
+		t.Fatalf("expected *ValidationError, got %T (%v)", err, err)
+	}
+	if !strings.Contains(err.Error(), "CHARGE_ACTIVE_VALUE") || !strings.Contains(err.Error(), "DISCHARGE_ACTIVE_VALUE") {
+		t.Errorf("expected both CHARGE_ACTIVE_VALUE and DISCHARGE_ACTIVE_VALUE in error, got %v", err)
+	}
+}
+
 func TestLoadAggregatesValidationErrors(t *testing.T) {
 	bad := `
 MODBUS_PORT: 99999
@@ -188,6 +256,72 @@ func TestEnvOverrideStringFieldsNotCoerced(t *testing.T) {
 	}
 	if c.DeviceName != "1.50" {
 		t.Errorf("MTEC_DEVICE_NAME mangled: %q", c.DeviceName)
+	}
+}
+
+// Reproduction: a stray-whitespace env value like
+// `MTEC_MODBUS_PORT=" 502"` (e.g. from a systemd EnvironmentFile or a
+// shell export) must still coerce to the int 502 instead of falling
+// through to the string branch, which would only surface far later as
+// a cryptic YAML type-mismatch error.
+func TestEnvOverrideTrimsWhitespaceBeforeNumericCoercion(t *testing.T) {
+	env := fakeEnv{vars: map[string]string{
+		"MTEC_MODBUS_PORT": " 502",
+		"MTEC_REFRESH_NOW": "\t20\n",
+	}}
+	c, err := Load(strings.NewReader(minimumYAML), env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.ModbusPort != 502 {
+		t.Errorf("MTEC_MODBUS_PORT=\" 502\": got %d, want 502", c.ModbusPort)
+	}
+	if c.RefreshNow != 20 {
+		t.Errorf("MTEC_REFRESH_NOW=\"\\t20\\n\": got %d, want 20", c.RefreshNow)
+	}
+}
+
+// When an MTEC_* env override coerces to a value the target field
+// cannot decode (e.g. a non-numeric value for an int field), the
+// resulting error must name the applied MTEC_* keys so the operator
+// does not have to guess which override broke the merge.
+func TestLoadWrapsDecodeErrorWithAppliedEnvKeys(t *testing.T) {
+	env := fakeEnv{vars: map[string]string{
+		"MTEC_MODBUS_PORT": "not-a-number",
+	}}
+	_, err := Load(strings.NewReader(minimumYAML), env)
+	if err == nil {
+		t.Fatal("expected decode error")
+	}
+	if !strings.Contains(err.Error(), "MTEC_MODBUS_PORT") {
+		t.Errorf("expected error to name MTEC_MODBUS_PORT, got %v", err)
+	}
+}
+
+// HassUniqueIDIncludeSerial is the new opt-in contract field: defaults
+// to false, and the generic MTEC_* env overlay must be able to flip
+// it (bool coercion needs no bespoke code, but the field must exist
+// with the right yaml tag for it to work at all).
+func TestHassUniqueIDIncludeSerialDefaultsFalse(t *testing.T) {
+	c, err := Load(strings.NewReader(minimumYAML), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.HassUniqueIDIncludeSerial {
+		t.Error("HASS_UNIQUE_ID_INCLUDE_SERIAL should default to false")
+	}
+}
+
+func TestHassUniqueIDIncludeSerialEnvOverride(t *testing.T) {
+	env := fakeEnv{vars: map[string]string{
+		"MTEC_HASS_UNIQUE_ID_INCLUDE_SERIAL": "true",
+	}}
+	c, err := Load(strings.NewReader(minimumYAML), env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.HassUniqueIDIncludeSerial {
+		t.Error("MTEC_HASS_UNIQUE_ID_INCLUDE_SERIAL=true override failed")
 	}
 }
 

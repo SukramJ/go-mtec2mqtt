@@ -4,14 +4,14 @@ MODBUS_PORT: 502 # Port (usually no change required)
 MODBUS_SLAVE: 247 # Modbus slave id (usually no change required)
 MODBUS_TIMEOUT: 5 # Timeout for Modbus server (s)
 MODBUS_RETRIES: 3 # Retries
-MODBUS_FRAMER: socket # Modbus Framer (usually no change required; options: 'ascii', 'binary', 'rtu', 'socket', 'tls')
+MODBUS_FRAMER: socket # Modbus Framer (usually no change required; options: 'ascii', 'rtu', 'socket', 'tls')
 
 # MQTT settings
 # Credentials can also be provided via the MTEC_MQTT_LOGIN /
 # MTEC_MQTT_PASSWORD environment variables.
 MQTT_SERVER: localhost # MQTT server
 MQTT_PORT: 1883 # MQTT server port (default: 1883 plain, 8883 when MQTT_SSL is true)
-MQTT_LOGIN: " " # MQTT Login (override: env MTEC_MQTT_LOGIN)
+MQTT_LOGIN: "" # MQTT Login (override: env MTEC_MQTT_LOGIN)
 MQTT_PASSWORD: "" # MQTT Password (override: env MTEC_MQTT_PASSWORD)
 MQTT_TOPIC: MTEC # MQTT topic name
 MQTT_FLOAT_FORMAT: "{:.3f}" # Defines how to format float values
@@ -32,6 +32,18 @@ MQTT_FLOAT_FORMAT: "{:.3f}" # Defines how to format float values
 HASS_ENABLE: false # Enable home assistant
 HASS_BASE_TOPIC: homeassistant # Basis MQTT topic of home assistant
 HASS_BIRTH_GRACETIME: 15 # Give HASS some time to get ready after the birth message was received
+# Opt-in: fold the inverter serial number into every Home Assistant
+# entity's unique_id and into the MQTT discovery topics, so multiple
+# inverters (multiple instances of this daemon) can share one Home
+# Assistant installation without their entities colliding. Off by
+# default. WARNING: flipping this on for an EXISTING installation
+# creates a brand-new set of unique_ids and orphans the previously
+# discovered entities — MQTT discovery has no migration path for a
+# unique_id change, so HA cannot rename the old entity, only discover
+# the new one; history and manual customisations on the old entity are
+# left behind. Only enable this before the first HA discovery, or be
+# prepared to manually re-apply customisations afterwards.
+# HASS_UNIQUE_ID_INCLUDE_SERIAL: false # (override: env MTEC_HASS_UNIQUE_ID_INCLUDE_SERIAL)
 
 # Optional device name. When set, it becomes the Home Assistant device name
 # (instead of the generic "MTEC EnergyButler") and is slugged into every
