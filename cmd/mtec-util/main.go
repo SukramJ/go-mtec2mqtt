@@ -28,6 +28,7 @@ import (
 	"github.com/SukramJ/go-mtec2mqtt/internal/modbus"
 	"github.com/SukramJ/go-mtec2mqtt/internal/modbus/protocol"
 	"github.com/SukramJ/go-mtec2mqtt/internal/registers"
+	"github.com/SukramJ/go-mtec2mqtt/internal/version"
 )
 
 const registersFilename = "registers.yaml"
@@ -37,7 +38,13 @@ func main() {
 		"explicit config.yaml path (defaults to the standard search order)")
 	registersPath := flag.String("registers", "",
 		"explicit registers.yaml path (defaults next to the binary)")
+	showVersion := flag.Bool("version", false, "print build info and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println(version.String())
+		return
+	}
 
 	// Quieter slog default — the menu output is the user-facing surface.
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr,
@@ -57,19 +64,30 @@ func run(configPath, registersPath string, in io.Reader, out io.Writer) error {
 		return err
 	}
 
-	// Modbus is optional: list/help options work without it. Only
-	// the read/write paths need a live connection.
-	client := openModbus(configPath, out)
+	// Modbus is optional: list/help options work fully offline. Building
+	// the client here is cheap (no I/O — [modbus.New] never dials); the
+	// actual TCP connect is deferred until a menu option that needs it
+	// (see session.ensureConnected), so the menu itself never blocks.
+	// resolveModbusConfig applies the same config.yaml → MTEC_*
+	// environment fallback the daemon uses, so mtec-util keeps working
+	// as the same image's diagnostic tool even when no config.yaml is
+	// shipped (HA add-on / env-only `docker run`).
+	modbusCfg := resolveModbusConfig(configPath, out)
+	var client *modbus.Client
+	if modbusCfg != nil {
+		client = modbus.New(*modbusCfg)
+	}
 	if client != nil {
 		defer func() { _ = client.Close() }()
 	}
 
 	app := &session{
-		out:     bufio.NewWriter(out),
-		in:      bufio.NewScanner(in),
-		catalog: catalog,
-		client:  client,
-		reader:  optionalReader(client, catalog),
+		out:       bufio.NewWriter(out),
+		in:        bufio.NewScanner(in),
+		catalog:   catalog,
+		modbusCfg: modbusCfg,
+		client:    client,
+		reader:    optionalReader(client, catalog),
 	}
 	app.in.Buffer(make([]byte, 0, 8*1024), 64*1024)
 	app.loop()
@@ -78,11 +96,12 @@ func run(configPath, registersPath string, in io.Reader, out io.Writer) error {
 
 // session bundles the per-invocation state for the interactive menu.
 type session struct {
-	out     *bufio.Writer
-	in      *bufio.Scanner
-	catalog *registers.Map
-	client  *modbus.Client // may be nil
-	reader  *modbus.Reader // may be nil
+	out       *bufio.Writer
+	in        *bufio.Scanner
+	catalog   *registers.Map
+	modbusCfg *modbus.Config // nil iff client is nil — no usable Modbus config
+	client    *modbus.Client // may be nil; not yet connected — see ensureConnected
+	reader    *modbus.Reader // may be nil
 }
 
 // loop runs the menu until the user picks "x" or EOF on stdin.
@@ -176,7 +195,7 @@ func (s *session) listByGroup() {
 // readGroup prompts for a group name (or "all") and prints decoded
 // values for every register in that group. Requires a live connection.
 func (s *session) readGroup() error {
-	if s.reader == nil {
+	if s.client == nil {
 		return errNoConnection
 	}
 	groups := append([]string{}, secondaryGroupNames(s.catalog)...)
@@ -186,6 +205,9 @@ func (s *session) readGroup() error {
 		return nil
 	}
 	ctx := context.Background()
+	if err := s.ensureConnected(ctx); err != nil {
+		return err
+	}
 	if choice == "" || choice == "all" {
 		for _, g := range s.catalog.Groups {
 			s.dumpGroup(ctx, g)
@@ -227,14 +249,18 @@ func (s *session) dumpGroup(ctx context.Context, g registers.Group) {
 // decoded value. Pseudo-registers (non-numeric keys) are rejected
 // because they cannot be read from the device.
 func (s *session) readSingle() error {
-	if s.reader == nil {
+	if s.client == nil {
 		return errNoConnection
 	}
 	key, ok := s.prompt("Register: ")
 	if !ok || key == "" {
 		return nil
 	}
-	val, err := s.reader.ReadRegister(context.Background(), key)
+	ctx := context.Background()
+	if err := s.ensureConnected(ctx); err != nil {
+		return err
+	}
+	val, err := s.reader.ReadRegister(ctx, key)
 	if err != nil {
 		return err
 	}
@@ -253,8 +279,12 @@ func (s *session) readSingle() error {
 // poking the inverter's settings without a "really?" prompt is a
 // recipe for tears.
 func (s *session) writeRegister() error {
-	if s.reader == nil || s.client == nil {
+	if s.client == nil {
 		return errNoConnection
+	}
+	ctx := context.Background()
+	if err := s.ensureConnected(ctx); err != nil {
+		return err
 	}
 
 	s.println("-------------------------------------")
@@ -262,7 +292,6 @@ func (s *session) writeRegister() error {
 	s.println("Reg   ; Name                          ; Value  ; Unit")
 	s.println("------;-------------------------------;--------;-----")
 
-	ctx := context.Background()
 	for _, r := range sortedByKey(s.catalog) {
 		if !r.Writable || !r.IsModbus() {
 			continue
@@ -364,7 +393,8 @@ func (s *session) printf(format string, args ...any) {
 // --- setup ------------------------------------------------------------------
 
 var errNoConnection = errors.New(
-	"no Modbus connection — pass --config or place a valid config.yaml in the search path",
+	"no Modbus connection — pass --config, place a valid config.yaml in the search path, " +
+		"or set MTEC_* environment variables (at least MODBUS_IP, MQTT_SERVER, MQTT_TOPIC)",
 )
 
 func loadCatalog(explicit string) (*registers.Map, error) {
@@ -396,42 +426,78 @@ func locateRegisters() string {
 	return ""
 }
 
-// openModbus tries to load the daemon config and dial the inverter.
-// On any failure it returns nil and prints a one-line warning — the
-// menu loop runs with reader == nil, locking out the inverter
+// resolveModbusConfig locates and loads the daemon config and turns it
+// into a [modbus.Config] — no TCP I/O happens here, only file/env
+// lookup, so it is safe to call unconditionally before the menu is
+// shown. On any failure it returns nil and prints a one-line note; the
+// menu loop then runs with client == nil, locking out the inverter
 // options but still serving the offline catalog views.
-func openModbus(explicit string, out io.Writer) *modbus.Client {
+//
+// Search order mirrors the daemon's loadConfig (cmd/mtec2mqtt/main.go):
+// an explicit path (flag) or a located config.yaml is loaded as a file;
+// only when neither exists does it fall back to a pure MTEC_*
+// environment config, same as the HA add-on / an env-only `docker run`
+// that ships no config.yaml at all — mtec-util rides along as that same
+// image's diagnostic tool and must keep working in that mode too.
+func resolveModbusConfig(explicit string, out io.Writer) *modbus.Config {
+	env := config.OSEnv{}
 	path := explicit
 	if path == "" {
-		var ok bool
-		path, ok = config.Locate(config.OSEnv{})
-		if !ok {
-			_, _ = fmt.Fprintln(out, "note: no config.yaml found — read/write menu options disabled")
-			return nil
+		if located, ok := config.Locate(env); ok {
+			path = located
 		}
 	}
-	cfg, err := config.LoadFile(path, config.OSEnv{})
-	if err != nil {
-		_, _ = fmt.Fprintf(out, "note: config %s: %v — read/write menu options disabled\n", path, err)
-		return nil
+
+	var cfg *config.Config
+	var err error
+	if path != "" {
+		cfg, err = config.LoadFile(path, env)
+		if err != nil {
+			_, _ = fmt.Fprintf(out, "note: config %s: %v — read/write menu options disabled\n", path, err)
+			return nil
+		}
+	} else {
+		cfg, err = config.Load(strings.NewReader(""), env)
+		if err != nil {
+			_, _ = fmt.Fprintf(out,
+				"note: no config.yaml found and MTEC_* environment alone is not a usable config: %v — read/write menu options disabled\n",
+				err)
+			return nil
+		}
+		_, _ = fmt.Fprintln(out, "note: no config.yaml found — using MTEC_* environment variables only")
 	}
-	client := modbus.New(modbus.Config{
+
+	return &modbus.Config{
 		Host:    cfg.ModbusIP,
 		Port:    cfg.ModbusPort,
 		UnitID:  cfg.ModbusSlave,
 		Timeout: cfg.ModbusTimeoutDuration(),
-	})
-	if err := client.Connect(context.Background()); err != nil {
-		// Don't fail outright — listing options still work. The
-		// menu will refuse 3/4/5 with errNoConnection.
-		_, _ = fmt.Fprintf(out, "note: modbus connect %s:%d: %v\n", cfg.ModbusIP, cfg.ModbusPort, err)
-		var exc *protocol.ExceptionError
-		if errors.As(err, &exc) {
-			_, _ = fmt.Fprintln(out, "  (inverter responded with an exception — connection up, request rejected)")
-		}
+	}
+}
+
+// ensureConnected dials the inverter the first time a menu option
+// actually needs a live connection, and reuses the socket afterwards —
+// [modbus.Client.Connect] is idempotent (a no-op once connected), so
+// repeated calls across menu choices are cheap. Prints a one-line
+// notice immediately before dialing: MODBUS_TIMEOUT is configurable up
+// to 600s, and a silent multi-minute pause looks like a hang.
+func (s *session) ensureConnected(ctx context.Context) error {
+	if s.client == nil {
+		return errNoConnection
+	}
+	if s.client.IsConnected() {
 		return nil
 	}
-	return client
+	s.printf("connecting to %s:%d (timeout %ds)...\n",
+		s.modbusCfg.Host, s.modbusCfg.Port, int(s.modbusCfg.Timeout.Seconds()))
+	if err := s.client.Connect(ctx); err != nil {
+		var exc *protocol.ExceptionError
+		if errors.As(err, &exc) {
+			s.println("  (inverter responded with an exception — connection up, request rejected)")
+		}
+		return fmt.Errorf("modbus connect %s:%d: %w", s.modbusCfg.Host, s.modbusCfg.Port, err)
+	}
+	return nil
 }
 
 func optionalReader(c *modbus.Client, m *registers.Map) *modbus.Reader {
