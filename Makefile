@@ -38,7 +38,7 @@ DOCKER_IMAGE ?= go-mtec2mqtt
 DOCKER_TAG   ?= $(VERSION)
 
 DIST_DIR         := dist
-RELEASE_TARGETS  ?= linux/amd64 linux/arm64 darwin/arm64
+RELEASE_TARGETS  ?= linux/amd64 linux/arm64 linux/arm darwin/arm64
 # Pulled from internal/version/version.go's default — the contract is
 # that bumping the source default and adding a changelog.md entry
 # happen in the same commit, so this is the canonical "what release am
@@ -149,12 +149,14 @@ release: ## stage cross-compiled release archives + notes into dist/ (no upload)
 	  -X $(PKG_VER).BuildDate=$$build_date"; \
 	for tgt in $(RELEASE_TARGETS); do \
 	  goos=$${tgt%/*}; goarch=$${tgt#*/}; \
+	  goarm=""; \
+	  if [ "$$goarch" = "arm" ]; then goarm=7; fi; \
 	  stage="$(DIST_DIR)/go-mtec2mqtt-$$version-$$goos-$$goarch"; \
 	  mkdir -p "$$stage"; \
-	  echo "==> $$goos/$$goarch -> $$stage"; \
-	  GOOS=$$goos GOARCH=$$goarch $(GO) build -trimpath -ldflags="$$ldflags" \
+	  echo "==> $$goos/$$goarch$${goarm:+ (GOARM=$$goarm)} -> $$stage"; \
+	  GOOS=$$goos GOARCH=$$goarch GOARM=$$goarm $(GO) build -trimpath -ldflags="$$ldflags" \
 	    -o "$$stage/mtec2mqtt" ./cmd/mtec2mqtt; \
-	  GOOS=$$goos GOARCH=$$goarch $(GO) build -trimpath -ldflags="$$ldflags" \
+	  GOOS=$$goos GOARCH=$$goarch GOARM=$$goarm $(GO) build -trimpath -ldflags="$$ldflags" \
 	    -o "$$stage/mtec-util" ./cmd/mtec-util; \
 	  cp $(RELEASE_PAYLOAD) "$$stage/"; \
 	  ( cd $(DIST_DIR) && tar -czf "$$(basename $$stage).tar.gz" "$$(basename $$stage)" ); \

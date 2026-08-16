@@ -58,6 +58,7 @@ options:
   mqtt_password: ""
   mqtt_topic: MTEC
   hass_enable: true
+  hass_unique_id_include_serial: false
   device_name: ""
   language: en
   web_enable: true
@@ -78,6 +79,7 @@ schema:
   mqtt_password: "password?"
   mqtt_topic: str
   hass_enable: bool
+  hass_unique_id_include_serial: "bool?"
   device_name: "str?"
   language: "list(en|de)"
   web_enable: bool

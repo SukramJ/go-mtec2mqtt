@@ -13,7 +13,7 @@ name: "Add-on: Build and Push"
 on:
   push:
     tags:
-      - '**'
+      - 'v*.*.*'
   workflow_dispatch:
     inputs:
       tag:
@@ -58,9 +58,21 @@ jobs:
           fetch-depth: 0
 
       - name: Resolve version + build metadata
+        env:
+          # Passed via env instead of interpolated into the script text below —
+          # "${{ }}" expressions substitute BEFORE the shell parses the run
+          # block, so gluing an untrusted workflow_dispatch input directly into
+          # the script is a classic expression-injection vector. Routing it
+          # through env keeps it a plain (unparsed) shell variable.
+          INPUT_TAG: ${{ github.event.inputs.tag }}
         run: |
-          INPUT_TAG="${{ github.event.inputs.tag }}"
           if [ -n "${INPUT_TAG}" ]; then
+            case "${INPUT_TAG}" in
+              *[!a-zA-Z0-9.+_-]*)
+                echo "::error::invalid tag input: ${INPUT_TAG}" >&2
+                exit 1
+                ;;
+            esac
             VERSION="${INPUT_TAG#v}"
           elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then
             VERSION="${GITHUB_REF_NAME#v}"

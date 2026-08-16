@@ -34,7 +34,7 @@ ARG BUILD_FROM
 
 # ---------- Stage 1: build the Go binary ----------
 # Pinned to match the project's Go toolchain (see go.mod / root Dockerfile).
-FROM golang:1.26-alpine AS builder
+FROM golang:1.26.6-alpine AS builder
 WORKDIR /src
 
 # Cache module downloads independently of source changes.
@@ -82,7 +82,7 @@ EXPOSE 8080
 # Add-on image labels (BUILD_ARCH / BUILD_VERSION are injected by the
 # Supervisor build; defaults keep manual builds from failing).
 ARG BUILD_ARCH=amd64
-ARG BUILD_VERSION=1.2.1
+ARG BUILD_VERSION=1.9.0
 LABEL \
   io.hass.version="${BUILD_VERSION}" \
   io.hass.type="addon" \
