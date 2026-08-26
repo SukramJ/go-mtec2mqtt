@@ -23,7 +23,7 @@ the Python daemon.
   Christian Rödel's LGPL-3.0 `MTECmqtt`). Every Go source file starts
   with:
   ```go
-  // SPDX-License-Identifier: LGPL-3.0-or-later
+  // SPDX-License-Identifier: MIT
   // Copyright (C) 2026 SukramJ
   ```
   Do not introduce MIT headers or copy conventions from unrelated

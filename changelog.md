@@ -1,3 +1,27 @@
+# Unreleased
+
+## What's Changed
+
+### Changed
+
+- **The program is now MIT-licensed.** This repository distributes two
+  separately authored works, and until now both carried LGPL-3.0-or-later
+  because the whole of it was described as a derivative of
+  `croedel/MTECmqtt`. That is accurate for the register catalogue and not
+  for the program: measured against the Python original, the Go source
+  shares 5 function names out of 177 (all generic — `connect`,
+  `initialize`, `readRegister`, `appendSensor`, `appendBinarySensor`), has
+  no corresponding architecture, and carries over no source. It is an
+  independent implementation by its own author and is licensed accordingly.
+- **`registers.yaml` stays LGPL-3.0-or-later**, with Christian Rödel's
+  copyright intact, in its own [LICENSE.registers](./LICENSE.registers). The
+  catalogue is his reverse-engineering work: 86 of 86 register keys and
+  display names are his, in his ordering. It is read from the filesystem at
+  run time and is not compiled into the binary, so the two works stay
+  separable.
+- **[NOTICE.md](./NOTICE.md)** records the provenance of each part and the
+  measurements the split rests on.
+
 # Version 1.9.0 (2026-08-16)
 
 ## What's Changed

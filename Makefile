@@ -117,7 +117,8 @@ vuln: ## scan dependencies + reachable code for known vulnerabilities (govulnche
 
 .PHONY: licenses
 licenses: ## fail on copyleft dependency licenses (GPL/AGPL/LGPL forbidden; MPL = reciprocal)
-	# --ignore excludes this repo's own LGPL-3.0 module (self-detection false positive); third-party deps are still scanned.
+	# --ignore excludes this repo's own module (self-detection false positive); third-party deps are still scanned.
+	# registers.yaml is LGPL-3.0-or-later but is data, not a linked dependency — see LICENSE.registers.
 	$(GOLICENSES) check ./... --disallowed_types=forbidden,restricted,reciprocal --ignore $(MODULE)
 
 .PHONY: tidy

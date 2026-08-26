@@ -17,4 +17,4 @@ build_from:
 labels:
   org.opencontainers.image.title: "go-mtec2mqtt"
   org.opencontainers.image.source: "https://github.com/SukramJ/go-mtec2mqtt"
-  org.opencontainers.image.licenses: "LGPL-3.0-or-later"
+  org.opencontainers.image.licenses: "MIT"

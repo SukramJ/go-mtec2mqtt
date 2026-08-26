@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LGPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Copyright (C) 2026 SukramJ
 
 // Package config holds the daemon's runtime settings. The shape mirrors

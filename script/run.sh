@@ -1,5 +1,5 @@
 #!/usr/bin/with-contenv bashio
-# SPDX-License-Identifier: LGPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 # Home Assistant add-on entrypoint for go-mtec2mqtt.
 #
 # Reads the user's add-on options (/data/options.json) via bashio, maps them
