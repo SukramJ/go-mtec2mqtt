@@ -1,9 +1,10 @@
 # Notice — provenance and licensing
 
-go-mtec2mqtt distributes two separately authored works: the **program** and
-the **register catalogue** (`registers.yaml`). [`LICENSE`](./LICENSE) states
-the terms; this file records where each came from and how that was
-established.
+go-mtec2mqtt distributes two separately authored works under different
+licences: the **program** (MIT, [`LICENSE`](./LICENSE)) and the **register
+catalogue** `registers.yaml` (LGPL-3.0-or-later,
+[`LICENSE.registers`](./LICENSE.registers)). This file records where each
+came from and how that was established.
 
 ## Lineage
 
@@ -34,7 +35,8 @@ carried across.
 
 Under § 69a(2) UrhG the ideas and principles underlying a program — including
 those underlying its interfaces — are not protected. What was reused is
-knowledge about the device, not expression.
+knowledge about the device, not expression. The program is therefore licensed
+on its own terms (MIT), by its own author.
 
 ## The register catalogue is not independent
 

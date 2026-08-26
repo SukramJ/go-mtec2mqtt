@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: LGPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 # Home Assistant add-on Dockerfile (local-build FALLBACK path).
 #
 # PREFERRED PATH: do not build this file at all. Instead let the Supervisor

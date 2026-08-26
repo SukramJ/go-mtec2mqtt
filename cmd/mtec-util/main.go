@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LGPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Copyright (C) 2026 SukramJ
 
 // Command mtec-util is an interactive CLI for poking at M-TEC

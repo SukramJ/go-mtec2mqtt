@@ -262,19 +262,22 @@ welcome under the [AI contribution policy](./AI_POLICY.md).
 
 ## License
 
-LGPL-3.0-or-later — see [LICENSE](./LICENSE).
+This repository distributes **two separately authored works**, under
+different licences:
 
-This repository distributes **two separately authored works**:
+| Part | Licence | |
+| --- | --- | --- |
+| **The program** — `cmd/`, `internal/`, the rest of the source tree | **MIT** | [LICENSE](./LICENSE) |
+| **The register catalogue** — `registers.yaml` | **LGPL-3.0-or-later** | [LICENSE.registers](./LICENSE.registers) |
 
-- **The program** (`cmd/`, `internal/`) — an independent Go implementation,
-  not a translation of the Python original. Copyright SukramJ.
-- **The register catalogue** (`registers.yaml`) — the Modbus register
-  selection, ordering and display names, derived from Christian Rödel's
-  [`croedel/MTECmqtt`](https://github.com/croedel/MTECmqtt) and carrying his
-  copyright.
+The program is an independent Go implementation, not a translation of the
+Python original. The catalogue — the Modbus register selection, ordering and
+display names — derives from Christian Rödel's
+[`croedel/MTECmqtt`](https://github.com/croedel/MTECmqtt) and carries his
+copyright.
 
-Both are currently under LGPL-3.0-or-later. The program reads the catalogue
-from the filesystem at run time; it is not compiled into the binary.
+The program reads the catalogue from the filesystem at run time; it is not
+compiled into the binary, so the two remain separable.
 
 [`NOTICE.md`](./NOTICE.md) records the provenance of each part, including the
 measurements that establish where the boundary runs.
