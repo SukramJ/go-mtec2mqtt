@@ -1,3 +1,18 @@
+# SPDX-License-Identifier: LGPL-3.0-or-later
+#
+# Modbus register catalogue.
+#
+# Copyright (c) 2024 Christian Rödel
+# Copyright (c) 2026 SukramJ
+#
+# Derived from croedel/MTECmqtt (https://github.com/croedel/MTECmqtt): the
+# register selection, ordering and display names are Christian Rödel's
+# reverse-engineering work and are used under the LGPL-3.0-or-later.
+#
+# This file is a work in its own right, separate from the program that reads
+# it. It is loaded from the filesystem at run time and is not compiled into
+# the binary. See NOTICE.md and LICENSE (Part B).
+#
 # Template with all supported parameters
 # "10000":
 #  name: Inverter serial number

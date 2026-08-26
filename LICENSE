@@ -1,5 +1,49 @@
-Copyright (c) 2024 Christian Rödel
-Copyright (c) 2026 SukramJ
+go-mtec2mqtt — licensing
+========================
+
+This repository distributes two separately authored works. They travel
+together, but they are not the same work, and the distinction matters if you
+want to reuse either of them.
+
+PART A — The program
+--------------------
+Everything under cmd/ and internal/, and the remaining source tree.
+
+    Copyright (c) 2026 SukramJ
+
+    Licensed under the GNU Lesser General Public License, version 3 or later
+    (full text below).
+
+    This is an independent Go implementation, not a translation. See NOTICE.md
+    for the provenance analysis and the measurements behind that statement.
+
+PART B — The register catalogue (registers.yaml)
+------------------------------------------------
+The Modbus register catalogue: addresses, lengths, types, scales, group
+assignments, and the display names.
+
+    Copyright (c) 2024 Christian Rödel
+    Copyright (c) 2026 SukramJ
+
+    Licensed under the GNU Lesser General Public License, version 3 or later
+    (full text below).
+
+    Derived from croedel/MTECmqtt (https://github.com/croedel/MTECmqtt). The
+    catalogue is the product of Christian Rödel's reverse engineering of the
+    inverter's Modbus interface; the 2026 additions are SukramJ's. See
+    NOTICE.md.
+
+How the two relate
+------------------
+The program reads registers.yaml from the filesystem at run time. It is not
+compiled into the binary — the only go:embed directive in this repository
+covers the web UI's static assets. A different catalogue can be supplied
+without rebuilding.
+
+--------------------------------------------------------------------------
+
+The full text of the GNU Lesser General Public License, version 3, follows.
+It applies to both parts named above.
 
  GNU LESSER GENERAL PUBLIC LICENSE
                        Version 3, 29 June 2007

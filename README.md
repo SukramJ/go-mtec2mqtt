@@ -262,10 +262,19 @@ welcome under the [AI contribution policy](./AI_POLICY.md).
 
 ## License
 
-LGPL-3.0 — see [LICENSE](./LICENSE).
+LGPL-3.0-or-later — see [LICENSE](./LICENSE).
 
-This project is a Go port of `aiomtec2mqtt`, which in turn derives from
-Christian Rödel's [`croedel/MTECmqtt`](https://github.com/croedel/MTECmqtt).
-As a derivative of that LGPL-3.0 work it is distributed under the same
-license; the copyright notices of both Christian Rödel and SukramJ are
-preserved in [LICENSE](./LICENSE).
+This repository distributes **two separately authored works**:
+
+- **The program** (`cmd/`, `internal/`) — an independent Go implementation,
+  not a translation of the Python original. Copyright SukramJ.
+- **The register catalogue** (`registers.yaml`) — the Modbus register
+  selection, ordering and display names, derived from Christian Rödel's
+  [`croedel/MTECmqtt`](https://github.com/croedel/MTECmqtt) and carrying his
+  copyright.
+
+Both are currently under LGPL-3.0-or-later. The program reads the catalogue
+from the filesystem at run time; it is not compiled into the binary.
+
+[`NOTICE.md`](./NOTICE.md) records the provenance of each part, including the
+measurements that establish where the boundary runs.
