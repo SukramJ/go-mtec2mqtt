@@ -365,12 +365,12 @@ func TestEntriesCarryStableEntityID(t *testing.T) {
 	// (slug("Inject limit") = "inject_limit"), NOT the mqtt topic key
 	// ("grid_inject_limit") — this matches the Python aiomtec2mqtt entity
 	// ids. The unique_id / config topic still key on the mqtt suffix. We
-	// publish object_id (honoured by current HA) and default_entity_id
-	// (its "<domain>.<id>" successor for HA Core 2026.4+).
+	// default_entity_id ("<domain>.<id>") is the only seed we publish;
+	// the removed object_id option is dropped by HA's discovery schema.
 	e := findEntry(t, d, "number/MTEC_grid_inject_limit/config")
 	p := unmarshalEntry(t, e)
-	if p["object_id"] != "inject_limit" {
-		t.Errorf("object_id = %v, want inject_limit (from name)", p["object_id"])
+	if _, ok := p["object_id"]; ok {
+		t.Error("object_id must not be published: HA drops it unread")
 	}
 	if p["default_entity_id"] != "number.inject_limit" {
 		t.Errorf("default_entity_id = %v, want number.inject_limit", p["default_entity_id"])
@@ -390,9 +390,6 @@ func TestEntityIDSeedsStayEnglishUnderTranslation(t *testing.T) {
 	p := unmarshalEntry(t, findEntry(t, d, "sensor/MTEC_grid_power/config"))
 	if p["name"] != "Netzleistung" {
 		t.Errorf("name must be localised, got %v", p["name"])
-	}
-	if p["object_id"] != "grid_power" {
-		t.Errorf("object_id must stay English, got %v", p["object_id"])
 	}
 	if p["default_entity_id"] != "sensor.grid_power" {
 		t.Errorf("default_entity_id must stay English, got %v", p["default_entity_id"])
@@ -440,9 +437,6 @@ func TestVirtualSwitchEntities(t *testing.T) {
 	p := unmarshalEntry(t, e)
 	if p["name"] != "Laden aktiv" {
 		t.Errorf("de name = %v, want 'Laden aktiv'", p["name"])
-	}
-	if p["object_id"] != "charge_active" {
-		t.Errorf("object_id = %v, want charge_active", p["object_id"])
 	}
 	if p["default_entity_id"] != "switch.charge_active" {
 		t.Errorf("default_entity_id = %v, want switch.charge_active", p["default_entity_id"])
@@ -556,7 +550,7 @@ func TestSlugify(t *testing.T) {
 }
 
 // Without a device name the identity stays exactly as before: bare
-// entity_id seeds (object_id "<key>" / default_entity_id "<domain>.<key>"),
+// entity_id seed (default_entity_id "<domain>.<key>"),
 // "MTEC_" unique_id, generic device name. This is the backward-compat guard.
 func TestDeviceNameUnsetKeepsGenericIdentity(t *testing.T) {
 	d := New("homeassistant", "MTEC", loadCatalog(t), "en", nil, "")
@@ -564,9 +558,6 @@ func TestDeviceNameUnsetKeepsGenericIdentity(t *testing.T) {
 
 	e := findEntry(t, d, "sensor/MTEC_grid_power/config")
 	p := unmarshalEntry(t, e)
-	if got := p["object_id"]; got != "grid_power" {
-		t.Errorf("object_id: got %v, want %q", got, "grid_power")
-	}
 	if got := p["default_entity_id"]; got != "sensor.grid_power" {
 		t.Errorf("default_entity_id: got %v, want %q", got, "sensor.grid_power")
 	}
@@ -591,10 +582,7 @@ func TestDeviceNameSetRewritesEntityIdentity(t *testing.T) {
 	// Config topic (built from unique_id) is unchanged from the no-name case.
 	e := findEntry(t, d, "sensor/MTEC_grid_power/config")
 	p := unmarshalEntry(t, e)
-	// Both seeds carry the slug so a fresh entity_id reflects the name.
-	if got := p["object_id"]; got != "wohnzimmer_inverter_grid_power" {
-		t.Errorf("object_id: got %v, want slugged form", got)
-	}
+	// The seed carries the slug so a fresh entity_id reflects the name.
 	if got := p["default_entity_id"]; got != "sensor.wohnzimmer_inverter_grid_power" {
 		t.Errorf("default_entity_id: got %v, want slugged form", got)
 	}

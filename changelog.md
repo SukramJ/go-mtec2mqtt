@@ -4,6 +4,15 @@
 
 ### Changed
 
+- **Dropped the dead `object_id` discovery key.** Home Assistant's MQTT
+  discovery schemas are `extra=REMOVE_EXTRA`: an undeclared key is
+  discarded on arrival, silently and without a log line. Measured against
+  the schemas of HA 2026.9, `object_id` is accepted by **0 of the 32 MQTT
+  platforms**; its replacement `default_entity_id` by 28. Every discovery
+  payload this bridge emits already carried `default_entity_id` with the
+  same seed, so the key was pure dead weight in every retained config —
+  and misleading to anyone reading those payloads. No user-visible effect:
+  Home Assistant was already dropping it.
 - **The program is now MIT-licensed.** This repository distributes two
   separately authored works, and until now both carried LGPL-3.0-or-later
   because the whole of it was described as a derivative of
