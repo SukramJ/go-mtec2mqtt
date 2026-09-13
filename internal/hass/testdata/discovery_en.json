@@ -1,0 +1,2487 @@
+[
+  {
+    "topic": "homeassistant/binary_sensor/MTEC_grid_inject_switch/config",
+    "payload": {
+      "default_entity_id": "binary_sensor.grid_injection_limit_switch",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "enabled_by_default": true,
+      "name": "Grid injection limit switch",
+      "payload_off": "0",
+      "payload_on": "1",
+      "state_topic": "MTEC/MT1234567890/config/grid_inject_switch/state",
+      "unique_id": "MTEC_grid_inject_switch"
+    }
+  },
+  {
+    "topic": "homeassistant/binary_sensor/MTEC_off_grid_soc_switch/config",
+    "payload": {
+      "default_entity_id": "binary_sensor.off_grid_soc_limit_switch",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "enabled_by_default": true,
+      "name": "Off-grid SOC limit switch",
+      "payload_off": "0",
+      "payload_on": "1",
+      "state_topic": "MTEC/MT1234567890/config/off_grid_soc_switch/state",
+      "unique_id": "MTEC_off_grid_soc_switch"
+    }
+  },
+  {
+    "topic": "homeassistant/binary_sensor/MTEC_on_grid_soc_switch/config",
+    "payload": {
+      "default_entity_id": "binary_sensor.on_grid_soc_limit_switch",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "enabled_by_default": true,
+      "name": "On-grid SOC limit switch",
+      "payload_off": "0",
+      "payload_on": "1",
+      "state_topic": "MTEC/MT1234567890/config/on_grid_soc_switch/state",
+      "unique_id": "MTEC_on_grid_soc_switch"
+    }
+  },
+  {
+    "topic": "homeassistant/number/MTEC_charge_limit/config",
+    "payload": {
+      "command_topic": "MTEC/MT1234567890/config/charge_limit/set",
+      "default_entity_id": "number.charge_limit",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "enabled_by_default": false,
+      "mode": "box",
+      "name": "Charge limit",
+      "state_topic": "MTEC/MT1234567890/config/charge_limit/state",
+      "unique_id": "MTEC_charge_limit",
+      "unit_of_measurement": "A"
+    }
+  },
+  {
+    "topic": "homeassistant/number/MTEC_discharge_limit/config",
+    "payload": {
+      "command_topic": "MTEC/MT1234567890/config/discharge_limit/set",
+      "default_entity_id": "number.discharge_limit",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "enabled_by_default": false,
+      "mode": "box",
+      "name": "Discharge limit",
+      "state_topic": "MTEC/MT1234567890/config/discharge_limit/state",
+      "unique_id": "MTEC_discharge_limit",
+      "unit_of_measurement": "A"
+    }
+  },
+  {
+    "topic": "homeassistant/number/MTEC_grid_inject_limit/config",
+    "payload": {
+      "command_topic": "MTEC/MT1234567890/config/grid_inject_limit/set",
+      "default_entity_id": "number.grid_injection_power_limit",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "enabled_by_default": false,
+      "mode": "box",
+      "name": "Grid injection power limit",
+      "state_topic": "MTEC/MT1234567890/config/grid_inject_limit/state",
+      "unique_id": "MTEC_grid_inject_limit",
+      "unit_of_measurement": "%"
+    }
+  },
+  {
+    "topic": "homeassistant/number/MTEC_off_grid_soc_limit/config",
+    "payload": {
+      "command_topic": "MTEC/MT1234567890/config/off_grid_soc_limit/set",
+      "default_entity_id": "number.off_grid_soc_limit",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "enabled_by_default": false,
+      "mode": "box",
+      "name": "Off-grid SOC limit",
+      "state_topic": "MTEC/MT1234567890/config/off_grid_soc_limit/state",
+      "unique_id": "MTEC_off_grid_soc_limit",
+      "unit_of_measurement": "%"
+    }
+  },
+  {
+    "topic": "homeassistant/number/MTEC_on_grid_soc_limit/config",
+    "payload": {
+      "command_topic": "MTEC/MT1234567890/config/on_grid_soc_limit/set",
+      "default_entity_id": "number.on_grid_soc_limit",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "enabled_by_default": false,
+      "mode": "box",
+      "name": "On-grid SOC limit",
+      "state_topic": "MTEC/MT1234567890/config/on_grid_soc_limit/state",
+      "unique_id": "MTEC_on_grid_soc_limit",
+      "unit_of_measurement": "%"
+    }
+  },
+  {
+    "topic": "homeassistant/select/MTEC_mode/config",
+    "payload": {
+      "command_topic": "MTEC/MT1234567890/now-base/mode/set",
+      "default_entity_id": "select.inverter_operation_mode",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "enabled_by_default": false,
+      "name": "Inverter operation mode",
+      "options": [
+        "General mode",
+        "Economic mode",
+        "UPS mode",
+        "Off grid"
+      ],
+      "state_topic": "MTEC/MT1234567890/now-base/mode/state",
+      "unique_id": "MTEC_mode"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_ac_current_a/config",
+    "payload": {
+      "default_entity_id": "sensor.inverter_ac_current_phase_a",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "current",
+      "enabled_by_default": true,
+      "name": "Inverter AC current phase A",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-grid/ac_current_a/state",
+      "unique_id": "MTEC_ac_current_a",
+      "unit_of_measurement": "A",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_ac_current_b/config",
+    "payload": {
+      "default_entity_id": "sensor.inverter_ac_current_phase_b",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "current",
+      "enabled_by_default": true,
+      "name": "Inverter AC current phase B",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-grid/ac_current_b/state",
+      "unique_id": "MTEC_ac_current_b",
+      "unit_of_measurement": "A",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_ac_current_c/config",
+    "payload": {
+      "default_entity_id": "sensor.inverter_ac_current_phase_c",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "current",
+      "enabled_by_default": true,
+      "name": "Inverter AC current phase C",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-grid/ac_current_c/state",
+      "unique_id": "MTEC_ac_current_c",
+      "unit_of_measurement": "A",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_ac_voltage_a/config",
+    "payload": {
+      "default_entity_id": "sensor.inverter_ac_voltage_phase_a",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "voltage",
+      "enabled_by_default": true,
+      "name": "Inverter AC voltage phase A",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-grid/ac_voltage_a/state",
+      "unique_id": "MTEC_ac_voltage_a",
+      "unit_of_measurement": "V",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_ac_voltage_a_b/config",
+    "payload": {
+      "default_entity_id": "sensor.inverter_ac_voltage_lines_a_b",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "voltage",
+      "enabled_by_default": true,
+      "name": "Inverter AC voltage lines A/B",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-grid/ac_voltage_a_b/state",
+      "unique_id": "MTEC_ac_voltage_a_b",
+      "unit_of_measurement": "V",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_ac_voltage_b/config",
+    "payload": {
+      "default_entity_id": "sensor.inverter_ac_voltage_phase_b",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "voltage",
+      "enabled_by_default": true,
+      "name": "Inverter AC voltage phase B",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-grid/ac_voltage_b/state",
+      "unique_id": "MTEC_ac_voltage_b",
+      "unit_of_measurement": "V",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_ac_voltage_b_c/config",
+    "payload": {
+      "default_entity_id": "sensor.inverter_ac_voltage_lines_b_c",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "voltage",
+      "enabled_by_default": true,
+      "name": "Inverter AC voltage lines B/C",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-grid/ac_voltage_b_c/state",
+      "unique_id": "MTEC_ac_voltage_b_c",
+      "unit_of_measurement": "V",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_ac_voltage_c/config",
+    "payload": {
+      "default_entity_id": "sensor.inverter_ac_voltage_phase_c",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "voltage",
+      "enabled_by_default": true,
+      "name": "Inverter AC voltage phase C",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-grid/ac_voltage_c/state",
+      "unique_id": "MTEC_ac_voltage_c",
+      "unit_of_measurement": "V",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_ac_voltage_c_a/config",
+    "payload": {
+      "default_entity_id": "sensor.inverter_ac_voltage_lines_c_a",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "voltage",
+      "enabled_by_default": true,
+      "name": "Inverter AC voltage lines C/A",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-grid/ac_voltage_c_a/state",
+      "unique_id": "MTEC_ac_voltage_c_a",
+      "unit_of_measurement": "V",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_autarky_rate_day/config",
+    "payload": {
+      "default_entity_id": "sensor.household_autarky_day",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "power_factor",
+      "enabled_by_default": true,
+      "name": "Household autarky (day)",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/day/autarky_rate_day/state",
+      "unique_id": "MTEC_autarky_rate_day",
+      "unit_of_measurement": "%",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_autarky_rate_total/config",
+    "payload": {
+      "default_entity_id": "sensor.household_autarky_total",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "power_factor",
+      "enabled_by_default": true,
+      "name": "Household autarky (total)",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/total/autarky_rate_total/state",
+      "unique_id": "MTEC_autarky_rate_total",
+      "unit_of_measurement": "%",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_backup/config",
+    "payload": {
+      "default_entity_id": "sensor.backup_power_total",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "power",
+      "enabled_by_default": true,
+      "name": "Backup power total",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-base/backup/state",
+      "unique_id": "MTEC_backup",
+      "unit_of_measurement": "W",
+      "value_template": "{{ value | round(0) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_backup_a/config",
+    "payload": {
+      "default_entity_id": "sensor.backup_power_phase_a",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "power",
+      "enabled_by_default": true,
+      "name": "Backup power phase A",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-backup/backup_a/state",
+      "unique_id": "MTEC_backup_a",
+      "unit_of_measurement": "W",
+      "value_template": "{{ value | round(0) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_backup_b/config",
+    "payload": {
+      "default_entity_id": "sensor.backup_power_phase_b",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "power",
+      "enabled_by_default": true,
+      "name": "Backup power phase B",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-backup/backup_b/state",
+      "unique_id": "MTEC_backup_b",
+      "unit_of_measurement": "W",
+      "value_template": "{{ value | round(0) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_backup_c/config",
+    "payload": {
+      "default_entity_id": "sensor.backup_power_phase_c",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "power",
+      "enabled_by_default": true,
+      "name": "Backup power phase C",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-backup/backup_c/state",
+      "unique_id": "MTEC_backup_c",
+      "unit_of_measurement": "W",
+      "value_template": "{{ value | round(0) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_backup_current_a/config",
+    "payload": {
+      "default_entity_id": "sensor.backup_current_phase_a",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "current",
+      "enabled_by_default": true,
+      "name": "Backup current phase A",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-backup/backup_current_a/state",
+      "unique_id": "MTEC_backup_current_a",
+      "unit_of_measurement": "A",
+      "value_template": "{{ value | round(2) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_backup_current_b/config",
+    "payload": {
+      "default_entity_id": "sensor.backup_current_phase_b",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "current",
+      "enabled_by_default": true,
+      "name": "Backup current phase B",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-backup/backup_current_b/state",
+      "unique_id": "MTEC_backup_current_b",
+      "unit_of_measurement": "A",
+      "value_template": "{{ value | round(2) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_backup_current_c/config",
+    "payload": {
+      "default_entity_id": "sensor.backup_current_phase_c",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "current",
+      "enabled_by_default": true,
+      "name": "Backup current phase C",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-backup/backup_current_c/state",
+      "unique_id": "MTEC_backup_current_c",
+      "unit_of_measurement": "A",
+      "value_template": "{{ value | round(2) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_backup_day/config",
+    "payload": {
+      "default_entity_id": "sensor.backup_energy_day",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "energy",
+      "enabled_by_default": true,
+      "name": "Backup energy (day)",
+      "state_class": "total_increasing",
+      "state_topic": "MTEC/MT1234567890/day/backup_day/state",
+      "unique_id": "MTEC_backup_day",
+      "unit_of_measurement": "kWh",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_backup_frequency_a/config",
+    "payload": {
+      "default_entity_id": "sensor.backup_frequency_phase_a",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "frequency",
+      "enabled_by_default": true,
+      "name": "Backup frequency phase A",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-backup/backup_frequency_a/state",
+      "unique_id": "MTEC_backup_frequency_a",
+      "unit_of_measurement": "Hz",
+      "value_template": "{{ value | round(2) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_backup_frequency_b/config",
+    "payload": {
+      "default_entity_id": "sensor.backup_frequency_phase_b",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "frequency",
+      "enabled_by_default": true,
+      "name": "Backup frequency phase B",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-backup/backup_frequency_b/state",
+      "unique_id": "MTEC_backup_frequency_b",
+      "unit_of_measurement": "Hz",
+      "value_template": "{{ value | round(2) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_backup_frequency_c/config",
+    "payload": {
+      "default_entity_id": "sensor.backup_frequency_phase_c",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "frequency",
+      "enabled_by_default": true,
+      "name": "Backup frequency phase C",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-backup/backup_frequency_c/state",
+      "unique_id": "MTEC_backup_frequency_c",
+      "unit_of_measurement": "Hz",
+      "value_template": "{{ value | round(2) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_backup_total/config",
+    "payload": {
+      "default_entity_id": "sensor.backup_energy_total",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "energy",
+      "enabled_by_default": true,
+      "name": "Backup energy (total)",
+      "state_class": "total_increasing",
+      "state_topic": "MTEC/MT1234567890/total/backup_total/state",
+      "unique_id": "MTEC_backup_total",
+      "unit_of_measurement": "kWh",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_backup_voltage_a/config",
+    "payload": {
+      "default_entity_id": "sensor.backup_voltage_phase_a",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "voltage",
+      "enabled_by_default": true,
+      "name": "Backup voltage phase A",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-backup/backup_voltage_a/state",
+      "unique_id": "MTEC_backup_voltage_a",
+      "unit_of_measurement": "V",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_backup_voltage_b/config",
+    "payload": {
+      "default_entity_id": "sensor.backup_voltage_phase_b",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "voltage",
+      "enabled_by_default": true,
+      "name": "Backup voltage phase B",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-backup/backup_voltage_b/state",
+      "unique_id": "MTEC_backup_voltage_b",
+      "unit_of_measurement": "V",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_backup_voltage_c/config",
+    "payload": {
+      "default_entity_id": "sensor.backup_voltage_phase_c",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "voltage",
+      "enabled_by_default": true,
+      "name": "Backup voltage phase C",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-backup/backup_voltage_c/state",
+      "unique_id": "MTEC_backup_voltage_c",
+      "unit_of_measurement": "V",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_battery/config",
+    "payload": {
+      "default_entity_id": "sensor.battery_power",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "power",
+      "enabled_by_default": true,
+      "name": "Battery power",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-base/battery/state",
+      "unique_id": "MTEC_battery",
+      "unit_of_measurement": "W",
+      "value_template": "{{ value | round(0) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_battery_cell_t_max/config",
+    "payload": {
+      "default_entity_id": "sensor.battery_cell_temperature_max",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "temperature",
+      "enabled_by_default": true,
+      "name": "Battery cell temperature max.",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-battery/battery_cell_t_max/state",
+      "unique_id": "MTEC_battery_cell_t_max",
+      "unit_of_measurement": "°C",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_battery_cell_t_min/config",
+    "payload": {
+      "default_entity_id": "sensor.battery_cell_temperature_min",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "temperature",
+      "enabled_by_default": true,
+      "name": "Battery cell temperature min.",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-battery/battery_cell_t_min/state",
+      "unique_id": "MTEC_battery_cell_t_min",
+      "unit_of_measurement": "°C",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_battery_cell_v_max/config",
+    "payload": {
+      "default_entity_id": "sensor.battery_cell_voltage_max",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "voltage",
+      "enabled_by_default": true,
+      "name": "Battery cell voltage max.",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-battery/battery_cell_v_max/state",
+      "unique_id": "MTEC_battery_cell_v_max",
+      "unit_of_measurement": "V",
+      "value_template": "{{ value | round(3) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_battery_cell_v_min/config",
+    "payload": {
+      "default_entity_id": "sensor.battery_cell_voltage_min",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "voltage",
+      "enabled_by_default": true,
+      "name": "Battery cell voltage min.",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-battery/battery_cell_v_min/state",
+      "unique_id": "MTEC_battery_cell_v_min",
+      "unit_of_measurement": "V",
+      "value_template": "{{ value | round(3) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_battery_charge_day/config",
+    "payload": {
+      "default_entity_id": "sensor.battery_charge_energy_day",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "energy",
+      "enabled_by_default": true,
+      "name": "Battery charge energy (day)",
+      "state_class": "total_increasing",
+      "state_topic": "MTEC/MT1234567890/day/battery_charge_day/state",
+      "unique_id": "MTEC_battery_charge_day",
+      "unit_of_measurement": "kWh",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_battery_charge_total/config",
+    "payload": {
+      "default_entity_id": "sensor.battery_energy_charged_total",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "energy",
+      "enabled_by_default": true,
+      "name": "Battery energy charged (total)",
+      "state_class": "total_increasing",
+      "state_topic": "MTEC/MT1234567890/total/battery_charge_total/state",
+      "unique_id": "MTEC_battery_charge_total",
+      "unit_of_measurement": "kWh",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_battery_current/config",
+    "payload": {
+      "default_entity_id": "sensor.battery_current",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "current",
+      "enabled_by_default": true,
+      "name": "Battery current",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-base/battery_current/state",
+      "unique_id": "MTEC_battery_current",
+      "unit_of_measurement": "A",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_battery_discharge_day/config",
+    "payload": {
+      "default_entity_id": "sensor.battery_discharge_energy_day",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "energy",
+      "enabled_by_default": true,
+      "name": "Battery discharge energy (day)",
+      "state_class": "total_increasing",
+      "state_topic": "MTEC/MT1234567890/day/battery_discharge_day/state",
+      "unique_id": "MTEC_battery_discharge_day",
+      "unit_of_measurement": "kWh",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_battery_discharge_total/config",
+    "payload": {
+      "default_entity_id": "sensor.battery_energy_discharged_total",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "energy",
+      "enabled_by_default": true,
+      "name": "Battery energy discharged (total)",
+      "state_class": "total_increasing",
+      "state_topic": "MTEC/MT1234567890/total/battery_discharge_total/state",
+      "unique_id": "MTEC_battery_discharge_total",
+      "unit_of_measurement": "kWh",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_battery_mode/config",
+    "payload": {
+      "default_entity_id": "sensor.battery_mode",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "enum",
+      "enabled_by_default": true,
+      "name": "Battery mode",
+      "options": [
+        "Discharge",
+        "Charge",
+        "Unknown"
+      ],
+      "state_topic": "MTEC/MT1234567890/now-base/battery_mode/state",
+      "unique_id": "MTEC_battery_mode"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_battery_soc/config",
+    "payload": {
+      "default_entity_id": "sensor.battery_soc",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "battery",
+      "enabled_by_default": true,
+      "name": "Battery SOC",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-base/battery_soc/state",
+      "unique_id": "MTEC_battery_soc",
+      "unit_of_measurement": "%",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_battery_soh/config",
+    "payload": {
+      "default_entity_id": "sensor.battery_soh",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "power_factor",
+      "enabled_by_default": true,
+      "name": "Battery SOH",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-battery/battery_soh/state",
+      "unique_id": "MTEC_battery_soh",
+      "unit_of_measurement": "%",
+      "value_template": "{{ value | round(2) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_battery_temp/config",
+    "payload": {
+      "default_entity_id": "sensor.battery_temperature",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "temperature",
+      "enabled_by_default": true,
+      "name": "Battery temperature",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-battery/battery_temp/state",
+      "unique_id": "MTEC_battery_temp",
+      "unit_of_measurement": "°C",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_battery_voltage/config",
+    "payload": {
+      "default_entity_id": "sensor.battery_voltage",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "voltage",
+      "enabled_by_default": true,
+      "name": "Battery voltage",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-base/battery_voltage/state",
+      "unique_id": "MTEC_battery_voltage",
+      "unit_of_measurement": "V",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_bms_alarm_code/config",
+    "payload": {
+      "default_entity_id": "sensor.bms_alarm_code",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "enabled_by_default": true,
+      "name": "BMS Alarm Code",
+      "state_topic": "MTEC/MT1234567890/now-base/bms_alarm_code/state",
+      "unique_id": "MTEC_bms_alarm_code",
+      "unit_of_measurement": ""
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_bms_error_code/config",
+    "payload": {
+      "default_entity_id": "sensor.bms_error_code",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "enabled_by_default": true,
+      "name": "BMS Error Code",
+      "state_topic": "MTEC/MT1234567890/now-base/bms_error_code/state",
+      "unique_id": "MTEC_bms_error_code",
+      "unit_of_measurement": ""
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_bms_protection_code/config",
+    "payload": {
+      "default_entity_id": "sensor.bms_protection_code",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "enabled_by_default": true,
+      "name": "BMS Protection Code",
+      "state_topic": "MTEC/MT1234567890/now-base/bms_protection_code/state",
+      "unique_id": "MTEC_bms_protection_code",
+      "unit_of_measurement": ""
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_bms_status/config",
+    "payload": {
+      "default_entity_id": "sensor.bms_status",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "enum",
+      "enabled_by_default": true,
+      "name": "BMS Status",
+      "options": [
+        "wait for on-grid",
+        "self-check",
+        "on-grid",
+        "fault",
+        "firmware update",
+        "off grid",
+        "Unknown"
+      ],
+      "state_topic": "MTEC/MT1234567890/now-base/bms_status/state",
+      "unique_id": "MTEC_bms_status"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_charge_limit/config",
+    "payload": {
+      "default_entity_id": "sensor.charge_limit",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "enabled_by_default": true,
+      "name": "Charge limit",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/config/charge_limit/state",
+      "unique_id": "MTEC_charge_limit",
+      "unit_of_measurement": "A",
+      "value_template": "{{ value | round(0) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_consumption/config",
+    "payload": {
+      "default_entity_id": "sensor.household_consumption",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "power",
+      "enabled_by_default": true,
+      "name": "Household consumption",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-base/consumption/state",
+      "unique_id": "MTEC_consumption",
+      "unit_of_measurement": "W",
+      "value_template": "{{ value | round(0) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_consumption_day/config",
+    "payload": {
+      "default_entity_id": "sensor.household_consumption_day",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "energy",
+      "enabled_by_default": true,
+      "name": "Household consumption (day)",
+      "state_class": "total_increasing",
+      "state_topic": "MTEC/MT1234567890/day/consumption_day/state",
+      "unique_id": "MTEC_consumption_day",
+      "unit_of_measurement": "kWh",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_consumption_total/config",
+    "payload": {
+      "default_entity_id": "sensor.household_consumption_total",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "energy",
+      "enabled_by_default": true,
+      "name": "Household consumption (total)",
+      "state_class": "total_increasing",
+      "state_topic": "MTEC/MT1234567890/total/consumption_total/state",
+      "unique_id": "MTEC_consumption_total",
+      "unit_of_measurement": "kWh",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_discharge_limit/config",
+    "payload": {
+      "default_entity_id": "sensor.discharge_limit",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "enabled_by_default": true,
+      "name": "Discharge limit",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/config/discharge_limit/state",
+      "unique_id": "MTEC_discharge_limit",
+      "unit_of_measurement": "A",
+      "value_template": "{{ value | round(0) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_fault_flag_1/config",
+    "payload": {
+      "default_entity_id": "sensor.fault_flag1",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "enabled_by_default": true,
+      "name": "Fault flag1",
+      "state_topic": "MTEC/MT1234567890/now-base/fault_flag_1/state",
+      "unique_id": "MTEC_fault_flag_1",
+      "unit_of_measurement": ""
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_fault_flag_2/config",
+    "payload": {
+      "default_entity_id": "sensor.fault_flag2",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "enabled_by_default": true,
+      "name": "Fault flag2",
+      "state_topic": "MTEC/MT1234567890/now-base/fault_flag_2/state",
+      "unique_id": "MTEC_fault_flag_2",
+      "unit_of_measurement": ""
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_grid_a/config",
+    "payload": {
+      "default_entity_id": "sensor.grid_power_phase_a",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "power",
+      "enabled_by_default": true,
+      "name": "Grid power phase A",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-grid/grid_a/state",
+      "unique_id": "MTEC_grid_a",
+      "unit_of_measurement": "W",
+      "value_template": "{{ value | round(0) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_grid_b/config",
+    "payload": {
+      "default_entity_id": "sensor.grid_power_phase_b",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "power",
+      "enabled_by_default": true,
+      "name": "Grid power phase B",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-grid/grid_b/state",
+      "unique_id": "MTEC_grid_b",
+      "unit_of_measurement": "W",
+      "value_template": "{{ value | round(0) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_grid_c/config",
+    "payload": {
+      "default_entity_id": "sensor.grid_power_phase_c",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "power",
+      "enabled_by_default": true,
+      "name": "Grid power phase C",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-grid/grid_c/state",
+      "unique_id": "MTEC_grid_c",
+      "unit_of_measurement": "W",
+      "value_template": "{{ value | round(0) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_grid_feed_day/config",
+    "payload": {
+      "default_entity_id": "sensor.grid_injection_energy_day",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "energy",
+      "enabled_by_default": true,
+      "name": "Grid injection energy (day)",
+      "state_class": "total_increasing",
+      "state_topic": "MTEC/MT1234567890/day/grid_feed_day/state",
+      "unique_id": "MTEC_grid_feed_day",
+      "unit_of_measurement": "kWh",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_grid_feed_total/config",
+    "payload": {
+      "default_entity_id": "sensor.grid_energy_injected_total",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "energy",
+      "enabled_by_default": true,
+      "name": "Grid energy injected (total)",
+      "state_class": "total_increasing",
+      "state_topic": "MTEC/MT1234567890/total/grid_feed_total/state",
+      "unique_id": "MTEC_grid_feed_total",
+      "unit_of_measurement": "kWh",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_grid_fequency/config",
+    "payload": {
+      "default_entity_id": "sensor.grid_frequency",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "frequency",
+      "enabled_by_default": true,
+      "name": "Grid frequency",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-grid/grid_fequency/state",
+      "unique_id": "MTEC_grid_fequency",
+      "unit_of_measurement": "Hz",
+      "value_template": "{{ value | round(2) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_grid_inject_limit/config",
+    "payload": {
+      "default_entity_id": "sensor.grid_injection_power_limit",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "enabled_by_default": true,
+      "name": "Grid injection power limit",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/config/grid_inject_limit/state",
+      "unique_id": "MTEC_grid_inject_limit",
+      "unit_of_measurement": "%",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_grid_power/config",
+    "payload": {
+      "default_entity_id": "sensor.grid_power",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "power",
+      "enabled_by_default": true,
+      "name": "Grid power",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-base/grid_power/state",
+      "unique_id": "MTEC_grid_power",
+      "unit_of_measurement": "W",
+      "value_template": "{{ value | round(0) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_grid_purchase_day/config",
+    "payload": {
+      "default_entity_id": "sensor.grid_purchased_energy_day",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "energy",
+      "enabled_by_default": true,
+      "name": "Grid purchased energy (day)",
+      "state_class": "total_increasing",
+      "state_topic": "MTEC/MT1234567890/day/grid_purchase_day/state",
+      "unique_id": "MTEC_grid_purchase_day",
+      "unit_of_measurement": "kWh",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_grid_purchase_total/config",
+    "payload": {
+      "default_entity_id": "sensor.grid_energy_purchased_total",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "energy",
+      "enabled_by_default": true,
+      "name": "Grid energy purchased (total)",
+      "state_class": "total_increasing",
+      "state_topic": "MTEC/MT1234567890/total/grid_purchase_total/state",
+      "unique_id": "MTEC_grid_purchase_total",
+      "unit_of_measurement": "kWh",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_inverter/config",
+    "payload": {
+      "default_entity_id": "sensor.inverter_ac_power",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "power",
+      "enabled_by_default": true,
+      "name": "Inverter AC power",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-base/inverter/state",
+      "unique_id": "MTEC_inverter",
+      "unit_of_measurement": "W",
+      "value_template": "{{ value | round(0) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_inverter_a/config",
+    "payload": {
+      "default_entity_id": "sensor.inverter_power_phase_a",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "power",
+      "enabled_by_default": true,
+      "name": "Inverter power phase A",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-inverter/inverter_a/state",
+      "unique_id": "MTEC_inverter_a",
+      "unit_of_measurement": "W",
+      "value_template": "{{ value | round(0) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_inverter_b/config",
+    "payload": {
+      "default_entity_id": "sensor.inverter_power_phase_b",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "power",
+      "enabled_by_default": true,
+      "name": "Inverter power phase B",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-inverter/inverter_b/state",
+      "unique_id": "MTEC_inverter_b",
+      "unit_of_measurement": "W",
+      "value_template": "{{ value | round(0) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_inverter_c/config",
+    "payload": {
+      "default_entity_id": "sensor.inverter_power_phase_c",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "power",
+      "enabled_by_default": true,
+      "name": "Inverter power phase C",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-inverter/inverter_c/state",
+      "unique_id": "MTEC_inverter_c",
+      "unit_of_measurement": "W",
+      "value_template": "{{ value | round(0) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_inverter_status/config",
+    "payload": {
+      "default_entity_id": "sensor.inverter_status",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "enum",
+      "enabled_by_default": true,
+      "name": "Inverter status",
+      "options": [
+        "wait for on-grid",
+        "self-check",
+        "on-grid",
+        "fault",
+        "firmware update",
+        "off grid",
+        "Unknown"
+      ],
+      "state_topic": "MTEC/MT1234567890/now-base/inverter_status/state",
+      "unique_id": "MTEC_inverter_status"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_inverter_temp1/config",
+    "payload": {
+      "default_entity_id": "sensor.inverter_temperature_sensor_1",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "temperature",
+      "enabled_by_default": true,
+      "name": "Inverter temperature sensor 1",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-inverter/inverter_temp1/state",
+      "unique_id": "MTEC_inverter_temp1",
+      "unit_of_measurement": "°C",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_inverter_temp2/config",
+    "payload": {
+      "default_entity_id": "sensor.inverter_temperature_sensor_2",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "temperature",
+      "enabled_by_default": true,
+      "name": "Inverter temperature sensor 2",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-inverter/inverter_temp2/state",
+      "unique_id": "MTEC_inverter_temp2",
+      "unit_of_measurement": "°C",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_inverter_temp3/config",
+    "payload": {
+      "default_entity_id": "sensor.inverter_temperature_sensor_3",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "temperature",
+      "enabled_by_default": true,
+      "name": "Inverter temperature sensor 3",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-inverter/inverter_temp3/state",
+      "unique_id": "MTEC_inverter_temp3",
+      "unit_of_measurement": "°C",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_inverter_temp4/config",
+    "payload": {
+      "default_entity_id": "sensor.inverter_temperature_sensor_4",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "temperature",
+      "enabled_by_default": true,
+      "name": "Inverter temperature sensor 4",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-inverter/inverter_temp4/state",
+      "unique_id": "MTEC_inverter_temp4",
+      "unit_of_measurement": "°C",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_mode/config",
+    "payload": {
+      "default_entity_id": "sensor.inverter_operation_mode",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "enum",
+      "enabled_by_default": true,
+      "name": "Inverter operation mode",
+      "options": [
+        "General mode",
+        "Economic mode",
+        "UPS mode",
+        "Off grid",
+        "Unknown"
+      ],
+      "state_topic": "MTEC/MT1234567890/now-base/mode/state",
+      "unique_id": "MTEC_mode"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_off_grid_soc_limit/config",
+    "payload": {
+      "default_entity_id": "sensor.off_grid_soc_limit",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "enabled_by_default": true,
+      "name": "Off-grid SOC limit",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/config/off_grid_soc_limit/state",
+      "unique_id": "MTEC_off_grid_soc_limit",
+      "unit_of_measurement": "%",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_on_grid_soc_limit/config",
+    "payload": {
+      "default_entity_id": "sensor.on_grid_soc_limit",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "enabled_by_default": true,
+      "name": "On-grid SOC limit",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/config/on_grid_soc_limit/state",
+      "unique_id": "MTEC_on_grid_soc_limit",
+      "unit_of_measurement": "%",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_own_consumption_day/config",
+    "payload": {
+      "default_entity_id": "sensor.own_consumption_rate_day",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "power_factor",
+      "enabled_by_default": true,
+      "name": "Own consumption rate (day)",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/day/own_consumption_day/state",
+      "unique_id": "MTEC_own_consumption_day",
+      "unit_of_measurement": "%",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_own_consumption_total/config",
+    "payload": {
+      "default_entity_id": "sensor.own_consumption_rate_total",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "power_factor",
+      "enabled_by_default": true,
+      "name": "Own consumption rate (total)",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/total/own_consumption_total/state",
+      "unique_id": "MTEC_own_consumption_total",
+      "unit_of_measurement": "%",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_pv/config",
+    "payload": {
+      "default_entity_id": "sensor.pv_power",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "power",
+      "enabled_by_default": true,
+      "name": "PV power",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-base/pv/state",
+      "unique_id": "MTEC_pv",
+      "unit_of_measurement": "W",
+      "value_template": "{{ value | round(0) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_pv_1/config",
+    "payload": {
+      "default_entity_id": "sensor.pv1_power",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "power",
+      "enabled_by_default": true,
+      "name": "PV1 power",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-pv/pv_1/state",
+      "unique_id": "MTEC_pv_1",
+      "unit_of_measurement": "W",
+      "value_template": "{{ value | round(0) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_pv_2/config",
+    "payload": {
+      "default_entity_id": "sensor.pv2_power",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "power",
+      "enabled_by_default": true,
+      "name": "PV2 power",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-pv/pv_2/state",
+      "unique_id": "MTEC_pv_2",
+      "unit_of_measurement": "W",
+      "value_template": "{{ value | round(0) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_pv_current_1/config",
+    "payload": {
+      "default_entity_id": "sensor.pv1_current",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "current",
+      "enabled_by_default": true,
+      "name": "PV1 current",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-pv/pv_current_1/state",
+      "unique_id": "MTEC_pv_current_1",
+      "unit_of_measurement": "A",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_pv_current_2/config",
+    "payload": {
+      "default_entity_id": "sensor.pv2_current",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "current",
+      "enabled_by_default": true,
+      "name": "PV2 current",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-pv/pv_current_2/state",
+      "unique_id": "MTEC_pv_current_2",
+      "unit_of_measurement": "A",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_pv_day/config",
+    "payload": {
+      "default_entity_id": "sensor.pv_energy_generated_day",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "energy",
+      "enabled_by_default": true,
+      "name": "PV energy generated (day)",
+      "state_class": "total_increasing",
+      "state_topic": "MTEC/MT1234567890/day/pv_day/state",
+      "unique_id": "MTEC_pv_day",
+      "unit_of_measurement": "kWh",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_pv_generation_duration/config",
+    "payload": {
+      "default_entity_id": "sensor.pv_generation_time_total",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "duration",
+      "enabled_by_default": true,
+      "name": "PV generation time total",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-pv/pv_generation_duration/state",
+      "unique_id": "MTEC_pv_generation_duration",
+      "unit_of_measurement": "h",
+      "value_template": "{{ value }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_pv_total/config",
+    "payload": {
+      "default_entity_id": "sensor.pv_energy_generated_total",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "energy",
+      "enabled_by_default": true,
+      "name": "PV energy generated (total)",
+      "state_class": "total_increasing",
+      "state_topic": "MTEC/MT1234567890/total/pv_total/state",
+      "unique_id": "MTEC_pv_total",
+      "unit_of_measurement": "kWh",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_pv_voltage_1/config",
+    "payload": {
+      "default_entity_id": "sensor.pv1_voltage",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "voltage",
+      "enabled_by_default": true,
+      "name": "PV1 voltage",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-pv/pv_voltage_1/state",
+      "unique_id": "MTEC_pv_voltage_1",
+      "unit_of_measurement": "V",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/sensor/MTEC_pv_voltage_2/config",
+    "payload": {
+      "default_entity_id": "sensor.pv2_voltage",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "device_class": "voltage",
+      "enabled_by_default": true,
+      "name": "PV2 voltage",
+      "state_class": "measurement",
+      "state_topic": "MTEC/MT1234567890/now-pv/pv_voltage_2/state",
+      "unique_id": "MTEC_pv_voltage_2",
+      "unit_of_measurement": "V",
+      "value_template": "{{ value | round(1) }}"
+    }
+  },
+  {
+    "topic": "homeassistant/switch/MTEC_charge_active/config",
+    "payload": {
+      "command_topic": "MTEC/MT1234567890/config/charge_active/set",
+      "default_entity_id": "switch.charge_active",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "enabled_by_default": true,
+      "name": "Charge active",
+      "payload_off": "0",
+      "payload_on": "1",
+      "state_topic": "MTEC/MT1234567890/config/charge_active/state",
+      "unique_id": "MTEC_charge_active"
+    }
+  },
+  {
+    "topic": "homeassistant/switch/MTEC_discharge_active/config",
+    "payload": {
+      "command_topic": "MTEC/MT1234567890/config/discharge_active/set",
+      "default_entity_id": "switch.discharge_active",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "enabled_by_default": true,
+      "name": "Discharge active",
+      "payload_off": "0",
+      "payload_on": "1",
+      "state_topic": "MTEC/MT1234567890/config/discharge_active/state",
+      "unique_id": "MTEC_discharge_active"
+    }
+  },
+  {
+    "topic": "homeassistant/switch/MTEC_grid_inject_switch/config",
+    "payload": {
+      "command_topic": "MTEC/MT1234567890/config/grid_inject_switch/set",
+      "default_entity_id": "switch.grid_injection_limit_switch",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "enabled_by_default": false,
+      "name": "Grid injection limit switch",
+      "payload_off": "0",
+      "payload_on": "1",
+      "state_topic": "MTEC/MT1234567890/config/grid_inject_switch/state",
+      "unique_id": "MTEC_grid_inject_switch"
+    }
+  },
+  {
+    "topic": "homeassistant/switch/MTEC_off_grid_soc_switch/config",
+    "payload": {
+      "command_topic": "MTEC/MT1234567890/config/off_grid_soc_switch/set",
+      "default_entity_id": "switch.off_grid_soc_limit_switch",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "enabled_by_default": false,
+      "name": "Off-grid SOC limit switch",
+      "payload_off": "0",
+      "payload_on": "1",
+      "state_topic": "MTEC/MT1234567890/config/off_grid_soc_switch/state",
+      "unique_id": "MTEC_off_grid_soc_switch"
+    }
+  },
+  {
+    "topic": "homeassistant/switch/MTEC_on_grid_soc_switch/config",
+    "payload": {
+      "command_topic": "MTEC/MT1234567890/config/on_grid_soc_switch/set",
+      "default_entity_id": "switch.on_grid_soc_limit_switch",
+      "device": {
+        "identifiers": [
+          "MT1234567890"
+        ],
+        "manufacturer": "M-TEC",
+        "model": "Energy-Butler",
+        "model_id": "EB-10kW",
+        "name": "MTEC EnergyButler",
+        "serial_number": "MT1234567890",
+        "sw_version": "1.2.3"
+      },
+      "enabled_by_default": false,
+      "name": "On-grid SOC limit switch",
+      "payload_off": "0",
+      "payload_on": "1",
+      "state_topic": "MTEC/MT1234567890/config/on_grid_soc_switch/state",
+      "unique_id": "MTEC_on_grid_soc_switch"
+    }
+  }
+]

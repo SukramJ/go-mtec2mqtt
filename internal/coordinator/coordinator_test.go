@@ -131,6 +131,7 @@ type stubMQTT struct {
 	publishes    []publishCall
 	handlers     map[string]mqtt.MessageHandler
 	subscribes   []string
+	subscribeQoS []mqtt.QoS
 	unsubscribes []string
 	// publishErr, when non-nil, fails every Publish (models an open
 	// circuit breaker). subscribeFailures / unsubscribeFailures count
@@ -147,6 +148,7 @@ type stubMQTT struct {
 type publishCall struct {
 	topic   string
 	payload []byte
+	qos     mqtt.QoS
 	retain  bool
 }
 
@@ -154,7 +156,7 @@ func newStubMQTT() *stubMQTT {
 	return &stubMQTT{handlers: map[string]mqtt.MessageHandler{}}
 }
 
-func (s *stubMQTT) Publish(_ context.Context, topic string, payload []byte, _ mqtt.QoS, retain bool, _ ...mqtt.PublishOption) error {
+func (s *stubMQTT) Publish(_ context.Context, topic string, payload []byte, qos mqtt.QoS, retain bool, _ ...mqtt.PublishOption) error {
 	s.mu.Lock()
 	hook, err := s.beforePublish, s.publishErr
 	s.mu.Unlock()
@@ -168,14 +170,15 @@ func (s *stubMQTT) Publish(_ context.Context, topic string, payload []byte, _ mq
 	defer s.mu.Unlock()
 	cp := make([]byte, len(payload))
 	copy(cp, payload)
-	s.publishes = append(s.publishes, publishCall{topic, cp, retain})
+	s.publishes = append(s.publishes, publishCall{topic, cp, qos, retain})
 	return nil
 }
 
-func (s *stubMQTT) Subscribe(_ context.Context, filter string, _ mqtt.QoS, h mqtt.MessageHandler, _ ...mqtt.SubscribeOption) (mqtt.SubscribeResult, error) {
+func (s *stubMQTT) Subscribe(_ context.Context, filter string, qos mqtt.QoS, h mqtt.MessageHandler, _ ...mqtt.SubscribeOption) (mqtt.SubscribeResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.subscribes = append(s.subscribes, filter)
+	s.subscribeQoS = append(s.subscribeQoS, qos)
 	if s.subscribeFailures > 0 {
 		s.subscribeFailures--
 		return mqtt.SubscribeResult{}, errInjected{}

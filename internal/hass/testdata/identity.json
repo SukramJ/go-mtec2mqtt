@@ -1,0 +1,502 @@
+[
+  {
+    "config_topic": "homeassistant/binary_sensor/MTEC_grid_inject_switch/config",
+    "unique_id": "MTEC_grid_inject_switch",
+    "default_entity_id": "binary_sensor.grid_injection_limit_switch"
+  },
+  {
+    "config_topic": "homeassistant/binary_sensor/MTEC_off_grid_soc_switch/config",
+    "unique_id": "MTEC_off_grid_soc_switch",
+    "default_entity_id": "binary_sensor.off_grid_soc_limit_switch"
+  },
+  {
+    "config_topic": "homeassistant/binary_sensor/MTEC_on_grid_soc_switch/config",
+    "unique_id": "MTEC_on_grid_soc_switch",
+    "default_entity_id": "binary_sensor.on_grid_soc_limit_switch"
+  },
+  {
+    "config_topic": "homeassistant/number/MTEC_charge_limit/config",
+    "unique_id": "MTEC_charge_limit",
+    "default_entity_id": "number.charge_limit"
+  },
+  {
+    "config_topic": "homeassistant/number/MTEC_discharge_limit/config",
+    "unique_id": "MTEC_discharge_limit",
+    "default_entity_id": "number.discharge_limit"
+  },
+  {
+    "config_topic": "homeassistant/number/MTEC_grid_inject_limit/config",
+    "unique_id": "MTEC_grid_inject_limit",
+    "default_entity_id": "number.grid_injection_power_limit"
+  },
+  {
+    "config_topic": "homeassistant/number/MTEC_off_grid_soc_limit/config",
+    "unique_id": "MTEC_off_grid_soc_limit",
+    "default_entity_id": "number.off_grid_soc_limit"
+  },
+  {
+    "config_topic": "homeassistant/number/MTEC_on_grid_soc_limit/config",
+    "unique_id": "MTEC_on_grid_soc_limit",
+    "default_entity_id": "number.on_grid_soc_limit"
+  },
+  {
+    "config_topic": "homeassistant/select/MTEC_mode/config",
+    "unique_id": "MTEC_mode",
+    "default_entity_id": "select.inverter_operation_mode"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_ac_current_a/config",
+    "unique_id": "MTEC_ac_current_a",
+    "default_entity_id": "sensor.inverter_ac_current_phase_a"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_ac_current_b/config",
+    "unique_id": "MTEC_ac_current_b",
+    "default_entity_id": "sensor.inverter_ac_current_phase_b"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_ac_current_c/config",
+    "unique_id": "MTEC_ac_current_c",
+    "default_entity_id": "sensor.inverter_ac_current_phase_c"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_ac_voltage_a/config",
+    "unique_id": "MTEC_ac_voltage_a",
+    "default_entity_id": "sensor.inverter_ac_voltage_phase_a"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_ac_voltage_a_b/config",
+    "unique_id": "MTEC_ac_voltage_a_b",
+    "default_entity_id": "sensor.inverter_ac_voltage_lines_a_b"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_ac_voltage_b/config",
+    "unique_id": "MTEC_ac_voltage_b",
+    "default_entity_id": "sensor.inverter_ac_voltage_phase_b"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_ac_voltage_b_c/config",
+    "unique_id": "MTEC_ac_voltage_b_c",
+    "default_entity_id": "sensor.inverter_ac_voltage_lines_b_c"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_ac_voltage_c/config",
+    "unique_id": "MTEC_ac_voltage_c",
+    "default_entity_id": "sensor.inverter_ac_voltage_phase_c"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_ac_voltage_c_a/config",
+    "unique_id": "MTEC_ac_voltage_c_a",
+    "default_entity_id": "sensor.inverter_ac_voltage_lines_c_a"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_autarky_rate_day/config",
+    "unique_id": "MTEC_autarky_rate_day",
+    "default_entity_id": "sensor.household_autarky_day"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_autarky_rate_total/config",
+    "unique_id": "MTEC_autarky_rate_total",
+    "default_entity_id": "sensor.household_autarky_total"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_backup/config",
+    "unique_id": "MTEC_backup",
+    "default_entity_id": "sensor.backup_power_total"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_backup_a/config",
+    "unique_id": "MTEC_backup_a",
+    "default_entity_id": "sensor.backup_power_phase_a"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_backup_b/config",
+    "unique_id": "MTEC_backup_b",
+    "default_entity_id": "sensor.backup_power_phase_b"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_backup_c/config",
+    "unique_id": "MTEC_backup_c",
+    "default_entity_id": "sensor.backup_power_phase_c"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_backup_current_a/config",
+    "unique_id": "MTEC_backup_current_a",
+    "default_entity_id": "sensor.backup_current_phase_a"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_backup_current_b/config",
+    "unique_id": "MTEC_backup_current_b",
+    "default_entity_id": "sensor.backup_current_phase_b"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_backup_current_c/config",
+    "unique_id": "MTEC_backup_current_c",
+    "default_entity_id": "sensor.backup_current_phase_c"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_backup_day/config",
+    "unique_id": "MTEC_backup_day",
+    "default_entity_id": "sensor.backup_energy_day"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_backup_frequency_a/config",
+    "unique_id": "MTEC_backup_frequency_a",
+    "default_entity_id": "sensor.backup_frequency_phase_a"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_backup_frequency_b/config",
+    "unique_id": "MTEC_backup_frequency_b",
+    "default_entity_id": "sensor.backup_frequency_phase_b"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_backup_frequency_c/config",
+    "unique_id": "MTEC_backup_frequency_c",
+    "default_entity_id": "sensor.backup_frequency_phase_c"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_backup_total/config",
+    "unique_id": "MTEC_backup_total",
+    "default_entity_id": "sensor.backup_energy_total"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_backup_voltage_a/config",
+    "unique_id": "MTEC_backup_voltage_a",
+    "default_entity_id": "sensor.backup_voltage_phase_a"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_backup_voltage_b/config",
+    "unique_id": "MTEC_backup_voltage_b",
+    "default_entity_id": "sensor.backup_voltage_phase_b"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_backup_voltage_c/config",
+    "unique_id": "MTEC_backup_voltage_c",
+    "default_entity_id": "sensor.backup_voltage_phase_c"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_battery/config",
+    "unique_id": "MTEC_battery",
+    "default_entity_id": "sensor.battery_power"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_battery_cell_t_max/config",
+    "unique_id": "MTEC_battery_cell_t_max",
+    "default_entity_id": "sensor.battery_cell_temperature_max"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_battery_cell_t_min/config",
+    "unique_id": "MTEC_battery_cell_t_min",
+    "default_entity_id": "sensor.battery_cell_temperature_min"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_battery_cell_v_max/config",
+    "unique_id": "MTEC_battery_cell_v_max",
+    "default_entity_id": "sensor.battery_cell_voltage_max"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_battery_cell_v_min/config",
+    "unique_id": "MTEC_battery_cell_v_min",
+    "default_entity_id": "sensor.battery_cell_voltage_min"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_battery_charge_day/config",
+    "unique_id": "MTEC_battery_charge_day",
+    "default_entity_id": "sensor.battery_charge_energy_day"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_battery_charge_total/config",
+    "unique_id": "MTEC_battery_charge_total",
+    "default_entity_id": "sensor.battery_energy_charged_total"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_battery_current/config",
+    "unique_id": "MTEC_battery_current",
+    "default_entity_id": "sensor.battery_current"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_battery_discharge_day/config",
+    "unique_id": "MTEC_battery_discharge_day",
+    "default_entity_id": "sensor.battery_discharge_energy_day"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_battery_discharge_total/config",
+    "unique_id": "MTEC_battery_discharge_total",
+    "default_entity_id": "sensor.battery_energy_discharged_total"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_battery_mode/config",
+    "unique_id": "MTEC_battery_mode",
+    "default_entity_id": "sensor.battery_mode"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_battery_soc/config",
+    "unique_id": "MTEC_battery_soc",
+    "default_entity_id": "sensor.battery_soc"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_battery_soh/config",
+    "unique_id": "MTEC_battery_soh",
+    "default_entity_id": "sensor.battery_soh"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_battery_temp/config",
+    "unique_id": "MTEC_battery_temp",
+    "default_entity_id": "sensor.battery_temperature"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_battery_voltage/config",
+    "unique_id": "MTEC_battery_voltage",
+    "default_entity_id": "sensor.battery_voltage"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_bms_alarm_code/config",
+    "unique_id": "MTEC_bms_alarm_code",
+    "default_entity_id": "sensor.bms_alarm_code"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_bms_error_code/config",
+    "unique_id": "MTEC_bms_error_code",
+    "default_entity_id": "sensor.bms_error_code"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_bms_protection_code/config",
+    "unique_id": "MTEC_bms_protection_code",
+    "default_entity_id": "sensor.bms_protection_code"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_bms_status/config",
+    "unique_id": "MTEC_bms_status",
+    "default_entity_id": "sensor.bms_status"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_charge_limit/config",
+    "unique_id": "MTEC_charge_limit",
+    "default_entity_id": "sensor.charge_limit"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_consumption/config",
+    "unique_id": "MTEC_consumption",
+    "default_entity_id": "sensor.household_consumption"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_consumption_day/config",
+    "unique_id": "MTEC_consumption_day",
+    "default_entity_id": "sensor.household_consumption_day"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_consumption_total/config",
+    "unique_id": "MTEC_consumption_total",
+    "default_entity_id": "sensor.household_consumption_total"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_discharge_limit/config",
+    "unique_id": "MTEC_discharge_limit",
+    "default_entity_id": "sensor.discharge_limit"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_fault_flag_1/config",
+    "unique_id": "MTEC_fault_flag_1",
+    "default_entity_id": "sensor.fault_flag1"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_fault_flag_2/config",
+    "unique_id": "MTEC_fault_flag_2",
+    "default_entity_id": "sensor.fault_flag2"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_grid_a/config",
+    "unique_id": "MTEC_grid_a",
+    "default_entity_id": "sensor.grid_power_phase_a"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_grid_b/config",
+    "unique_id": "MTEC_grid_b",
+    "default_entity_id": "sensor.grid_power_phase_b"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_grid_c/config",
+    "unique_id": "MTEC_grid_c",
+    "default_entity_id": "sensor.grid_power_phase_c"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_grid_feed_day/config",
+    "unique_id": "MTEC_grid_feed_day",
+    "default_entity_id": "sensor.grid_injection_energy_day"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_grid_feed_total/config",
+    "unique_id": "MTEC_grid_feed_total",
+    "default_entity_id": "sensor.grid_energy_injected_total"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_grid_fequency/config",
+    "unique_id": "MTEC_grid_fequency",
+    "default_entity_id": "sensor.grid_frequency"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_grid_inject_limit/config",
+    "unique_id": "MTEC_grid_inject_limit",
+    "default_entity_id": "sensor.grid_injection_power_limit"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_grid_power/config",
+    "unique_id": "MTEC_grid_power",
+    "default_entity_id": "sensor.grid_power"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_grid_purchase_day/config",
+    "unique_id": "MTEC_grid_purchase_day",
+    "default_entity_id": "sensor.grid_purchased_energy_day"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_grid_purchase_total/config",
+    "unique_id": "MTEC_grid_purchase_total",
+    "default_entity_id": "sensor.grid_energy_purchased_total"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_inverter/config",
+    "unique_id": "MTEC_inverter",
+    "default_entity_id": "sensor.inverter_ac_power"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_inverter_a/config",
+    "unique_id": "MTEC_inverter_a",
+    "default_entity_id": "sensor.inverter_power_phase_a"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_inverter_b/config",
+    "unique_id": "MTEC_inverter_b",
+    "default_entity_id": "sensor.inverter_power_phase_b"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_inverter_c/config",
+    "unique_id": "MTEC_inverter_c",
+    "default_entity_id": "sensor.inverter_power_phase_c"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_inverter_status/config",
+    "unique_id": "MTEC_inverter_status",
+    "default_entity_id": "sensor.inverter_status"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_inverter_temp1/config",
+    "unique_id": "MTEC_inverter_temp1",
+    "default_entity_id": "sensor.inverter_temperature_sensor_1"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_inverter_temp2/config",
+    "unique_id": "MTEC_inverter_temp2",
+    "default_entity_id": "sensor.inverter_temperature_sensor_2"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_inverter_temp3/config",
+    "unique_id": "MTEC_inverter_temp3",
+    "default_entity_id": "sensor.inverter_temperature_sensor_3"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_inverter_temp4/config",
+    "unique_id": "MTEC_inverter_temp4",
+    "default_entity_id": "sensor.inverter_temperature_sensor_4"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_mode/config",
+    "unique_id": "MTEC_mode",
+    "default_entity_id": "sensor.inverter_operation_mode"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_off_grid_soc_limit/config",
+    "unique_id": "MTEC_off_grid_soc_limit",
+    "default_entity_id": "sensor.off_grid_soc_limit"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_on_grid_soc_limit/config",
+    "unique_id": "MTEC_on_grid_soc_limit",
+    "default_entity_id": "sensor.on_grid_soc_limit"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_own_consumption_day/config",
+    "unique_id": "MTEC_own_consumption_day",
+    "default_entity_id": "sensor.own_consumption_rate_day"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_own_consumption_total/config",
+    "unique_id": "MTEC_own_consumption_total",
+    "default_entity_id": "sensor.own_consumption_rate_total"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_pv/config",
+    "unique_id": "MTEC_pv",
+    "default_entity_id": "sensor.pv_power"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_pv_1/config",
+    "unique_id": "MTEC_pv_1",
+    "default_entity_id": "sensor.pv1_power"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_pv_2/config",
+    "unique_id": "MTEC_pv_2",
+    "default_entity_id": "sensor.pv2_power"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_pv_current_1/config",
+    "unique_id": "MTEC_pv_current_1",
+    "default_entity_id": "sensor.pv1_current"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_pv_current_2/config",
+    "unique_id": "MTEC_pv_current_2",
+    "default_entity_id": "sensor.pv2_current"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_pv_day/config",
+    "unique_id": "MTEC_pv_day",
+    "default_entity_id": "sensor.pv_energy_generated_day"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_pv_generation_duration/config",
+    "unique_id": "MTEC_pv_generation_duration",
+    "default_entity_id": "sensor.pv_generation_time_total"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_pv_total/config",
+    "unique_id": "MTEC_pv_total",
+    "default_entity_id": "sensor.pv_energy_generated_total"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_pv_voltage_1/config",
+    "unique_id": "MTEC_pv_voltage_1",
+    "default_entity_id": "sensor.pv1_voltage"
+  },
+  {
+    "config_topic": "homeassistant/sensor/MTEC_pv_voltage_2/config",
+    "unique_id": "MTEC_pv_voltage_2",
+    "default_entity_id": "sensor.pv2_voltage"
+  },
+  {
+    "config_topic": "homeassistant/switch/MTEC_charge_active/config",
+    "unique_id": "MTEC_charge_active",
+    "default_entity_id": "switch.charge_active"
+  },
+  {
+    "config_topic": "homeassistant/switch/MTEC_discharge_active/config",
+    "unique_id": "MTEC_discharge_active",
+    "default_entity_id": "switch.discharge_active"
+  },
+  {
+    "config_topic": "homeassistant/switch/MTEC_grid_inject_switch/config",
+    "unique_id": "MTEC_grid_inject_switch",
+    "default_entity_id": "switch.grid_injection_limit_switch"
+  },
+  {
+    "config_topic": "homeassistant/switch/MTEC_off_grid_soc_switch/config",
+    "unique_id": "MTEC_off_grid_soc_switch",
+    "default_entity_id": "switch.off_grid_soc_limit_switch"
+  },
+  {
+    "config_topic": "homeassistant/switch/MTEC_on_grid_soc_switch/config",
+    "unique_id": "MTEC_on_grid_soc_switch",
+    "default_entity_id": "switch.on_grid_soc_limit_switch"
+  }
+]
