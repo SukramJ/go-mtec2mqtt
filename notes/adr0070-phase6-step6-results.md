@@ -392,10 +392,74 @@ The pilot (go-zendure2mqtt #45) made the same call for the same reasons.
 
 ## 9. Mutation verification
 
-See the PR body for the table. Every new assertion was verified to fail
-under a perturbation of the production code it covers; each mutation was
-reverted from a filesystem **copy**, never with `git checkout --`, and the
-work was committed before the harness ran.
+**25 distinct mutations over three passes; 24 caught, 1 surviving
+deliberately.** Each was applied to the production code, the suite run, and
+the change reverted from a filesystem **copy** — never with
+`git checkout --`, and the work was committed before the harness ran.
+
+**The first pass found four blind spots, and one of them was the worst
+change in the release.**
+
+| Mutation | Caught by |
+| --- | --- |
+| `LegacyConfigTopicForms` → the five-segment default | 8 tests, incl. `TestSupersededTopicsAreTheWholeFrozenFleet`, `TestRetractionsPrecedeTheBundle` |
+| `SupersededConfigTopics` passes no form | `TestSupersededTopicsAreTheWholeFrozenFleet`, `TestTheRuledOutLegacyFormsRetractNothing`, `TestOmittingAComponentDoesNotRemoveIt`, `TestTopicGolden` |
+| the document published through `Runtime.Publish` (no retraction at all) | `TestRetractionsPrecedeTheBundle`, `TestPublishQoSAndRetain`, `TestPublishDiscoveryReturnsPublishedSet`, `TestTheCrashWindowHealsOnTheNextBoot` |
+| the claim set still names the 100 per-entity topics | `TestPublishDiscoveryReturnsPublishedSet`, `TestSweepRetractsOnlyOurOwnOrphans`, `TestReportOnlySweepOverTheRealFleet` |
+| a failed publish drops the document from the claim set | `TestAFailedRetractionWithholdsTheBundle`, `TestPublishDiscoveryNotMarkedSentWhenPublishFails` |
+| a failed publish still marks discovery sent | `TestAFailedRetractionWithholdsTheBundle`, `TestPublishDiscoveryNotMarkedSentWhenPublishFails` |
+| `run()` never builds the document | `TestRunWithHASSPublishesDiscoveryRetained`, `TestHASSBirthTriggersDiscoveryRepublish` |
+| `publishDiscovery` ignores a nil document | `TestAnInvalidDocumentWithholdsTheWholeMigration` |
+| node id derived from the device name | 7 tests, incl. `TestBundleNodeIDIsTheSerialAndNothingElse`, `TestBundleGolden` |
+| node id a constant (two instances share one document) | the same 7 |
+| the bundle topic built with a hard-coded prefix | 5 tests, incl. `TestTopicGolden` |
+| `OwnsConfigTopic` claims the bundle form (a sibling's whole fleet) | `TestOwnsConfigTopicIsNarrow` |
+| `device.identifiers` namespaced | 15 tests |
+| the dual emission dropped from the document | 14 tests |
+| `origin` drops `sw_version` | `TestBundleGolden`, `TestBundleOriginIsWiredFromTheBuildVersion` |
+| no `origin` block at all | 24 tests — `Validate` blocks and the whole migration is withheld |
+| `origin` carries the inverter firmware | `TestTheDocumentsOriginNamesThisBuild` † |
+| a blocking validation issue no longer withholds the document | `TestAnInvalidDocumentWithholdsTheWholeMigration` † |
+| `discovery.Validate` not run at all | the same † |
+| a render failure no longer withholds the document | the same † |
+| the sweep runs even when no document was built | the same † |
+| `HARuntimeConfig` drops `LegacyEntityTopics` | `TestRetractionsPrecedeTheBundle`, `TestTheCrashWindowHealsOnTheNextBoot` † |
+| the legacy-form boot guard never fails | `TestNewRefusesARuntimeThatDoesNotStateTheLegacyForm` † |
+
+† added or restructured **because** a mutation pass found the assertion
+missing. Six of them:
+
+- **`main.go` dropping `publisher.Config.LegacyEntityTopics` was caught by
+  nothing at all** — the single most catastrophic mutation in the set, and
+  it survived because the daemon and the test fixture each spelled the
+  config out and the fixture still had the field. There is now one
+  spelling, `coordinator.HARuntimeConfig`, and every coordinator test runs
+  on it.
+- **Publishing an invalid document, not validating, a render failure that
+  does not withhold, and running the sweep with no document** were four
+  separate invisibles, all closed by
+  `TestAnInvalidDocumentWithholdsTheWholeMigration`, which asserts the
+  three things that matter: no document, **no retraction**, no sweep. The
+  sweep guard also moved out of `run()` and into `sweepOrphans`, so it
+  travels with the code it protects and a unit test can drive it.
+- **The `origin` block was asserted only where it was built, never where it
+  was sent**, so the coordinator could have handed it the inverter's
+  firmware.
+
+### The one deliberate survivor
+
+**Rebuilding the `publisher.Config` by hand at the composition root, with
+the form omitted, still passes the suite.** It is recorded rather than
+papered over, and it is not unguarded:
+
+`Coordinator.New` now asserts `publisher.Runtime.LegacyForms()` against
+what `HARuntimeConfig` produces and **panics** if they disagree — so that
+mutation is a daemon that refuses to start, with a message naming the
+cause, rather than a migration that looks clean while Home Assistant
+refuses every entity. `TestNewRefusesARuntimeThatDoesNotStateTheLegacyForm`
+proves the guard fires; what no test reaches is `main.go`'s own `run()`,
+which dials Modbus and a broker before it gets there. The protection is
+real and is at boot; it is simply not test-detectable from here.
 
 ---
 
