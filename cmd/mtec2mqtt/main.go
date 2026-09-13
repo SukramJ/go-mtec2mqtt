@@ -144,9 +144,31 @@ func run(configPath, registersPath string, logger *slog.Logger) error {
 	//
 	// The client it publishes through does not exist yet, so the transport
 	// is wired in below, before anything connects.
+	// A FACTORY, not an instance. publisher.Runtime remembers what it has
+	// published and — decisively — which per-entity configs it has already
+	// retracted to clear the way for the device document. That memory is
+	// per process, while the QoS 0 success it records is per CONNECTION, so
+	// a runtime that outlived a dropped connection would skip retractions
+	// the broker never applied and publish the document into a conflict
+	// Home Assistant refuses in silence. The coordinator therefore builds a
+	// fresh one on every (re)connect; see coordinator.Coordinator.resetHAPlane.
+	//
+	// Every runtime this returns answers Will() identically — the will is
+	// derived from the config and from nothing else — which is what lets
+	// the will be read here, before the MQTT client exists, and still be
+	// the same statement the runtime makes later.
 	haLink := &deferredTransport{}
-	haRuntime := publisher.New(haLink, coordinator.HARuntimeConfig(cfg, logger))
-	will, err := haRuntime.Will()
+	haConfig := coordinator.HARuntimeConfig(cfg, logger)
+	newHARuntime := func() *publisher.Runtime { return publisher.New(haLink, haConfig) }
+
+	// One instance built here, for the two answers that are pure config and
+	// are needed before the coordinator exists: the Last Will (part of
+	// CONNECT) and the state plane's transport and logger. It publishes no
+	// discovery config of its own and holds none of the per-connection
+	// memory above.
+	bootRuntime := newHARuntime()
+	defer bootRuntime.Close()
+	will, err := bootRuntime.Will()
 	if err != nil {
 		return fmt.Errorf("mtec2mqtt: mqtt will: %w", err)
 	}
@@ -160,7 +182,7 @@ func run(configPath, registersPath string, logger *slog.Logger) error {
 	// copy an upgrading broker still holds has to be cleared, or it sits
 	// there forever claiming a daemon that no longer publishes it is
 	// online.
-	legacyStatusTopic := cfg.HASSBaseTopic + "/status/lwt"
+
 	// TLS is opt-in via MQTT_SSL; NewClientTLSConfig always sets
 	// ServerName (tls.Client does not infer it from the dialed address)
 	// and only disables certificate verification when the operator has
@@ -225,7 +247,7 @@ func run(configPath, registersPath string, logger *slog.Logger) error {
 	// /set subscription would be echoed back into its own command handler.
 	// The filter is stated once, in hass.CommandFilter, and read by the
 	// router route and by this guard.
-	statePlane := publisher.StateFor(haRuntime, publisher.StateConfig{
+	statePlane := publisher.StateFor(bootRuntime, publisher.StateConfig{
 		QoS:            coordinator.StateQoS,
 		Encoding:       discovery.RawEncoding,
 		CommandFilters: []string{hass.CommandFilter(cfg.MQTTTopic)},
@@ -263,13 +285,25 @@ func run(configPath, registersPath string, logger *slog.Logger) error {
 		// subscriptions are startup-path calls with their own
 		// SUBACK-bounded wait and must not be rejected during a
 		// publish-side broker brownout.
-		MQTT:       mqtt.SplitClient(breaker, mqttClient),
-		HASS:       hassDiscovery,
-		Logger:     logger,
-		Store:      store,
-		Virtual:    virtualSwitches,
-		HARuntime:  haRuntime,
-		StatePlane: statePlane,
+		MQTT:         mqtt.SplitClient(breaker, mqttClient),
+		HASS:         hassDiscovery,
+		Logger:       logger,
+		Store:        store,
+		Virtual:      virtualSwitches,
+		NewHARuntime: newHARuntime,
+		StatePlane:   statePlane,
+		// The broker's advertised Maximum Packet Size, renegotiated on every
+		// CONNACK, so the device document's size is checked before the
+		// retraction that cannot be undone rather than by the publish that
+		// follows it. Absent on an MQTT 3.1.1 link and on a broker that sets
+		// no limit, and absent is not small: the preflight is then skipped.
+		BrokerMaxPacketSize: func() (uint32, bool) {
+			res, ok := mqttClient.ConnectResult()
+			if !ok {
+				return 0, false
+			}
+			return res.MaximumPacketSize, true
+		},
 	})
 
 	// Registered before Start so the first connect announces too. The
@@ -277,7 +311,7 @@ func run(configPath, registersPath string, logger *slog.Logger) error {
 	// publish a single network blip would leave the retained availability
 	// topic stuck at "offline" for the rest of the daemon's uptime.
 	mqttLifecycle.OnConnect(func(hookCtx context.Context) {
-		retractLegacyAvailability(breaker, legacyStatusTopic, logger)(hookCtx)
+		retractLegacyAvailability(breaker, cfg.HASSBaseTopic, logger)(hookCtx)
 		c.PublishOnline(hookCtx)
 	})
 	if err := startMQTT(ctx, mqttLifecycle, time.Second, 30*time.Second, logger); err != nil {
@@ -362,7 +396,17 @@ func startMQTT(ctx context.Context, lc mqttStarter, backoff, maxBackoff time.Dur
 // persistence) would otherwise keep a stale copy from some other source
 // forever. Failures are logged, never fatal — like the birth publish, it
 // is best-effort.
-func retractLegacyAvailability(pub coordinator.MQTTPublisher, topic string, logger *slog.Logger) func(context.Context) {
+//
+// It takes the discovery PREFIX and derives the topic through
+// [hass.LegacyAvailabilityTopic], rather than taking the topic. The topic
+// used to be composed at the call site above, where no test reached it:
+// the test passed a literal in and asserted publication to the same
+// literal, which is argument forwarding, so mutating the production
+// spelling to "/status/LWT" left the suite green while the retraction
+// cleared a topic no release ever wrote. The arithmetic now lives inside
+// the function the test drives.
+func retractLegacyAvailability(pub coordinator.MQTTPublisher, hassBaseTopic string, logger *slog.Logger) func(context.Context) {
+	topic := hass.LegacyAvailabilityTopic(hassBaseTopic)
 	return func(ctx context.Context) {
 		if err := pub.Publish(ctx, topic, nil, mqtt.QoS0, true); err != nil {
 			logger.Warn("mtec2mqtt.legacy_lwt_retract_failed",

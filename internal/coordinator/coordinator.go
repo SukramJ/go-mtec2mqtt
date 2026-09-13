@@ -16,6 +16,7 @@ package coordinator
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -108,9 +109,13 @@ type Deps struct {
 	// between the configured value and 0. Empty disables the feature.
 	Virtual []hass.VirtualSwitch
 
-	// HARuntime owns this daemon's Home Assistant plane: the retained
+	// NewHARuntime builds this daemon's Home Assistant plane: the retained
 	// discovery configs it has published, the bridge availability marker
 	// its Last Will clears, and the orphan sweep. Required.
+	//
+	// It is a FACTORY rather than an instance, and that is the whole of the
+	// fix for the ordering defect this migration rested on. See
+	// [Coordinator.resetHAPlane].
 	//
 	// It is built at the composition root rather than here for a reason
 	// that cannot be worked around: [publisher.Runtime.Will] has to be read
@@ -120,8 +125,22 @@ type Deps struct {
 	// entities names as its availability source provably one string — a
 	// will no entity references is the measured defect of two sibling
 	// bridges, where a hard crash leaves every entity available forever,
-	// showing the last value it ever saw.
-	HARuntime *publisher.Runtime
+	// showing the last value it ever saw. Every runtime the factory returns
+	// answers Will() identically, because the answer is derived from the
+	// [publisher.Config] and from nothing else.
+	NewHARuntime func() *publisher.Runtime
+
+	// BrokerMaxPacketSize reports the largest packet the broker said it
+	// would accept (the MQTT 5.0 CONNACK Maximum Packet Size property),
+	// and whether that is known at all. Optional: a nil hook, or a false
+	// second return, disables the preflight in [Coordinator.publishDiscovery]
+	// and restores the pre-fix behaviour of finding out by publishing.
+	//
+	// It is a hook rather than a value because the answer is renegotiated
+	// on every CONNECT, and a hook rather than a widened MQTT interface
+	// because ConnectResult belongs to the concrete client, which this
+	// package deliberately does not name.
+	BrokerMaxPacketSize func() (uint32, bool)
 
 	// StatePlane writes every register's retained state value. Required.
 	//
@@ -250,6 +269,19 @@ type Coordinator struct {
 	secondaryIdx  atomic.Int32
 	discoverySent atomic.Bool
 
+	// haRuntime is the Home Assistant plane for the CURRENT broker
+	// connection. Swapped wholesale on every (re)connect by
+	// [Coordinator.resetHAPlane]; read through [Coordinator.ha].
+	haRuntime atomic.Pointer[publisher.Runtime]
+
+	// haBundlePublished records that the device document actually reached
+	// the broker on this connection — not that it was built. The orphan
+	// sweep reads it, because after this release the daemon publishes no
+	// four-segment per-entity config at all and a sweep that ran without a
+	// document in place would delete the working entities of the release
+	// being upgraded from and put nothing there instead.
+	haBundlePublished atomic.Bool
+
 	// haBundle is the one retained device document this daemon publishes,
 	// rendered once after the STATIC read that supplies the serial the
 	// node id and the device block are keyed on. Nil means the document
@@ -334,8 +366,8 @@ func New(d Deps) *Coordinator {
 	for _, v := range d.Virtual {
 		vbk[v.Key] = v
 	}
-	if d.HARuntime == nil {
-		panic("coordinator: Deps.HARuntime is required; build it at the composition root so Will() can be read before CONNECT")
+	if d.NewHARuntime == nil {
+		panic("coordinator: Deps.NewHARuntime is required; build it at the composition root so Will() can be read before CONNECT")
 	}
 	// The runtime must state the per-entity topic form this fleet is on,
 	// and it is checked here rather than trusted because getting it wrong
@@ -351,8 +383,12 @@ func New(d Deps) *Coordinator {
 	// condition — the same reason the nil check above is one.
 	// [HARuntimeConfig] is the answer; this is what makes bypassing it
 	// loud.
+	runtime := d.NewHARuntime()
+	if runtime == nil {
+		panic("coordinator: Deps.NewHARuntime returned nil")
+	}
 	want := wantLegacyForms()
-	if forms := d.HARuntime.LegacyForms(); !slices.Equal(forms, want) {
+	if forms := runtime.LegacyForms(); !slices.Equal(forms, want) {
 		panic("coordinator: Deps.HARuntime states legacy config topic forms " +
 			fmt.Sprint(forms) + ", want " + fmt.Sprint(want) +
 			"; build it with HARuntimeConfig, or the device bundle is published " +
@@ -366,10 +402,11 @@ func New(d Deps) *Coordinator {
 		deps:            d,
 		startedAt:       d.Now(),
 		writeQueue:      make(chan writeReq, 32),
-		hassStatusTopic: d.Cfg.HASSBaseTopic + "/status",
+		hassStatusTopic: publisher.BirthTopic(d.Cfg.HASSBaseTopic),
 		virtualByKey:    vbk,
 		lastActive:      make(map[string]float64),
 	}
+	c.haRuntime.Store(runtime)
 	// The router subscribes and dispatches; it never publishes, so it goes
 	// straight to the client rather than through whatever breaker the
 	// composition root put in front of the publish half. Breaking the
@@ -877,7 +914,7 @@ func (c *Coordinator) buildBundle() {
 		}
 	}
 	c.haBundle = bundle
-	c.haBundleTopic = hass.BundleConfigTopic(c.deps.HARuntime.Prefix(), c.deps.HASS)
+	c.haBundleTopic = hass.BundleConfigTopic(c.ha().Prefix(), c.deps.HASS)
 	log.Info("coordinator.discovery_bundle_built",
 		slog.String("topic", c.haBundleTopic),
 		slog.Int("components", len(bundle.Components)))
@@ -912,27 +949,55 @@ func (c *Coordinator) buildBundle() {
 // is one; what it relies on is MQTT's ordering guarantee for equal-QoS
 // publishes on one connection, which is the property that actually matters:
 // the document cannot reach the broker down a path its retractions did not
-// already travel. A connection that dies in between loses both, and the
-// next connect rebuilds from scratch. TestRetractionsPrecedeTheBundle and
+// already travel. TestRetractionsPrecedeTheBundle and
 // TestAFailedRetractionWithholdsTheBundle pin both halves.
 //
+// # And that argument is only sound WITHIN one connection
+//
+// It used to say "a connection that dies in between loses both, and the
+// next connect rebuilds from scratch". The first half is true; the second
+// was not. publisher.Runtime's `superseded` memo is per PROCESS, while a
+// QoS 0 success is per CONNECTION, so an in-process retry after a
+// connection loss skipped the retractions the broker never applied and
+// published the document anyway. Measured on a harness: retractions
+// re-sent 0, document published true, per-entity configs still retained.
+// [Coordinator.resetHAPlane] is the fix — the runtime, and therefore the
+// memo, does not outlive its connection — and
+// TestAReconnectReSendsTheRetractionsBeforeTheDocument is the pin.
+//
+// # The preflight, and why it is before rather than after
+//
+// A document too large for the broker is refused by go-mqtt with
+// ErrPacketTooLarge — AFTER supersede has cleared all 100 per-entity
+// configs, which leaves the device with no discovery config at all. This
+// fleet's document is ~50 KB on the wire and every surveyed broker default
+// accommodates it (mosquitto unlimited, EMQX 1 MB, AWS IoT 128 KB), but a
+// hardened `max_packet_size 65535` does not, and the failure is exactly
+// the one this whole function is built to avoid. So the size is checked
+// against the broker's own advertised maximum before the irreversible
+// step, and a document that does not fit withholds the migration the same
+// way an invalid one does.
+//
 // The document is written even when it is byte-identical to the retained
-// one only on the first publish of a process: the runtime dedups, and on a
-// birth-triggered republish of an unchanged fleet that costs zero broker
-// writes and zero retractions.
+// one only on the first publish of a connection: the runtime dedups, and
+// on a birth-triggered republish of an unchanged fleet that costs zero
+// broker writes and zero retractions.
 func (c *Coordinator) publishDiscovery(ctx context.Context) map[string]bool {
 	if c.deps.HASS == nil || c.haBundle == nil {
 		return nil
 	}
 	log := c.deps.Logger
 	gen := c.discoveryGen.Load()
+	if !c.bundleFitsBroker() {
+		return nil
+	}
 
 	// The claim set the sweep subtracts. It names the document even when
 	// the publish below fails, so a transient broker error never makes the
 	// sweep clear a config this daemon still intends to publish.
 	published := map[string]bool{c.haBundleTopic: true}
 
-	written, err := c.deps.HARuntime.PublishBundle(ctx, c.haBundle)
+	written, err := c.ha().PublishBundle(ctx, c.haBundle)
 	if err != nil {
 		log.Warn("coordinator.discovery_publish",
 			slog.String("topic", c.haBundleTopic),
@@ -944,6 +1009,8 @@ func (c *Coordinator) publishDiscovery(ctx context.Context) map[string]bool {
 			slog.Bool("birth_raced", false))
 		return published
 	}
+	// The document is on the socket. The sweep may run.
+	c.haBundlePublished.Store(true)
 	birthRaced := c.discoveryGen.Load() != gen
 	c.discoverySent.Store(!birthRaced)
 	if birthRaced {
@@ -960,6 +1027,63 @@ func (c *Coordinator) publishDiscovery(ctx context.Context) map[string]bool {
 		slog.Int("entries", len(c.haBundle.Components)),
 		slog.Bool("written", written))
 	return published
+}
+
+// bundleFitsBroker reports whether the device document can reach the
+// broker at all, and it is asked BEFORE the retraction that cannot be
+// undone rather than discovered by the publish that comes after it.
+//
+// go-mqtt enforces the CONNACK Maximum Packet Size the broker advertised
+// and returns ErrPacketTooLarge locally — which by then is a device whose
+// 100 per-entity configs are already cleared and whose document was never
+// written: no discovery config at all, entities absent rather than
+// unavailable. (That limit is the BROKER's, advertised inbound-to-it. It
+// is not TCPConfig.MaximumPacketSize, which is this client's own 1 MiB cap
+// on what it will ACCEPT, and the two were conflated in the step-6 notes.)
+//
+// A broker that advertises no limit, an MQTT 3.1.1 link, and a composition
+// root that wires no hook all answer "unknown", and an unknown limit is not
+// a small one: the check is skipped and behaviour is exactly what it was.
+//
+// The margin covers the fixed PUBLISH overhead the payload does not: the
+// two-byte topic length, the topic itself, the fixed header and its
+// remaining-length varint, and the v5 property block. 64 bytes is far more
+// than any of that, and being wrong in this direction withholds a
+// migration that would have worked — recoverable, and loud — instead of
+// performing half of one.
+func (c *Coordinator) bundleFitsBroker() bool {
+	if c.deps.BrokerMaxPacketSize == nil {
+		return true
+	}
+	maxPacket, known := c.deps.BrokerMaxPacketSize()
+	if !known || maxPacket == 0 {
+		return true
+	}
+	payload, err := json.Marshal(c.haBundle)
+	if err != nil {
+		// Unreachable: buildBundle already rendered and validated it. If it
+		// ever is reached, withholding is the same answer buildBundle gives.
+		c.deps.Logger.Error("coordinator.discovery_bundle_marshal",
+			slog.String("err", err.Error()))
+		c.discoverySent.Store(true)
+		return false
+	}
+	const publishOverhead = 64
+	size := uint64(len(payload)) + uint64(len(c.haBundleTopic)) + publishOverhead
+	if size <= uint64(maxPacket) {
+		return true
+	}
+	c.deps.Logger.Error("coordinator.discovery_bundle_too_large",
+		slog.String("topic", c.haBundleTopic),
+		slog.Uint64("bytes", size),
+		slog.Uint64("broker_maximum", uint64(maxPacket)),
+		slog.String("consequence",
+			"the device document is withheld and the per-entity configs are left in place; "+
+				"raise the broker's maximum packet size"))
+	// Deterministic for this connection, so the republisher must not spin
+	// on it. A reconnect renegotiates the limit and clears this.
+	c.discoverySent.Store(true)
+	return false
 }
 
 // discoveryRepublisher re-sends the HA discovery configs after
@@ -1156,25 +1280,99 @@ func splitPath(s string) []string {
 	return out
 }
 
-// PublishOnline (re)announces this daemon's availability and reopens the
-// state plane's dedup gate. Wired to the MQTT lifecycle's OnConnect hook,
-// so it runs on every (re)connect and not only at boot.
+// ha returns the Home Assistant plane for the current broker connection.
+//
+// Never store the result across a call that can block on the broker: a
+// reconnect may swap it underneath, and acting on the old one is exactly
+// the defect [Coordinator.resetHAPlane] exists to remove.
+func (c *Coordinator) ha() *publisher.Runtime { return c.haRuntime.Load() }
+
+// resetHAPlane replaces the Home Assistant runtime with a fresh one, so
+// everything it remembers is scoped to the connection that earned it.
+//
+// # Why the whole runtime, and not a field
+//
+// publisher.Runtime remembers three things across a connection loss, and
+// every one of them is a statement about a broker, not about this process:
+//
+//   - `superseded` — the 100 per-entity config topics it has retracted.
+//     Retracted ONCE PER PROCESS, deliberately, because a second retraction
+//     of an already-cleared topic is a message for nothing. But a QoS 0
+//     retraction is only "complete" in the sense of bytes flushed to one
+//     socket, which makes the success PER CONNECTION. A connection that
+//     died between the retractions and the document loses both — and the
+//     in-process retry then SKIPPED the retractions the broker never
+//     applied and published the document anyway, straight into a tree still
+//     holding all 100 configs. Home Assistant refuses that with one
+//     "WARNING [mqtt.entity] Received a conflicting MQTT discovery message"
+//     in its own log; the entities do not appear, nothing is on the wire,
+//     and nothing is in this daemon's log. Measured: retractions re-sent 0,
+//     document published true, configs still retained 1.
+//   - `declared` — the document's own bytes, which gate the republish. A
+//     broker that came back without its retained store holds no document,
+//     while this map says it does, so the device is never re-announced.
+//     That is a regression against 1.9.x, where the per-entity replay had
+//     no such gate; [Coordinator.PublishOnline] already reset the STATE
+//     plane for precisely this reason and the discovery plane was left out.
+//   - `announced` — in-flight claims for a connection that is gone.
+//
+// Resetting a field at a time is how the sibling project (openccu-loom)
+// found itself fixing the same class twice — `hubStatus` and `configCache`
+// gates that no reconnect hook reset. The invariant is structural instead:
+// a runtime never outlives the connection it describes, so there is no
+// per-field question to get wrong, and a field the library adds later is
+// covered the day it is added.
+//
+// The old runtime is closed rather than left for the garbage collector,
+// and the swap is atomic because the republisher goroutine may be reading
+// it. A publish already in flight on the old runtime cannot mark discovery
+// sent for the new connection: [Coordinator.PublishOnline] bumps
+// discoveryGen, and publishDiscovery refuses to set discoverySent when the
+// generation it sampled has moved.
+func (c *Coordinator) resetHAPlane() {
+	fresh := c.deps.NewHARuntime()
+	if fresh == nil {
+		c.deps.Logger.Error("coordinator.ha_runtime_reset_failed",
+			slog.String("err", "Deps.NewHARuntime returned nil"))
+		return
+	}
+	if old := c.haRuntime.Swap(fresh); old != nil {
+		old.Close()
+	}
+	c.haBundlePublished.Store(false)
+}
+
+// PublishOnline (re)announces this daemon's availability and reopens both
+// dedup gates. Wired to the MQTT lifecycle's OnConnect hook, so it runs on
+// every (re)connect and not only at boot.
 //
 // The will only fires on ungraceful death; without a matching birth
 // publish a single network blip would leave the retained availability
 // topic stuck at "offline" for the rest of the daemon's uptime.
 //
-// The Reset is the half that is new rather than preserved. A (re)connect
-// may be to a broker that came back without its retained store, in which
-// case the dedup gate would suppress every value it believes is already
-// there and leave every entity blank until its next change — which for
-// the `static` and `total` groups is effectively never. Reset opens the
-// gate without forgetting the index, so the next poll writes the fleet
-// once and is deduped again afterwards. The poll cycle is the snapshot
-// pass the library's Reset documentation asks a consumer to pair it with.
+// # The two resets
+//
+// StatePlane.Reset: a (re)connect may be to a broker that came back
+// without its retained store, in which case the dedup gate would suppress
+// every value it believes is already there and leave every entity blank
+// until its next change — which for the `static` and `total` groups is
+// effectively never. Reset opens the gate without forgetting the index, so
+// the next poll writes the fleet once and is deduped again afterwards. The
+// poll cycle is the snapshot pass the library's Reset documentation asks a
+// consumer to pair it with.
+//
+// resetHAPlane plus the discoverySent clear is the same argument for the
+// DISCOVERY plane, which this hook used to leave out — the broker that
+// forgot the state plane forgot the retained device document too, and
+// nothing would have republished it for the rest of the process's life.
+// The generation bump is what keeps a publish that is already in flight on
+// the connection being replaced from marking the new one done.
 func (c *Coordinator) PublishOnline(ctx context.Context) {
 	c.deps.StatePlane.Reset()
-	if err := c.deps.HARuntime.AnnounceOnline(ctx); err != nil {
+	c.resetHAPlane()
+	c.discoveryGen.Add(1)
+	c.discoverySent.Store(false)
+	if err := c.ha().AnnounceOnline(ctx); err != nil {
 		c.deps.Logger.Warn("coordinator.online_failed", slog.String("err", err.Error()))
 	}
 }
@@ -1184,7 +1382,7 @@ func (c *Coordinator) PublishOnline(ctx context.Context) {
 // DISCONNECT must announce offline explicitly or the retained status
 // stays "online" for a daemon that is gone.
 func (c *Coordinator) PublishOffline(ctx context.Context) {
-	if err := c.deps.HARuntime.AnnounceOffline(ctx); err != nil {
+	if err := c.ha().AnnounceOffline(ctx); err != nil {
 		c.deps.Logger.Warn("coordinator.offline_failed", slog.String("err", err.Error()))
 	}
 }

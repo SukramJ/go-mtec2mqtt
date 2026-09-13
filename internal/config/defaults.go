@@ -103,9 +103,20 @@ func applyDefaults(c *Config, raw map[string]any) {
 	if c.MQTTFloatFormat == "" {
 		c.MQTTFloatFormat = DefaultMQTTFloatFormat
 	}
-	if c.HASSBaseTopic == "" {
-		c.HASSBaseTopic = DefaultHASSBaseTopic
-	}
+	// Normalised, not merely defaulted. HASS_BASE_TOPIC is a topic PREFIX
+	// and every consumer of it appends "/<something>", so a value written
+	// "homeassistant/" produced a double slash in one spelling and not in
+	// another: go-hamqtt's publisher.BirthTopic and BundleConfigTopic trim
+	// the slash, while this daemon's own "<base>/status" concatenation did
+	// not. The daemon then subscribed "homeassistant//status" while Home
+	// Assistant announces its birth on "homeassistant/status" — an empty
+	// MQTT topic level is legal and distinct, so the two never meet. The
+	// consequence was silent in both logs: after EVERY Home Assistant
+	// restart the entities were gone until the DAEMON was restarted,
+	// because discoverySent is only cleared by a birth that never arrived.
+	// Trimmed here, once, so there is nothing left for a second spelling to
+	// disagree about.
+	c.HASSBaseTopic = NormalizeHASSBaseTopic(c.HASSBaseTopic)
 	if !rawHasKey(raw, "HASS_BIRTH_GRACETIME") {
 		// An explicit HASS_BIRTH_GRACETIME: 0 disables the startup
 		// grace wait — only default when the key is truly absent.
@@ -138,4 +149,28 @@ func applyDefaults(c *Config, raw map[string]any) {
 	if !rawHasKey(raw, "DISCHARGE_ACTIVE_VALUE") {
 		c.DischargeActiveValue = DefaultDischargeActiveValue
 	}
+}
+
+// NormalizeHASSBaseTopic trims a trailing slash off the Home Assistant
+// discovery prefix and applies [DefaultHASSBaseTopic] to an empty value.
+//
+// Exported because the normalisation is the fix, not a formatting detail:
+// HASS_BASE_TOPIC is a PREFIX and every consumer appends "/<something>" to
+// it, so a value written "homeassistant/" produced a double slash in one
+// spelling and not in another. go-hamqtt's publisher.BirthTopic and
+// BundleConfigTopic trim it; the daemon's own "<base>/status"
+// concatenation did not, so it subscribed "homeassistant//status" while
+// Home Assistant announces its birth on "homeassistant/status". An empty
+// MQTT topic level is legal and distinct, so the two never met — and the
+// consequence was that after every Home Assistant restart the entities
+// stayed gone until the daemon was restarted, silently in both logs.
+//
+// Normalising at the boundary means there is nothing left for a second
+// spelling downstream to disagree about.
+func NormalizeHASSBaseTopic(s string) string {
+	s = strings.TrimRight(s, "/")
+	if s == "" {
+		return DefaultHASSBaseTopic
+	}
+	return s
 }

@@ -93,26 +93,41 @@ func (c *Coordinator) reconcileOrphans(ctx context.Context, published map[string
 //     publish just wrote.
 func (c *Coordinator) sweepOrphans(ctx context.Context, published map[string]bool) {
 	log := c.deps.Logger
-	// Refused outright when there is no device document. Since the move to
-	// the bundle this daemon publishes no four-segment per-entity config at
-	// all, so every one the window finds is an orphan by the rule below —
-	// which is exactly right when the document went out, and catastrophic
-	// when it did not: it would delete the working entities of the release
-	// being upgraded from and put nothing in their place. buildBundle
-	// leaves haBundle nil precisely so a document that does not validate
-	// withholds the whole migration, and that has to include this pass.
+	// Refused outright when no device document reached the broker. Since
+	// the move to the bundle this daemon publishes no four-segment
+	// per-entity config at all, so every one the window finds is an orphan
+	// by the rule below — which is exactly right when the document went
+	// out, and catastrophic when it did not: it would delete the working
+	// entities of the release being upgraded from and put nothing in their
+	// place.
+	//
+	// The question is "was it PUBLISHED", not "was it BUILT", and the guard
+	// used to ask the second while its log line claimed the first. They
+	// come apart in the case that matters most: buildBundle succeeds, the
+	// publish then fails (an open circuit breaker at startup, a broker
+	// brownout, a refused packet) — and the old guard let the sweep run
+	// against a broker still holding the previous release's 100 working
+	// configs, with nothing published to replace them.
+	// haBundlePublished is set by publishDiscovery only after PublishBundle
+	// returned without error, and cleared on every reconnect.
 	if c.haBundle == nil {
 		log.Warn("coordinator.reconcile_sweep_skipped",
-			slog.String("reason", "no device document was published"))
+			slog.String("reason", "no device document was built"))
 		return
 	}
-	prefix := c.deps.HARuntime.Prefix()
+	if !c.haBundlePublished.Load() {
+		log.Warn("coordinator.reconcile_sweep_skipped",
+			slog.String("reason", "the device document was built but not published"))
+		return
+	}
+	rt := c.ha()
+	prefix := rt.Prefix()
 
 	var (
 		mu    sync.Mutex
 		owned []string
 	)
-	res, err := c.deps.HARuntime.Sweep(ctx, publisher.SweepRequest{
+	res, err := rt.Sweep(ctx, publisher.SweepRequest{
 		ReportOnly: true,
 		Window:     reconcileCollectWindow,
 		Owns:       hass.OwnsConfigTopic,
@@ -154,7 +169,7 @@ func (c *Coordinator) sweepOrphans(ctx context.Context, published map[string]boo
 	for topic := range published {
 		claimed[topic] = true
 	}
-	for _, topic := range c.deps.HARuntime.Declared() {
+	for _, topic := range rt.Declared() {
 		claimed[topic] = true
 	}
 	mu.Lock()
@@ -176,7 +191,7 @@ func (c *Coordinator) sweepOrphans(ctx context.Context, published map[string]boo
 		log.Debug("coordinator.discovery_orphans_none", slog.Int("inspected", res.Inspected))
 		return
 	}
-	if err := c.deps.HARuntime.Retract(ctx, orphans...); err != nil {
+	if err := rt.Retract(ctx, orphans...); err != nil {
 		log.Warn("coordinator.reconcile_clear_failed", slog.String("err", err.Error()))
 		return
 	}

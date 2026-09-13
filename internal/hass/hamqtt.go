@@ -249,9 +249,15 @@ func NewDevice(d *Discovery) *hamodel.Device {
 //
 // The dual emission is reproduced, not resolved: a writable register
 // yields both its control and a read-only sensor view, so nine unique_ids
-// appear twice under two platforms each. Whether a device bundle may carry
-// that is unmeasured and needs a live Home Assistant; see
-// notes/adr0070-phase6-measurement.md §3.3. Component keys are
+// appear twice under two platforms each. That a device bundle may carry
+// it is SETTLED, not open: go-hamqtt v0.32.0 narrowed discovery.Validate's
+// duplicate check to key on (platform, unique_id) — Home Assistant's own
+// entity_registry (domain, platform, unique_id) index — after step 3 of
+// this migration pinned the previous refusal and the bump turned that pin
+// red. TestRenderedBundleAcceptsTheDuplicatedUniqueIDs is the assertion;
+// notes/adr0070-phase6-measurement.md §3.3 asked the question and
+// notes/adr0070-phase6-steps45-results.md answered it. No live Home
+// Assistant session is outstanding for it. Component keys are
 // "<platform>.<mqtt key>" precisely so the duplication reaches the bundle
 // as two components rather than being swallowed by discovery.Render's
 // duplicate-key check.
@@ -549,6 +555,32 @@ func LegacyConfigTopic(prefix string, platform Platform, uniqueID string) string
 	})
 }
 
+// LegacyAvailabilityTopic is the retained availability marker every
+// release up to 1.9.0 wrote, "<hass_base>/status/lwt".
+//
+// It is a RETRACTION target and nothing else: the marker moved to
+// [BridgeStatusTopic] in this bridge's own publish root, because
+// "<hass_base>/status/lwt" sits one level under
+// [publisher.BirthTopic] — the topic Home Assistant publishes its own
+// birth message to, and which this daemon subscribes to. An upgrading
+// broker still holds the stale "online" there, so the daemon clears it on
+// every connect.
+//
+// It is a function here rather than a string expression at the
+// composition root because it used to be one: cmd/mtec2mqtt spelled
+// `cfg.HASSBaseTopic + "/status/lwt"` inline, its test passed the same
+// literal in and asserted publication to it, and mutating the production
+// spelling to "/status/LWT" left the suite green. One spelling, and the
+// test now reads it from here.
+//
+// The prefix is trimmed of a trailing slash the same way
+// [publisher.BirthTopic] trims it, so a HASS_BASE_TOPIC written
+// "homeassistant/" retracts the topic the old release actually wrote
+// rather than a double-slashed sibling of it.
+func LegacyAvailabilityTopic(prefix string) string {
+	return publisher.BirthTopic(prefix) + "/lwt"
+}
+
 // LegacyConfigTopicForms is what publisher.Config.LegacyEntityTopics must
 // be set to for this fleet, and is named here rather than at the
 // composition root because [LegacyConfigTopicForm] measured it here.
@@ -634,6 +666,20 @@ func stateSlot(serial, group, key string) hamodel.Slot {
 // PR #817 found retraction prefixes that owned 100 % of a sibling
 // daemon's configs. Widening any of the three conditions is a decision
 // about what this daemon is willing to delete from a tree it does not own.
+//
+// # An upgrade tripwire, recorded because nothing would catch it
+//
+// Three of the guards below are mutually redundant TODAY, and only because
+// of a contract that lives in another module. publisher.ParseConfigTopic
+// never returns a topic with Bundle set AND a Platform, and never one with
+// an empty ObjectID in the four-segment form — so `t.Bundle`, `t.Platform
+// == ""` and `t.ObjectID == ""` each already imply what the others reject,
+// and a mutation pass finds all three survivable. They are kept anyway,
+// because the redundancy is not this package's to guarantee: a future
+// go-hamqtt that let a bundle topic carry a Platform would evaporate it
+// silently, and the consequence would be this daemon claiming — and its
+// sweep retracting — a sibling instance's ENTIRE device document. If that
+// contract ever changes, this is the function to re-derive.
 func OwnsConfigTopic(t publisher.ConfigTopic) bool {
 	if t.Bundle || t.Platform == "" || t.NodeID != "" || t.ObjectID == "" {
 		return false

@@ -468,7 +468,7 @@ func TestSweepSparesAConfigThisProcessStillClaims(t *testing.T) {
 	c, _, mqttStub, _ := buildDeps(t, true)
 	c.deps.Logger = slog.New(slog.DiscardHandler)
 	initDiscovery(t, c)
-	if _, err := c.deps.HARuntime.Publish(context.Background(), live, body); err != nil {
+	if _, err := c.ha().Publish(context.Background(), live, body); err != nil {
 		t.Fatalf("mint the claim: %v", err)
 	}
 	mqttStub.mu.Lock()
@@ -705,11 +705,11 @@ func TestSweepSparesAConfigWhoseOwnPublishFailed(t *testing.T) {
 
 	// The publish fails, so `published` names it and `Declared()` does not.
 	mqttStub.setPublishErr(errInjected{})
-	if _, err := c.deps.HARuntime.Publish(context.Background(), refused, body); err == nil {
+	if _, err := c.ha().Publish(context.Background(), refused, body); err == nil {
 		t.Fatal("the injected broker error did not reach the runtime")
 	}
 	mqttStub.setPublishErr(nil)
-	if slices.Contains(c.deps.HARuntime.Declared(), refused) {
+	if slices.Contains(c.ha().Declared(), refused) {
 		t.Fatalf("the runtime declared %q despite the publish failing", refused)
 	}
 	mqttStub.mu.Lock()
@@ -741,10 +741,10 @@ func TestSweepSparesADeclaredConfigOutsideThisBatch(t *testing.T) {
 	c, _, mqttStub, _ := buildDeps(t, true)
 	c.deps.Logger = slog.New(slog.DiscardHandler)
 	initDiscovery(t, c)
-	if _, err := c.deps.HARuntime.Publish(context.Background(), declared, body); err != nil {
+	if _, err := c.ha().Publish(context.Background(), declared, body); err != nil {
 		t.Fatalf("mint the claim: %v", err)
 	}
-	if !slices.Contains(c.deps.HARuntime.Declared(), declared) {
+	if !slices.Contains(c.ha().Declared(), declared) {
 		t.Fatal("the runtime declared nothing")
 	}
 	mqttStub.mu.Lock()
@@ -763,6 +763,11 @@ func TestSweepSparesADeclaredConfigOutsideThisBatch(t *testing.T) {
 // retracted. The shared body of the fixtures above.
 func runSweep(t *testing.T, c *Coordinator, mqttStub *stubMQTT, published map[string]bool, retained map[string][]byte) []string {
 	t.Helper()
+	// The sweep's precondition: a device document that actually reached the
+	// broker. These fixtures drive sweepOrphans directly rather than through
+	// publishDiscovery, so they have to state it — and that it has to be
+	// stated is the point of TestTheSweepIsSkippedWhenTheDocumentWasNotPublished.
+	c.haBundlePublished.Store(true)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -897,5 +902,199 @@ func TestAnInvalidDocumentWithholdsTheWholeMigration(t *testing.T) {
 				t.Errorf("the sweep wrote %q with no document", p.topic)
 			}
 		})
+	}
+}
+
+// --- the memo that must not outlive its connection --------------------------
+
+// TestAReconnectReSendsTheRetractionsBeforeTheDocument is the ordering
+// property the whole migration rests on, asserted across the one event
+// that used to break it.
+//
+// The chain is sound WITHIN one connection — supersede is sequential,
+// go-mqtt's Publish returns only after Write+Flush, one client, one TCP
+// connection, and MQTT orders equal-QoS publishes from one client. What
+// broke it is the reconnect. publisher.Runtime's `superseded` map is per
+// PROCESS, while a QoS 0 "success" is only per CONNECTION: the bytes were
+// flushed to a socket that then died, so the broker may never have applied
+// them — and the in-process retry skipped the retractions and published the
+// document anyway. Measured on a harness before the fix: retractions
+// re-sent 0, document published true, per-entity configs still retained.
+//
+// In Home Assistant terms that is one "WARNING [mqtt.entity] Received a
+// conflicting MQTT discovery message" in ITS log, no entities, nothing on
+// the wire and nothing in this daemon's.
+//
+// PublishOnline rebuilds the runtime, so the memo cannot describe a
+// connection that is gone. Both halves are asserted, because either alone
+// is a passing test of a broken migration: every retraction goes out
+// again, AND every one of them precedes the document.
+func TestAReconnectReSendsTheRetractionsBeforeTheDocument(t *testing.T) {
+	c, _, mqttStub, _ := buildDeps(t, true)
+	c.deps.Logger = slog.New(slog.DiscardHandler)
+	initDiscovery(t, c)
+
+	const doc = "homeassistant/device/mtec-test-001/config"
+	legacy := map[string]bool{}
+	for _, e := range c.deps.HASS.Entries() {
+		legacy[e.ConfigTopic] = true
+	}
+	if len(legacy) == 0 {
+		t.Fatal("the fixture has no per-entity configs to retract")
+	}
+
+	// Connection 1: the retractions and the document are written — and the
+	// connection then dies, so the broker may have applied none of it.
+	c.publishDiscovery(context.Background())
+	mqttStub.mu.Lock()
+	mqttStub.publishes = nil
+	mqttStub.mu.Unlock()
+
+	// The lifecycle reconnects.
+	c.PublishOnline(context.Background())
+	c.publishDiscovery(context.Background())
+
+	pubs := mqttStub.snapshotPublishes()
+	docAt := -1
+	for i, p := range pubs {
+		if p.topic == doc && len(p.payload) > 0 {
+			docAt = i
+			break
+		}
+	}
+	if docAt < 0 {
+		t.Fatal("the device document was not republished after the reconnect; a broker " +
+			"that came back without its retained store now holds no discovery config at all")
+	}
+	missing := map[string]bool{}
+	for topic := range legacy {
+		missing[topic] = true
+	}
+	for _, p := range pubs[:docAt] {
+		if len(p.payload) == 0 && p.retain {
+			delete(missing, p.topic)
+		}
+	}
+	if len(missing) != 0 {
+		t.Errorf("%d of %d per-entity configs were not re-retracted before the document "+
+			"on the new connection: %v — Home Assistant refuses the document while any "+
+			"one of them is still retained", len(missing), len(legacy), sortedKeys(missing))
+	}
+}
+
+// TestTheSweepIsSkippedWhenTheDocumentWasNotPublished makes the guard test
+// what its own log line claims.
+//
+// It used to ask whether the document was BUILT and log "no device document
+// was published". The two come apart in the case that matters most: the
+// build succeeds, the publish then fails — an open circuit breaker at
+// startup, a broker brownout, a packet the broker refuses — and the sweep
+// ran anyway. After this release the daemon publishes no four-segment
+// per-entity config at all, so every one the window finds is an orphan by
+// its own rule: the pass would have deleted the working entities of the
+// release being upgraded from and put nothing in their place.
+func TestTheSweepIsSkippedWhenTheDocumentWasNotPublished(t *testing.T) {
+	old := reconcileCollectWindow
+	reconcileCollectWindow = 50 * time.Millisecond
+	t.Cleanup(func() { reconcileCollectWindow = old })
+
+	c, _, mqttStub, _ := buildDeps(t, true)
+	c.deps.Logger = slog.New(slog.DiscardHandler)
+	initDiscovery(t, c)
+
+	// The document is built and valid; only its write is refused.
+	mqttStub.setFailPublishTo("homeassistant/device/mtec-test-001/config", errInjected{})
+	published := c.publishDiscovery(context.Background())
+	if c.haBundle == nil {
+		t.Fatal("the fixture withheld the document at build time; that is the other guard")
+	}
+
+	mqttStub.mu.Lock()
+	mqttStub.subscribes = nil
+	mqttStub.mu.Unlock()
+
+	c.sweepOrphans(context.Background(), published)
+
+	// The subscribe LIST, not the live handler map: the window takes its
+	// subscription down again on the way out, so a handler lookup after the
+	// pass has returned finds nothing whether the pass ran or not.
+	mqttStub.mu.Lock()
+	subscribed := append([]string(nil), mqttStub.subscribes...)
+	mqttStub.mu.Unlock()
+	if len(subscribed) != 0 {
+		t.Fatalf("the sweep opened its snapshot window with no document on the broker "+
+			"(subscribed %v); every per-entity config it finds is an orphan by its own "+
+			"rule, and there is nothing published to replace them", subscribed)
+	}
+}
+
+// TestADocumentTooLargeForTheBrokerRetractsNothing moves a check that used
+// to happen after the irreversible step to before it.
+//
+// go-mqtt enforces the broker's advertised CONNACK Maximum Packet Size and
+// returns ErrPacketTooLarge locally — but publisher.Runtime.PublishBundle
+// has already cleared all 100 per-entity configs by then, so the device is
+// left with NO discovery config at all and its entities are absent rather
+// than unavailable. This fleet's document is ~50 KB on the wire and every
+// surveyed broker default accommodates it (mosquitto unlimited, EMQX 1 MB,
+// AWS IoT 128 KB), but a hardened `max_packet_size 65535` does not.
+//
+// Withholding is the same answer an invalid document gets, for the same
+// reason: the installed base keeps the configs it has and goes on working.
+func TestADocumentTooLargeForTheBrokerRetractsNothing(t *testing.T) {
+	c, _, mqttStub, _ := buildDeps(t, true)
+	c.deps.Logger = slog.New(slog.DiscardHandler)
+	// A broker that will accept 512 bytes and nothing more.
+	c.deps.BrokerMaxPacketSize = func() (uint32, bool) { return 512, true }
+	initDiscovery(t, c)
+
+	published := c.publishDiscovery(context.Background())
+
+	for _, p := range mqttStub.snapshotPublishes() {
+		t.Errorf("%q was published although the document cannot reach this broker; "+
+			"a retraction here is not reversible", p.topic)
+	}
+	if len(published) != 0 {
+		t.Errorf("the claim set names %v although nothing was published", sortedKeys(published))
+	}
+	// Deterministic for this connection, so the republisher must not spin
+	// on it — a reconnect renegotiates the limit and clears it.
+	if !c.discoverySent.Load() {
+		t.Error("discoverySent is false, so discoveryRepublisher retries a publish that " +
+			"cannot succeed every 5 s for the life of the process")
+	}
+	// And the sweep must not run either.
+	if c.haBundlePublished.Load() {
+		t.Error("the document is marked published; the orphan sweep would then delete " +
+			"the per-entity configs this daemon just declined to replace")
+	}
+}
+
+// TestAnUnknownBrokerMaximumIsNotASmallOne is the preflight's other
+// direction. An MQTT 3.1.1 link, a broker that advertises no limit and a
+// composition root that wires no hook all answer "unknown", and unknown
+// must mean "publish", not "withhold": the check may only ever prevent a
+// migration that would genuinely have failed.
+func TestAnUnknownBrokerMaximumIsNotASmallOne(t *testing.T) {
+	for _, hook := range []func() (uint32, bool){
+		nil,
+		func() (uint32, bool) { return 0, false },
+		func() (uint32, bool) { return 0, true },
+	} {
+		c, _, mqttStub, _ := buildDeps(t, true)
+		c.deps.Logger = slog.New(slog.DiscardHandler)
+		c.deps.BrokerMaxPacketSize = hook
+		initDiscovery(t, c)
+		c.publishDiscovery(context.Background())
+
+		var sent bool
+		for _, p := range mqttStub.snapshotPublishes() {
+			if p.topic == "homeassistant/device/mtec-test-001/config" && len(p.payload) > 0 {
+				sent = true
+			}
+		}
+		if !sent {
+			t.Error("an unknown broker maximum withheld the document")
+		}
 	}
 }

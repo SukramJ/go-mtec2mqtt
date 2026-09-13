@@ -506,3 +506,48 @@ func TestFormatFloatPanicsBeforeValidate(t *testing.T) {
 	var c Config
 	_ = c.FormatFloat(1.0)
 }
+
+// TestHASSBaseTopicIsNormalisedAtTheBoundary pins the fix for a defect
+// that was silent in every log and that no fixture could reach, because
+// every one of them hardcodes "homeassistant".
+//
+// HASS_BASE_TOPIC is a topic PREFIX and every consumer appends
+// "/<something>" to it. go-hamqtt's publisher.BirthTopic and
+// BundleConfigTopic trim a trailing slash; this daemon's own
+// "<base>/status" concatenation did not, so an operator who wrote
+// "homeassistant/" had the daemon subscribe "homeassistant//status" while
+// Home Assistant announces its birth on "homeassistant/status". An empty
+// MQTT topic level is legal and distinct, so the two never met — and the
+// entities were gone after every Home Assistant restart until the daemon
+// itself was restarted.
+//
+// Normalising here means there is nothing left for a second spelling
+// downstream to disagree about.
+func TestHASSBaseTopicIsNormalisedAtTheBoundary(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct{ in, want string }{
+		{"homeassistant", "homeassistant"},
+		{"homeassistant/", "homeassistant"},
+		{"ha/disc/", "ha/disc"},
+		{"ha/disc//", "ha/disc"},
+		{"", DefaultHASSBaseTopic},
+		{"/", DefaultHASSBaseTopic},
+	}
+	for _, tc := range cases {
+		if got := NormalizeHASSBaseTopic(tc.in); got != tc.want {
+			t.Errorf("NormalizeHASSBaseTopic(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+
+	// And it is applied to what an operator's YAML actually carries, not
+	// only exported for a caller who remembers to use it.
+	cfg, err := Load(strings.NewReader(minimumYAML+"HASS_BASE_TOPIC: homeassistant/\n"), nil)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.HASSBaseTopic != "homeassistant" {
+		t.Errorf("loaded HASS_BASE_TOPIC = %q, want homeassistant — the trailing slash "+
+			"survives into every topic built from it", cfg.HASSBaseTopic)
+	}
+}

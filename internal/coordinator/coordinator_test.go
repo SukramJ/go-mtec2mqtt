@@ -142,9 +142,17 @@ func wirePlanes(t *testing.T, deps *Deps, mqttStub *stubMQTT) {
 	// The production composition, not a second spelling of it: dropping
 	// Config.LegacyEntityTopics at the composition root used to be caught
 	// by nothing, because the fixtures built a runtime that still had it.
-	rt := publisher.New(tr, HARuntimeConfig(deps.Cfg, slog.New(slog.DiscardHandler)))
-	t.Cleanup(rt.Close)
-	deps.HARuntime = rt
+	haCfg := HARuntimeConfig(deps.Cfg, slog.New(slog.DiscardHandler))
+	// A factory, exactly as the composition root wires it: the runtime is
+	// rebuilt on every (re)connect so nothing it remembers — least of all
+	// which per-entity configs it has already retracted — can outlive the
+	// connection that earned it.
+	deps.NewHARuntime = func() *publisher.Runtime {
+		rt := publisher.New(tr, haCfg)
+		t.Cleanup(rt.Close)
+		return rt
+	}
+	rt := deps.NewHARuntime()
 	deps.StatePlane = publisher.StateFor(rt, publisher.StateConfig{
 		QoS:            StateQoS,
 		Encoding:       discovery.RawEncoding,
@@ -1302,13 +1310,13 @@ func TestNewRefusesARuntimeThatDoesNotStateTheLegacyForm(t *testing.T) {
 	})
 	t.Cleanup(rt.Close)
 	deps := Deps{
-		Cfg:       cfg,
-		Catalog:   &registers.Map{},
-		Modbus:    &stubModbus{},
-		Reader:    newStubReader(),
-		MQTT:      mqttStub,
-		Logger:    slog.New(slog.DiscardHandler),
-		HARuntime: rt,
+		Cfg:          cfg,
+		Catalog:      &registers.Map{},
+		Modbus:       &stubModbus{},
+		Reader:       newStubReader(),
+		MQTT:         mqttStub,
+		Logger:       slog.New(slog.DiscardHandler),
+		NewHARuntime: func() *publisher.Runtime { return rt },
 		StatePlane: publisher.StateFor(rt, publisher.StateConfig{
 			QoS:      StateQoS,
 			Encoding: discovery.RawEncoding,

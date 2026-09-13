@@ -233,7 +233,11 @@ func subscribeFilters(t *testing.T, c *Coordinator, stub *stubMQTT) []string {
 	reconcileCollectWindow = 20 * time.Millisecond
 	t.Cleanup(func() { reconcileCollectWindow = oldWindow })
 	// A real pass over an empty broker: it opens the window, judges
-	// nothing and retracts nothing, which is all this needs from it.
+	// nothing and retracts nothing, which is all this needs from it. The
+	// sweep only runs once a device document has reached the broker, so
+	// that precondition is stated here rather than reached through a
+	// publish this helper does not otherwise need.
+	c.haBundlePublished.Store(true)
 	c.sweepOrphans(context.Background(), map[string]bool{})
 
 	stub.mu.Lock()
@@ -255,7 +259,7 @@ func TestTopicGolden(t *testing.T) {
 	}
 
 	configSet := map[string]bool{}
-	for _, topic := range hass.SupersededConfigTopics(c.deps.HARuntime.Prefix(), c.haBundle) {
+	for _, topic := range hass.SupersededConfigTopics(c.ha().Prefix(), c.haBundle) {
 		configSet[topic] = true
 	}
 	commandSet := map[string]bool{}
@@ -456,14 +460,26 @@ func TestPublishQoSAndRetain(t *testing.T) {
 	}
 }
 
-// TestSubscribeQoS pins the QoS of the two startup subscriptions and of
-// the orphan-reconcile one, for the same reason as above: nothing
-// asserted them.
+// TestSubscribeQoS pins the QoS of all THREE subscriptions this daemon
+// opens, for the same reason as above: nothing asserted them.
+//
+// The third one is the orphan sweep's snapshot window. Its doc comment
+// used to claim it was pinned here while the assertion only ever held the
+// two startup filters and the sweep never ran in this fixture — so
+// "homeassistant/#" was pinned nowhere, and its QoS is not the daemon's
+// choice but publisher.Config's, which also governs every discovery
+// publish. It runs here now.
 func TestSubscribeQoS(t *testing.T) {
 	c, _, stub, _ := realTopicCoordinator(t)
 	if err := c.installInboundHandler(context.Background()); err != nil {
 		t.Fatalf("installInboundHandler: %v", err)
 	}
+	oldWindow := reconcileCollectWindow
+	reconcileCollectWindow = 20 * time.Millisecond
+	t.Cleanup(func() { reconcileCollectWindow = oldWindow })
+	c.haBundlePublished.Store(true)
+	c.sweepOrphans(context.Background(), map[string]bool{})
+
 	stub.mu.Lock()
 	filters, qoss := append([]string(nil), stub.subscribes...), append([]mqtt.QoS(nil), stub.subscribeQoS...)
 	stub.mu.Unlock()
@@ -471,6 +487,9 @@ func TestSubscribeQoS(t *testing.T) {
 	want := map[string]mqtt.QoS{
 		"homeassistant/status": mqtt.QoS1,
 		"MTEC/+/+/+/set":       mqtt.QoS1,
+		// DiscoveryQoS — publisher.Config's QoS, which the library applies
+		// to the sweep's window as well as to the discovery publishes.
+		"homeassistant/#": mqtt.QoS0,
 	}
 	if len(filters) != len(want) {
 		t.Fatalf("subscribed to %v, want %d filters", filters, len(want))

@@ -341,17 +341,43 @@ func (d *Discovery) Diagnostics() []string { return d.diagnostics }
 func (d *Discovery) Entries() []Entry { return d.entries }
 
 // IsOwnConfig reports whether a retained HA discovery config payload was
-// published by this daemon: its unique_id sits in our "MTEC_" namespace and
-// its state_topic (when present) is under our MQTT publish root. Orphan
-// cleanup uses this as a guard so it never clears the discovery configs of
-// another integration that happens to share the discovery prefix.
+// published by THIS daemon for THIS inverter: its unique_id sits in our
+// "MTEC_" namespace and its state_topic sits under "<root>/<serial>/".
+// The orphan sweep uses it as its second, decisive ownership check, after
+// [OwnsConfigTopic] has judged the topic.
 //
-// With serial-scoped unique_ids enabled the state_topic must additionally
-// sit under this inverter's serial ("<root>/<serial>/…") — every entity this
-// daemon ever published carries that prefix (in the legacy and the scoped
-// id format alike), while a sibling instance's entities carry a different
-// serial and must never be treated as ours.
+// # Why the serial is required unconditionally
+//
+// It used to be required only under HASS_UNIQUE_ID_INCLUDE_SERIAL; with the
+// shipped default it was enough for the state topic to sit under the MQTT
+// root, which two instances against two inverters share. Two such instances
+// therefore claimed each other's configs, and #52 recorded that as harmless
+// because both published the SAME 100 config topics — so neither could ever
+// judge the other's orphaned.
+//
+// #53 falsified that and nothing revisited it. An upgraded instance
+// publishes a device document and no per-entity config at all, so its
+// published set no longer names those 100 topics — and every one of the
+// not-yet-upgraded sibling's retained configs becomes an orphan by this
+// daemon's own rule. A staggered two-instance upgrade (which is what an
+// upgrade of two containers, two add-ons or two systemd units IS) then has
+// the upgraded instance retract the sibling's entire fleet, permanently:
+// the sibling has no reason to republish, so its entities are simply gone.
+//
+// Requiring the serial closes that, and it costs nothing that was working:
+// every config this daemon has ever published, in either unique_id format,
+// carries a state_topic under its own inverter's serial — all 100 of them,
+// asserted by TestEveryPublishedConfigIsClaimedByItsOwnInstance. A payload
+// with no state_topic at all, or one under another serial, is now declined,
+// which is the safe direction for a predicate whose only use is deciding
+// what to delete from a tree this daemon shares.
+//
+// It returns false before [Discovery.Initialize] has supplied the serial:
+// ownership that cannot be proven is not claimed.
 func (d *Discovery) IsOwnConfig(payload []byte) bool {
+	if d.serialNo == "" {
+		return false
+	}
 	var cfg struct {
 		UniqueID   string `json:"unique_id"`
 		StateTopic string `json:"state_topic"`
@@ -362,12 +388,7 @@ func (d *Discovery) IsOwnConfig(payload []byte) bool {
 	if !strings.HasPrefix(cfg.UniqueID, uniqueIDPrefix) {
 		return false
 	}
-	root := d.mqttTopic + "/"
-	if d.serialInUniqueID && d.serialNo != "" {
-		root += d.serialNo + "/"
-		return strings.HasPrefix(cfg.StateTopic, root)
-	}
-	return cfg.StateTopic == "" || strings.HasPrefix(cfg.StateTopic, root)
+	return strings.HasPrefix(cfg.StateTopic, d.mqttTopic+"/"+d.serialNo+"/")
 }
 
 // buildEntries iterates the catalog and dispatches each

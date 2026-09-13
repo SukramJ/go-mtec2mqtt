@@ -561,7 +561,24 @@ func TestBundleOriginIsWiredFromTheBuildVersion(t *testing.T) {
 // present and carries a platform and nothing else. An entry that is simply
 // absent leaves the entity in place — so a release that drops a register
 // publishes a document that says nothing about it and Home Assistant keeps
-// showing it, unavailable, forever.
+// showing it.
+//
+// It shows it as AVAILABLE, not unavailable, and the earlier wording here
+// (and in changelog.md) had that wrong in the flattering direction. The
+// stranded entity's `availability` list still names MTEC/bridge/status,
+// which this daemon keeps publishing "online" to, so nothing about the
+// phantom looks dead — it simply stops updating, or goes on updating if
+// the register is still polled, because the poll loop is group-driven and
+// consults no discovery hint. There is no signal anywhere that the entity
+// belongs to nothing.
+//
+// It is reachable by ordinary operator action, because registers.yaml ships
+// next to the binary and is meant to be edited: deleting a register,
+// clearing its `group`, renaming its `mqtt:` key, downgrading
+// `hass_component_type` from `number`/`select` to `sensor` (one stranded
+// entity) or from `switch` to `sensor` (two), or a typo that makes the
+// entry fail validateEntry. It does NOT depend on the language — both
+// bundles carry identical component keys.
 //
 // discovery.Bundle.RemoveComponents is the call that expresses the removal,
 // and [discovery.Bundle.Tombstones] is what makes the removal reach the

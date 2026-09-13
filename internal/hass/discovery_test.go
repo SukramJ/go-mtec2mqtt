@@ -451,9 +451,24 @@ func TestIsOwnConfig(t *testing.T) {
 			want:    true,
 		},
 		{
-			name:    "ours without state topic",
+			// A sibling instance against a SECOND inverter on the same
+			// broker, with the shipped defaults: same namespace, same MQTT
+			// root, a different serial. Declined — its entities are not
+			// this daemon's to retract. See TestAStaggeredUpgradeDoesNotDelete
+			// TheSiblingsFleet in internal/coordinator.
+			name:    "a sibling inverter's config",
+			payload: `{"unique_id":"MTEC_grid_power","state_topic":"MTEC/SN99999/now-base/grid_power/state"}`,
+			want:    false,
+		},
+		{
+			// Ownership that cannot be proven is not claimed. No config
+			// this daemon publishes lacks a state topic — all 100 carry
+			// one, asserted by TestEveryPublishedConfigIsClaimedByItsOwn
+			// Instance — so declining costs nothing and is the safe
+			// direction for a predicate whose only use is deletion.
+			name:    "no state topic at all",
 			payload: `{"unique_id":"MTEC_charge_active"}`,
-			want:    true,
+			want:    false,
 		},
 		{
 			name:    "foreign unique_id",
@@ -471,9 +486,62 @@ func TestIsOwnConfig(t *testing.T) {
 			want:    false,
 		},
 	}
+	d.Initialize("SN12345", "V1", "model")
 	for _, tc := range cases {
 		if got := d.IsOwnConfig([]byte(tc.payload)); got != tc.want {
 			t.Errorf("%s: IsOwnConfig = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// TestIsOwnConfigClaimsNothingBeforeTheSerialIsKnown pins the other half
+// of the serial requirement: until the STATIC read supplies the serial
+// there is no way to tell this inverter's config from a sibling's, and an
+// ownership predicate whose only consumer is a retraction must answer "no"
+// when it cannot answer "yes".
+func TestIsOwnConfigClaimsNothingBeforeTheSerialIsKnown(t *testing.T) {
+	d := New("homeassistant", "MTEC", loadCatalog(t), "en", nil, "")
+	const ours = `{"unique_id":"MTEC_grid_power","state_topic":"MTEC/SN12345/now-base/grid_power/state"}`
+	if d.IsOwnConfig([]byte(ours)) {
+		t.Error("an uninitialised Discovery claimed a config; the sweep would retract " +
+			"on a serial it does not have")
+	}
+}
+
+// TestEveryPublishedConfigIsClaimedByItsOwnInstance is what makes the
+// serial requirement free rather than a narrowing that loses something.
+//
+// Every per-entity config this daemon has ever published carries a
+// state_topic under "<root>/<serial>/" — in both unique_id formats — so
+// requiring it declines exactly the sibling instance's configs and nothing
+// of this instance's own. Asserted over the real catalog rather than
+// argued, and in both formats, because the claim is about all of them.
+func TestEveryPublishedConfigIsClaimedByItsOwnInstance(t *testing.T) {
+	for _, scoped := range []bool{false, true} {
+		d := New("homeassistant", "MTEC", loadCatalog(t), "en",
+			DefaultVirtualSwitches(1000, 1000), "")
+		d.IncludeSerialInUniqueIDs(scoped)
+		d.Initialize("SN12345", "V1", "model")
+		entries := d.Entries()
+		if len(entries) == 0 {
+			t.Fatalf("scoped=%v: the builder produced no entries", scoped)
+		}
+		for _, e := range entries {
+			if !d.IsOwnConfig(e.Payload) {
+				t.Errorf("scoped=%v: this daemon declines its own config %q; the sweep "+
+					"would never clear its own orphans", scoped, e.ConfigTopic)
+			}
+		}
+		// And a second instance declines every one of them.
+		sib := New("homeassistant", "MTEC", loadCatalog(t), "en",
+			DefaultVirtualSwitches(1000, 1000), "")
+		sib.IncludeSerialInUniqueIDs(scoped)
+		sib.Initialize("SN99999", "V1", "model")
+		for _, e := range entries {
+			if sib.IsOwnConfig(e.Payload) {
+				t.Errorf("scoped=%v: a sibling instance claims %q; its sweep would retract "+
+					"a live inverter's entity", scoped, e.ConfigTopic)
+			}
 		}
 	}
 }

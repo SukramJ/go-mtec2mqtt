@@ -8,12 +8,14 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/SukramJ/go-hamqtt/publisher"
 	"github.com/SukramJ/go-mqtt"
 
+	"github.com/SukramJ/go-mtec2mqtt/internal/config"
 	"github.com/SukramJ/go-mtec2mqtt/internal/hass"
 	"github.com/SukramJ/go-mtec2mqtt/internal/registers"
 )
@@ -220,7 +222,7 @@ func TestAnnouncementsUseTheBridgeTopic(t *testing.T) {
 // are, because both come from the same publisher.Runtime.
 func TestWillAgreesWithTheAnnouncements(t *testing.T) {
 	c, _, mqttStub, _ := buildDeps(t, false)
-	will, err := c.deps.HARuntime.Will()
+	will, err := c.ha().Will()
 	if err != nil {
 		t.Fatalf("Will() = %v", err)
 	}
@@ -400,24 +402,45 @@ func TestCommandRouteAndFilterAreOneString(t *testing.T) {
 	}
 }
 
-// TestTwoInstancesOwnTheSameConfigTopics records what the sweep does when
-// this daemon runs twice, against two inverters, on one broker — which
-// the brief asked to be checked and said so either way.
+// TestTwoInstancesShareEveryConfigTopicAndClaimNoneOfEachOthers is the
+// #52-era test, rewritten, because #53 falsified the conclusion it was
+// written with and nothing revisited it.
 //
-// The answer is that the ownership predicates DO overlap, completely, and
-// that this is not a regression: by default a unique_id carries no serial
-// (HASS_UNIQUE_ID_INCLUDE_SERIAL is off), so two instances render the
-// SAME 100 config topics with the same unique_ids. Their published sets
-// are therefore identical, which is why neither judges the other's
-// configs orphaned — and also why the two overwrite each other's
-// `state_topic` on every boot, a pre-existing condition this step does
-// not introduce and does not fix.
+// # What it used to say, and why that went stale
 //
-// The payload check is what keeps the sweep safe in the configuration
-// that actually separates two instances: with serial-scoped unique_ids
-// the config topics differ AND Discovery.IsOwnConfig additionally
-// requires the state topic to sit under this inverter's own serial.
-func TestTwoInstancesOwnTheSameConfigTopics(t *testing.T) {
+// It recorded that the ownership predicates overlap COMPLETELY and that
+// this "is not a regression": with the shipped defaults a unique_id
+// carries no serial, so two instances render the same 100 config topics
+// with the same unique_ids, "their published sets are therefore identical,
+// which is why neither judges the other's configs orphaned".
+//
+// That last clause stopped being true one PR later. An upgraded instance
+// publishes ONE device document and no per-entity config at all, so its
+// published set no longer names those 100 topics — and every one of the
+// not-yet-upgraded sibling's retained configs became an orphan by the
+// upgraded instance's own rule. A staggered upgrade of two instances,
+// which is what upgrading two containers, two add-ons or two systemd units
+// IS, therefore had the first one to restart delete the second one's
+// entire fleet, permanently: the sibling has no reason to republish.
+//
+// The test could not see it because it only asked the predicates; it never
+// drove the sweep or the supersede list. TestAStaggeredUpgradeDoesNotDelete
+// TheSiblingsFleet does, next door, and is the one that would have failed.
+//
+// # What it asserts now
+//
+//   - The TOPICS still collide, completely, with the shipped defaults.
+//     That is unchanged, real, and the reason HASS_UNIQUE_ID_INCLUDE_SERIAL
+//     must be set on BOTH instances before upgrading (README, changelog).
+//   - The OWNERSHIP predicates do not: each instance declines the other's
+//     payload in both configurations, because Discovery.IsOwnConfig now
+//     requires the state topic to sit under this inverter's own serial
+//     unconditionally rather than only under the serial-scoped opt-in.
+//   - Only the reverse direction is safe by itself and is asserted to
+//     stay so: 1.9.x's sweep filter does match the new bundle topic, but a
+//     bundle payload carries no top-level unique_id, so the old release's
+//     IsOwnConfig declines it. Old never deletes new.
+func TestTwoInstancesShareEveryConfigTopicAndClaimNoneOfEachOthers(t *testing.T) {
 	catalog, _, err := registers.LoadFromString(testCatalogYAML)
 	if err != nil {
 		t.Fatal(err)
@@ -428,9 +451,6 @@ func TestTwoInstancesOwnTheSameConfigTopics(t *testing.T) {
 		d.Initialize(serial, "V1", "model")
 		return d
 	}
-
-	// Default configuration: identical topics, so identical claims.
-	a, b := build("SN-A", false), build("SN-B", false)
 	topicsOf := func(d *hass.Discovery) map[string]bool {
 		out := map[string]bool{}
 		for _, e := range d.Entries() {
@@ -438,6 +458,10 @@ func TestTwoInstancesOwnTheSameConfigTopics(t *testing.T) {
 		}
 		return out
 	}
+
+	// Default configuration: identical topics — still true, still the
+	// operator-visible hazard.
+	a, b := build("SN-A", false), build("SN-B", false)
 	ta, tb := topicsOf(a), topicsOf(b)
 	if len(ta) == 0 || len(ta) != len(tb) {
 		t.Fatalf("entry counts differ: %d vs %d", len(ta), len(tb))
@@ -446,27 +470,63 @@ func TestTwoInstancesOwnTheSameConfigTopics(t *testing.T) {
 		if !tb[topic] {
 			t.Fatalf("%q is published by one instance only; the default is meant to be identical", topic)
 		}
-		// Each instance's payload check accepts the OTHER's config too,
-		// because neither carries a serial anywhere. Recorded, not
-		// asserted as desirable.
-		for _, e := range b.Entries() {
-			if e.ConfigTopic == topic && !a.IsOwnConfig(e.Payload) {
-				t.Errorf("instance A declines instance B's %q; the default configuration "+
-					"is expected to make the two indistinguishable", topic)
+	}
+
+	// …and neither claims the other's, in either configuration. This is
+	// the assertion that replaces the falsified comment.
+	for _, scoped := range []bool{false, true} {
+		x, y := build("SN-A", scoped), build("SN-B", scoped)
+		for _, e := range y.Entries() {
+			if x.IsOwnConfig(e.Payload) {
+				t.Errorf("scoped=%v: instance A claims instance B's %q — its sweep would "+
+					"retract a live sibling's entity, and after the move to the device "+
+					"document it would retract ALL of them", scoped, e.ConfigTopic)
+			}
+		}
+		if !scoped {
+			continue
+		}
+		for _, e := range y.Entries() {
+			if topicsOf(x)[e.ConfigTopic] {
+				t.Errorf("serial-scoped instances still share the config topic %q", e.ConfigTopic)
 			}
 		}
 	}
+}
 
-	// Serial-scoped: different topics, and each declines the other's body.
-	sa, sb := build("SN-A", true), build("SN-B", true)
-	for _, e := range sb.Entries() {
-		if topicsOf(sa)[e.ConfigTopic] {
-			t.Errorf("serial-scoped instances still share the config topic %q", e.ConfigTopic)
-		}
-		if sa.IsOwnConfig(e.Payload) {
-			t.Errorf("serial-scoped instance A claims instance B's config %q — "+
-				"its sweep would retract a live sibling's entity", e.ConfigTopic)
-		}
+// TestAStaggeredUpgradeDoesNotDeleteTheSiblingsFleet drives the sweep the
+// rewritten test above only reasons about, in exactly the shape an
+// operator produces by upgrading one of two instances first.
+//
+// The upgraded instance has published its device document, so its claim
+// set names one bundle topic and no per-entity config at all. The window
+// then offers it the not-yet-upgraded sibling's 100 retained configs: same
+// discovery prefix, same "MTEC_" namespace, same MQTT root, same config
+// topics — everything but the serial in the state topic.
+//
+// Not one of them may be retracted. The sibling is live, it has no reason
+// to republish, and Home Assistant simply loses its entities.
+func TestAStaggeredUpgradeDoesNotDeleteTheSiblingsFleet(t *testing.T) {
+	old := reconcileCollectWindow
+	reconcileCollectWindow = 150 * time.Millisecond
+	t.Cleanup(func() { reconcileCollectWindow = old })
+
+	// The sibling instance: another inverter, shipped defaults, therefore
+	// the very same config topics this instance used to publish.
+	const (
+		siblingSerial = "MTEC-TEST-002"
+		siblingCfg    = "homeassistant/select/MTEC_mode/config"
+		siblingCfg2   = "homeassistant/sensor/MTEC_grid_power/config"
+	)
+	retracted := sweepFixture(t, map[string][]byte{
+		siblingCfg: []byte(`{"unique_id":"MTEC_mode","state_topic":"MTEC/` +
+			siblingSerial + `/config/mode/state"}`),
+		siblingCfg2: []byte(`{"unique_id":"MTEC_grid_power","state_topic":"MTEC/` +
+			siblingSerial + `/now-base/grid_power/state"}`),
+	})
+	if len(retracted) != 0 {
+		t.Fatalf("a staggered upgrade retracted %v — that is the not-yet-upgraded "+
+			"sibling instance's entire fleet, and it will not republish", retracted)
 	}
 }
 
@@ -497,5 +557,121 @@ func TestEmptyStatePayloadIsRefusedByBothLayers(t *testing.T) {
 	}
 	if n := len(mqttStub.snapshotPublishes()); n != 0 {
 		t.Errorf("the refused publish still put %d messages on the wire", n)
+	}
+}
+
+// TestPublishOnlineReopensTheDiscoveryGate is the half of the reconnect
+// path the step-5 hook left out, and it is a regression against 1.9.x.
+//
+// A (re)connect may be to a broker that came back without its retained
+// store — a mosquitto restarted without persistence, a broker failover, a
+// cloud broker's session reset. The state plane already handled it
+// (TestPublishOnlineReopensTheDedupGate); the discovery plane did not. Two
+// gates held the document shut: discoverySent, which nothing cleared
+// except a Home Assistant birth, and publisher.Runtime's `declared` map,
+// which still held the document's bytes for a broker that no longer had
+// them. Measured before the fix: republished 0 times, discoverySent true.
+//
+// Home Assistant would then show no entities for this device until the
+// DAEMON was restarted, with nothing in either log. 1.9.x had no such gate
+// — its per-entity replay re-sent all 100 configs on every birth.
+//
+// resetHAPlane plus the discoverySent clear is the fix, and both halves are
+// asserted: the republisher must be armed, and the write must actually go
+// out when it fires.
+func TestPublishOnlineReopensTheDiscoveryGate(t *testing.T) {
+	c, _, mqttStub, _ := buildDeps(t, true)
+	c.deps.Logger = slog.New(slog.DiscardHandler)
+	initDiscovery(t, c)
+
+	const doc = "homeassistant/device/mtec-test-001/config"
+	c.publishDiscovery(context.Background())
+	if !c.discoverySent.Load() {
+		t.Fatal("the first publish did not mark discovery sent; the fixture is wrong")
+	}
+	mqttStub.mu.Lock()
+	mqttStub.publishes = nil
+	mqttStub.mu.Unlock()
+
+	// The broker came back — without its retained store. The lifecycle
+	// fires OnConnect.
+	c.PublishOnline(context.Background())
+	if c.discoverySent.Load() {
+		t.Error("discovery is still marked sent after a reconnect; discoveryRepublisher " +
+			"never fires and the device is never re-announced")
+	}
+
+	// And the republish actually writes, rather than being deduped away by
+	// a runtime that remembers a broker's forgotten retained store.
+	c.publishDiscovery(context.Background())
+	var wrote int
+	for _, p := range mqttStub.snapshotPublishes() {
+		if p.topic == doc && len(p.payload) > 0 {
+			wrote++
+		}
+	}
+	if wrote != 1 {
+		t.Errorf("the device document was written %d times after the reconnect, want 1", wrote)
+	}
+}
+
+// TestTheBirthSubscriptionIsHomeAssistantsOwnBirthTopic closes a defect
+// that is silent in both logs and that no fixture could reach, because
+// every one of them hardcodes "homeassistant".
+//
+// HASS_BASE_TOPIC is a prefix and every consumer appends to it. This
+// daemon built its birth subscription by concatenation
+// ("<base>/status") while go-hamqtt's publisher.BirthTopic — exported for
+// exactly this and used nowhere in the repository — trims a trailing
+// slash. A base written "homeassistant/" therefore had the daemon
+// subscribe "homeassistant//status" while Home Assistant announces on
+// "homeassistant/status": an empty topic level is legal and DISTINCT, so
+// the two never meet.
+//
+// The bundle still landed, because the library trimmed where the
+// coordinator did not — which is why nothing surfaced it. The consequence
+// is that after EVERY Home Assistant restart the entities were gone until
+// the daemon itself was restarted: discoverySent is only cleared by a
+// birth that never arrived.
+//
+// Closed twice over: the value is normalised at the config boundary, and
+// the topic is the library's function rather than a second spelling.
+func TestTheBirthSubscriptionIsHomeAssistantsOwnBirthTopic(t *testing.T) {
+	for _, base := range []string{"homeassistant", "homeassistant/", "ha/disc/", "ha/disc"} {
+		cfg := buildConfig(t, true)
+		// The RAW value, deliberately: config.NormalizeHASSBaseTopic already
+		// trims it at the loader, and a test that fed the trimmed value in
+		// would pin only that lock. This one pins the second — that the
+		// coordinator reads the library's function rather than spelling the
+		// topic itself — so removing either is a failing test.
+		cfg.HASSBaseTopic = base
+
+		mqttStub := newStubMQTT()
+		deps := Deps{
+			Cfg:     cfg,
+			Catalog: &registers.Map{},
+			Modbus:  &stubModbus{},
+			Reader:  newStubReader(),
+			MQTT:    mqttStub,
+			Logger:  slog.New(slog.DiscardHandler),
+		}
+		wirePlanes(t, &deps, mqttStub)
+		c := New(deps)
+
+		// What Home Assistant publishes: the prefix, one slash, "status".
+		want := strings.TrimRight(base, "/") + "/status"
+		if c.hassStatusTopic != want {
+			t.Errorf("HASS_BASE_TOPIC %q: subscribes %q, Home Assistant publishes %q — "+
+				"the birth never arrives and the entities stay gone after every HA restart",
+				base, c.hassStatusTopic, want)
+		}
+		if c.hassStatusTopic != publisher.BirthTopic(base) {
+			t.Errorf("HASS_BASE_TOPIC %q: %q is a second spelling of publisher.BirthTopic(%q) = %q",
+				base, c.hassStatusTopic, base, publisher.BirthTopic(base))
+		}
+		// And the loader trims it too, so neither lock is load-bearing alone.
+		if got := config.NormalizeHASSBaseTopic(base); got != strings.TrimRight(base, "/") {
+			t.Errorf("config.NormalizeHASSBaseTopic(%q) = %q", base, got)
+		}
 	}
 }

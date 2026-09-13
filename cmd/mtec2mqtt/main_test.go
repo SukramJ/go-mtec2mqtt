@@ -8,12 +8,14 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/SukramJ/go-hamqtt/publisher"
 	"github.com/SukramJ/go-mqtt"
 
+	"github.com/SukramJ/go-mtec2mqtt/internal/config"
 	"github.com/SukramJ/go-mtec2mqtt/internal/coordinator"
 	"github.com/SukramJ/go-mtec2mqtt/internal/hass"
 )
@@ -221,14 +223,22 @@ func TestBridgeStatusTopicIsNotInTheDiscoveryTree(t *testing.T) {
 
 	const mqttRoot, hassBase = "MTEC", "homeassistant"
 	got := hass.BridgeStatusTopic(mqttRoot)
+	// t.Errorf, not t.Fatalf: the three assertions below used to sit after
+	// a t.Fatalf and were therefore unreachable — the first one passing was
+	// the only reason the rest ever ran, and a mutation that moved the
+	// topic would have stopped at line one with the interesting assertions
+	// never evaluated.
 	if got != "MTEC/bridge/status" {
-		t.Fatalf("BridgeStatusTopic(%q) = %q, want MTEC/bridge/status", mqttRoot, got)
+		t.Errorf("BridgeStatusTopic(%q) = %q, want MTEC/bridge/status", mqttRoot, got)
 	}
-	if got == hassBase+"/status/lwt" {
-		t.Fatal("the status topic is still in Home Assistant's own tree")
+	if got == hass.LegacyAvailabilityTopic(hassBase) {
+		t.Error("the status topic is still in Home Assistant's own tree")
 	}
-	if len(got) <= len(mqttRoot) || got[:len(mqttRoot)+1] != mqttRoot+"/" {
-		t.Fatalf("%q is not under the daemon's own publish root", got)
+	if strings.HasPrefix(got, hassBase+"/") {
+		t.Errorf("%q is under the Home Assistant discovery prefix", got)
+	}
+	if !strings.HasPrefix(got, mqttRoot+"/") {
+		t.Errorf("%q is not under the daemon's own publish root", got)
 	}
 }
 
@@ -240,14 +250,26 @@ func TestBridgeStatusTopicIsNotInTheDiscoveryTree(t *testing.T) {
 func TestRetractLegacyAvailabilityClearsTheOldTopic(t *testing.T) {
 	t.Parallel()
 
+	// The topic comes from PRODUCTION, not from this test. It used to be
+	// passed in as a literal and asserted against the same literal, which
+	// tested argument forwarding and nothing else: mutating cmd's spelling
+	// to "/status/LWT" left this suite green, and the retraction would have
+	// cleared a topic no release ever wrote while the real stale "online"
+	// sat there forever.
+	// The PREFIX goes in and the topic is derived by production code. The
+	// literal below is the one every release up to 1.9.0 actually wrote,
+	// and it is the only literal this test states.
+	cfg := &config.Config{HASSBaseTopic: "homeassistant"}
+	const topic = "homeassistant/status/lwt"
+
 	pub := &recordingPublisher{}
-	retractLegacyAvailability(pub, "homeassistant/status/lwt", discardLogger())(t.Context())
+	retractLegacyAvailability(pub, cfg.HASSBaseTopic, discardLogger())(t.Context())
 
 	if pub.calls != 1 {
 		t.Fatalf("publisher saw %d calls, want 1", pub.calls)
 	}
-	if pub.topic != "homeassistant/status/lwt" {
-		t.Errorf("retracted %q, want homeassistant/status/lwt", pub.topic)
+	if pub.topic != topic {
+		t.Errorf("retracted %q, want %q", pub.topic, topic)
 	}
 	if pub.payload != "" {
 		t.Errorf("payload = %q, want empty — only an empty payload retracts", pub.payload)
@@ -263,5 +285,21 @@ func TestRetractLegacyAvailabilityClearsTheOldTopic(t *testing.T) {
 func TestRetractLegacyAvailabilitySwallowsPublishError(t *testing.T) {
 	t.Parallel()
 
-	retractLegacyAvailability(&failingPublisher{}, "homeassistant/status/lwt", discardLogger())(t.Context())
+	retractLegacyAvailability(&failingPublisher{}, "homeassistant", discardLogger())(t.Context())
+}
+
+// TestTheLegacyAvailabilityTopicIsTrimmedLikeHomeAssistantTrimsIt is the
+// same trailing-slash defect as the birth subscription's, on the other
+// topic the discovery prefix is appended to. A HASS_BASE_TOPIC written
+// "homeassistant/" must clear the topic the old release actually wrote,
+// not a double-slashed sibling of it that holds nothing.
+func TestTheLegacyAvailabilityTopicIsTrimmedLikeHomeAssistantTrimsIt(t *testing.T) {
+	t.Parallel()
+
+	for _, base := range []string{"homeassistant", "homeassistant/", "ha/disc/"} {
+		want := strings.TrimRight(base, "/") + "/status/lwt"
+		if got := hass.LegacyAvailabilityTopic(base); got != want {
+			t.Errorf("LegacyAvailabilityTopic(%q) = %q, want %q", base, got, want)
+		}
+	}
 }
