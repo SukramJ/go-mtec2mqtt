@@ -56,15 +56,24 @@ import (
 //     pinned as a defect in the coordinator package's topic golden; the
 //     filter is a later step.
 //
-// # Deliberately unresolved
+// # The duplicated unique_ids — settled, not open
 //
 // Nine `unique_id`s are published twice, under two platforms each (the
 // number/select/switch entities also get a read-only sensor view). That is
 // legal in the per-entity discovery form, because Home Assistant keys the
-// registry on (domain, integration, unique_id). Whether it is legal inside
-// a *device bundle* is unmeasured and is not settled here: it needs a live
-// Home Assistant. TestGoldenPinsTheDuplicateUniqueIDs pins the duplication
-// as current behaviour and names the nine.
+// registry on (domain, integration, unique_id).
+//
+// Whether a *device bundle* may carry them is SETTLED, and no live Home
+// Assistant session is outstanding for it. go-hamqtt v0.32.0 narrowed
+// discovery.Validate's duplicate check to key on (platform, unique_id) —
+// Home Assistant's own (domain, platform, unique_id) registry index —
+// after step 3 of this migration pinned v0.31.0's refusal and the bump
+// turned that pin red. The step 3b live-HA gate is cancelled;
+// notes/adr0070-phase6-steps45-results.md §1 records it, and
+// NewEntities' doc comment in hamqtt.go carries the same statement.
+// TestRenderedBundleAcceptsTheDuplicatedUniqueIDs is the bundle-side
+// assertion; TestGoldenPinsTheDuplicateUniqueIDs below pins the
+// duplication in the per-entity form and names the nine.
 
 var updateDiscoveryGolden = flag.Bool("update-discovery-golden", false,
 	"rewrite internal/hass/testdata/*.json from the current builder output")
@@ -291,8 +300,12 @@ func TestGoldenPinsTheDeviceBlock(t *testing.T) {
 
 // TestGoldenPinsTheDuplicateUniqueIDs pins the nine unique_ids that are
 // published twice under two platforms each. This is current behaviour, not
-// an endorsement: see the package comment above. A live Home Assistant is
-// what settles whether a device bundle may carry them.
+// an endorsement: see the package comment above.
+//
+// That a device bundle may carry them is settled — go-hamqtt v0.32.0, see
+// TestRenderedBundleAcceptsTheDuplicatedUniqueIDs — so this test pins the
+// per-entity form only, and no live Home Assistant session is outstanding
+// for it.
 func TestGoldenPinsTheDuplicateUniqueIDs(t *testing.T) {
 	want := map[string][]string{
 		"MTEC_charge_limit":        {"number", "sensor"},

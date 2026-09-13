@@ -1,6 +1,17 @@
 # ADR 0070 phase 6 — measurement for go-mtec2mqtt
 
-- Status: measurement, not a decision
+- Status: **closed**. Sections 1-7 and findings F1-F11 are the measurement,
+  which took no decision and fixed nothing; the closing section *Phase 6
+  outcome* records every finding's disposition and every place the
+  measurement has since been overtaken.
+- **Convention: sections 1-7 and the findings are a frozen snapshot.** They
+  say what was true on 2026-09-13, against `origin/main` at `d402f71` and
+  `go-hamqtt` v0.31.0, and they are never edited to match what is true now.
+  Every correction is carried in *Phase 6 outcome* at the end instead. So a
+  passage above may be stale by design; it is not wrong, and the outcome
+  section is the authority wherever the two disagree. The one thing this
+  document must never do is read as an open question that has since been
+  closed — see the outcome section's *Corrections* first.
 - Date: 2026-09-13
 - Subject: [ADR 0070](https://github.com/SukramJ/openccu-loom/blob/main/docs/adr/0070-shared-ha-discovery-model-module.md)
   and its rollout table, row *"6 | `go-mtec2mqtt` (591) | Fixes
@@ -539,6 +550,13 @@ Four things above are derived from reading the library, not from running it.
   change for 9 entities and would have to be declared as such, or to drop the
   redundant sensor view entirely (see [F7](#f7)).
 
+  > **Corrected — this question is settled and no live Home Assistant is
+  > outstanding.** `go-hamqtt` v0.32.0 narrowed `discovery.Validate`'s
+  > duplicate check to `(platform, unique_id)`; the nine are legal in a
+  > bundle and neither fallback was needed. The paragraph above is the
+  > frozen snapshot of what was unknown on 2026-09-13. See
+  > [Phase 6 outcome](#phase-6-outcome--what-the-measurement-got-and-what-has-overtaken-it).
+
 - **The rendered bundle JSON.** Every key and its source is named above, but
   not the exact byte sequence, because no consumer exists yet.
   *Settled by:* writing the `Layout` + one `model.Device` + 100
@@ -961,6 +979,11 @@ hits: `poll.go:152` state, `coordinator.go:570` discovery retained,
 `RefreshStatic = 3600` seconds (`internal/config/defaults.go:46`): an hour of
 `unknown` after a Home Assistant restart.
 
+> **Corrected — fixed in step 2a.** State is retained now, at QoS 0 stated
+> rather than defaulted (`coordinator.StateQoS`), with F8's empty-payload
+> guard in the same change. Pinned by `TestPublishQoSAndRetain`. See
+> [Phase 6 outcome](#phase-6-outcome--what-the-measurement-got-and-what-has-overtaken-it).
+
 So **the rollout table's note — "fixes retain/availability/slugify bugs as a
 side effect" — is confirmed on all three counts.** One correction to the
 brief's attribution, though: that note is **not** in `go-hamqtt`'s CHANGELOG.
@@ -1166,6 +1189,8 @@ question is answered in code** — and where, if the library refuses it, the
 whole shape of step 6 changes. *Byte risk: none — nothing publishes.*
 
 **Step 3b — settle the duplicate `unique_id` against a live Home Assistant.**
+*(Cancelled — a version bump settled it instead; see
+[Phase 6 outcome](#phase-6-outcome--what-the-measurement-got-and-what-has-overtaken-it).)*
 Before anything else moves. One throwaway device, one two-component bundle
 sharing a `unique_id` across `sensor` and `number`, HA 2026.9, watch the log.
 This is a half-day and it gates step 6. If HA refuses, decide then between
@@ -1213,7 +1238,7 @@ the reason the five above are separate.*
 | Availability | neutral — a working bridge plane already existed | **its own step, with a release note, and the library's default is the wrong answer** | §3.4; the failure mode is 100 permanently-unavailable entities |
 | QoS | *"cannot be preserved"* | **preserved explicitly with `QoSAtMostOnce`** | v0.27.0, bought by the pilot |
 | `SupersededTopics` | *"the single highest-risk step… `SupersededTopics` will not do it"* | **one config line does it** | v0.27.0's `LegacyTopicByUniqueID`, bought by the pilot |
-| A live-HA gate | one (the conflict refusal) | **two (the conflict refusal, already settled; the duplicate `unique_id`, not settled)** | mtec's dual emission has no analogue |
+| A live-HA gate | one (the conflict refusal) | **two (the conflict refusal, already settled; the duplicate `unique_id`, not settled)** — *corrected: one, and it too was settled without a live session; phase 6 completed with zero* | mtec's dual emission has no analogue |
 | Sub-devices | the point of the pilot | none | mtec exercises "one 33 KB bundle" instead |
 | Pins | *"no golden, tests using a root no deployment uses"* | **25 tests on the real root and the real catalog; one payload of 100 pinned** | the gap is a golden file, not a test culture |
 
@@ -1243,6 +1268,8 @@ confounding the pilot document predicted, and the reason it put mtec second.
   It is 9 entities of installed base and a deliberate UX choice (§6.6). If
   step 3b says a bundle cannot carry duplicate `unique_id`s, re-key the
   sensor views as a declared orphaning change — do not silently delete them.
+  *(Corrected: step 3b was cancelled and this branch was never taken — the
+  nine are legal in a bundle.)*
 - **Enable `HASS_UNIQUE_ID_INCLUDE_SERIAL` as part of the migration.** It
   changes every `unique_id` and is correctly documented as a deliberate
   opt-in that orphans an existing installation (`discovery.go:138-146`).
@@ -1336,6 +1363,10 @@ every entity for up to an hour.** `poll.go:152`, `mqtt.QoS0, false`. The
 so the entities exist; they just have no value. Already recorded in ADR 0070
 §8.2:109-111; confirmed here. Fixed by construction under `StatePublisher`
 (`publisher/state.go:313-318`) — but see F8.
+
+> **Corrected — fixed in step 2a**, together with F8. See the disposition
+> table in
+> [Phase 6 outcome](#phase-6-outcome--what-the-measurement-got-and-what-has-overtaken-it).
 
 <a id="f4"></a>
 **F4 — `slugify` performs no transliteration, so a German `DEVICE_NAME`
@@ -1434,6 +1465,76 @@ tomorrow: nothing in the current code could ever clean up a stale bundle.
 Recorded here because it is the one place where the existing sweep and the
 migration target silently do not see each other, and §7.2 step 5's `Owns`
 predicate has to be written knowing it.
+
+---
+
+## Phase 6 outcome — what the measurement got, and what has overtaken it
+
+Added after step 6 landed (PRs #48–#54). The sections above are left exactly
+as they were written; this section is where every correction lives.
+
+### Corrections — read these before trusting a passage above
+
+- **§3.3's duplicate-`unique_id` question is SETTLED, and it did not take a
+  live Home Assistant.** The measurement calls it *"the single highest-risk
+  unknown in this migration"* (`:533`) and scopes a half-day live-HA session
+  to settle it. What actually settled it was a version bump:
+  `go-hamqtt` v0.32.0 narrowed `discovery.Validate`'s duplicate check to key
+  on `(platform, unique_id)`, mirroring Home Assistant's own
+  `(domain, platform, unique_id)` entity-registry index. The nine duplicated
+  ids are legal inside a device bundle exactly as they have always been legal
+  in the per-entity form. Recorded in
+  [`adr0070-phase6-step3-results.md`](./adr0070-phase6-step3-results.md) §3
+  and [`adr0070-phase6-steps45-results.md`](./adr0070-phase6-steps45-results.md)
+  §1; asserted by `TestRenderedBundleAcceptsTheDuplicatedUniqueIDs`.
+- **Step 3b (`:1168`) is cancelled.** It existed only to answer the above.
+  Neither of the two fallbacks it names was needed: no re-keying of the nine
+  sensor views, no dropping them, no catalogue change at all. §7.4's *"if
+  step 3b says a bundle cannot carry duplicate `unique_id`s"* (`:1244`) is
+  therefore a branch that was never taken.
+- **§7.3's live-HA-gate table row (`:1216`) now reads "one, and it was
+  already settled".** It says *"two (the conflict refusal, already settled;
+  the duplicate `unique_id`, not settled)"*. One remained at the time of
+  writing; zero remain now. Phase 6 completed without any live Home Assistant
+  session.
+- **§6.2 and F3 describe a defect that is fixed.** The measurement records
+  state published non-retained (`poll.go:152`, `mqtt.QoS0, false`). Step 2a
+  fixed it: state is retained, at QoS 0 stated rather than defaulted
+  (`coordinator.StateQoS = publisher.QoSAtMostOnce`), with F8's empty-payload
+  guard in the same change because an empty payload on a retained topic is a
+  retraction. Pinned by `TestPublishQoSAndRetain` and
+  `TestNilValueIsNotPublished`.
+- **F5 undercounted.** The measurement counts two state-topic composers; the
+  real count was five. See
+  [`adr0070-phase6-steps45-results.md`](./adr0070-phase6-steps45-results.md)
+  §2.4 and F14 there.
+- **The "measured against" versions are superseded.** `go-hamqtt` v0.31.0 →
+  v0.32.0, `go-mqtt` v1.3.0 → v1.5.1, both taken during the migration.
+
+### Disposition
+
+| Finding | Disposition |
+| --- | --- |
+| **F1** — no availability source | **Fixed** in step 2b. Every payload declares the bridge status topic; pinned by `TestEveryPayloadDeclaresBridgeAvailability`. |
+| **F2** — availability topic inside HA's birth tree | **Fixed** in step 2b, with F1 and in the same change, because fixing either alone is wrong. Pinned by `TestAvailabilityTopicIsOutsideTheDiscoveryTree`. |
+| **F3** — state published non-retained | **Fixed** in step 2a, with F8. Pinned by `TestPublishQoSAndRetain`. |
+| **F4** — `slugify` does not transliterate | **Left, deliberately.** §7.4's reasoning stands: Home Assistant never renames a registered entity, so swapping the function strands ids rather than migrating them. `TestSlugify` still pins the current behaviour, so any future fix is loud. |
+| **F5** — the state topic built in more than one place | **Fixed and closed** in step 4; the composers converged on `hass.StateTopic`. Worse than measured (five, not two) — see F14 of the steps-4-and-5 results. |
+| **F6** — `button` silently publishes nothing | **Fixed.** An `hass_component_type` this builder cannot emit is now loud rather than silent; `TestUnsupportedComponentTypeIsLoud` is the assertion. |
+| **F7** — the synthetic switches' `enabled_by_default` | **Left**, and still pinned as an inconsistency by `TestGoldenPinsTheEnabledByDefaultInconsistency`. It is a one-key payload change that toggles entities on in installed fleets; it does not ride inside a migration step. |
+| **F8** — `formatValue(nil)` becomes a retraction once state is retained | **Fixed** in step 2a, in the same change as F3 and for that reason. Pinned by `TestNilValueIsNotPublished`. |
+| **F9** — `publishDiscovery`'s doc comment describes a subscription it does not make | **Fixed.** The comment now describes the retained device document the function actually writes. |
+| **F10** — the state-topic tree is wider than the discovery tree | **Left**, still pinned as a defect in the coordinator package's topic golden. The filter is a later step. |
+| **F11** — the sweep would not recognise a device bundle as its own | **Fixed** in steps 5 and 6. `hass.OwnsConfigTopic` judges a parsed `publisher.ConfigTopic`, including its `Bundle` flag, instead of unmarshalling a payload. |
+
+### What the frozen measurements are still good for
+
+Every count in sections 1-6 — 100 payloads, 91 distinct `unique_id`s, the
+~11 136 messages an hour, the slug divergence, the capture method in the
+appendix — is a record of what `origin/main` at `d402f71` actually put on a
+broker. That is the baseline every later step's byte-equality proof is
+measured against, and rewriting it to match today's output would destroy
+exactly the thing it was taken for. It stays.
 
 ---
 
