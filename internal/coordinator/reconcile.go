@@ -93,6 +93,19 @@ func (c *Coordinator) reconcileOrphans(ctx context.Context, published map[string
 //     publish just wrote.
 func (c *Coordinator) sweepOrphans(ctx context.Context, published map[string]bool) {
 	log := c.deps.Logger
+	// Refused outright when there is no device document. Since the move to
+	// the bundle this daemon publishes no four-segment per-entity config at
+	// all, so every one the window finds is an orphan by the rule below —
+	// which is exactly right when the document went out, and catastrophic
+	// when it did not: it would delete the working entities of the release
+	// being upgraded from and put nothing in their place. buildBundle
+	// leaves haBundle nil precisely so a document that does not validate
+	// withholds the whole migration, and that has to include this pass.
+	if c.haBundle == nil {
+		log.Warn("coordinator.reconcile_sweep_skipped",
+			slog.String("reason", "no device document was published"))
+		return
+	}
 	prefix := c.deps.HARuntime.Prefix()
 
 	var (

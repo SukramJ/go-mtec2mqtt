@@ -42,6 +42,28 @@ for Ingress, and `hass_base_topic` stays at Home Assistant's default
 (`homeassistant`). The refresh intervals and MQTT float format use the daemon
 defaults; run the standalone binary / Docker image if you need to tune those.
 
+## Home Assistant discovery
+
+Discovery is published as **one retained device document** at
+`homeassistant/device/<serial>/config`. **Home Assistant 2024.11 or newer is
+required.**
+
+Upgrading from 1.9.x or earlier moves the fleet off the previous
+one-message-per-entity form (`homeassistant/<platform>/MTEC_<key>/config`).
+The first start retracts those 100 retained configs and then publishes the
+document, in that order — Home Assistant refuses either form while the
+other is still retained, silently, with one `WARNING [mqtt.entity] Received
+a conflicting MQTT discovery message` in its log.
+
+Nothing is re-keyed: every `unique_id` is unchanged, so entity names,
+areas, icons, history and automations survive untouched.
+
+If the add-on is stopped between the two steps the entities are briefly
+*absent*; starting it again repairs that by itself. Rolling back to an
+older add-on version needs the document cleared first
+(`mosquitto_pub -t homeassistant/device/<serial>/config -r -n`), or the old
+version's per-entity configs are refused in the same silence.
+
 ## TLS / secure MQTT
 
 The daemon speaks **plain TCP MQTT** only (no native TLS) — MQTT 5.0 by

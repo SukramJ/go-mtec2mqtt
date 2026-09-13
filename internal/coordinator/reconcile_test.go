@@ -10,6 +10,9 @@ import (
 	"sort"
 	"testing"
 	"time"
+
+	"github.com/SukramJ/go-mtec2mqtt/internal/hass"
+	"github.com/SukramJ/go-mtec2mqtt/internal/registers"
 )
 
 // TestPublishDiscoveryReturnsPublishedSet checks that publishDiscovery
@@ -739,4 +742,105 @@ func runSweep(t *testing.T, c *Coordinator, mqttStub *stubMQTT, published map[st
 	}
 	sort.Strings(got)
 	return got
+}
+
+// --- the document that must not be published --------------------------------
+
+// TestAnInvalidDocumentWithholdsTheWholeMigration is the fail-closed trade
+// this release makes on purpose, and the one failure that does NOT heal by
+// itself.
+//
+// Home Assistant discards a malformed discovery document in silence. If
+// this daemon published one, the 100 working per-entity configs would
+// already have been retracted to make room for it and the fleet would be
+// gone with nothing anywhere saying why. So discovery.Validate runs once,
+// at build time, BEFORE anything is published, and a blocking issue leaves
+// the document nil — which must mean:
+//
+//  1. no document,
+//  2. and, decisively, NO RETRACTION. The installed base keeps the configs
+//     it already has and goes on working.
+//  3. and no orphan sweep, because after this release every four-segment
+//     config the sweep's window finds is an orphan by its own rule — which
+//     is right when the document went out and catastrophic when it did not.
+//
+// The library documents that wiring Validate into a publish path is
+// fail-closed and costs a device all of its entities on one bad component.
+// That is the trade, taken knowingly: the alternative is the same loss
+// plus a retraction that cannot be undone.
+func TestAnInvalidDocumentWithholdsTheWholeMigration(t *testing.T) {
+	// A catalogue Home Assistant's schema refuses: "voltage" is not a
+	// device class a binary_sensor may carry.
+	const refused = `
+"10000":
+  name: Inverter serial number
+  length: 8
+  type: STR
+  mqtt: serial_no
+  group: static
+
+"11000":
+  name: Bad entity
+  length: 1
+  type: U16
+  mqtt: bad_entity
+  group: now-base
+  hass_component_type: binary_sensor
+  hass_device_class: voltage
+`
+	cases := []struct {
+		name   string
+		serial string
+	}{
+		// A blocking issue from discovery.Validate.
+		{"refused by discovery.Validate", "MTEC-TEST-001"},
+		// An empty serial is a device with no identifier at all, so the
+		// render itself refuses. Same verdict, one stage earlier.
+		{"refused by discovery.Render", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _, mqttStub, _ := buildDeps(t, true)
+			c.deps.Logger = slog.New(slog.DiscardHandler)
+
+			bad, _, err := registers.LoadFromString(refused)
+			if err != nil {
+				t.Fatalf("load the refused catalogue: %v", err)
+			}
+			c.deps.HASS = hass.New(c.deps.Cfg.HASSBaseTopic, c.deps.Cfg.MQTTTopic,
+				bad, c.deps.Cfg.Language, nil, c.deps.Cfg.DeviceName)
+			c.deps.HASS.Initialize(tc.serial, "V1", "model")
+			c.buildBundle()
+
+			if c.haBundle != nil {
+				t.Fatalf("a document was built from a catalogue the schema refuses: %s",
+					c.haBundleTopic)
+			}
+
+			mqttStub.mu.Lock()
+			mqttStub.publishes = nil
+			mqttStub.mu.Unlock()
+
+			if published := c.publishDiscovery(context.Background()); len(published) != 0 {
+				t.Errorf("publishDiscovery claimed %v with no document", published)
+			}
+			for _, p := range mqttStub.snapshotPublishes() {
+				t.Errorf("%q was written with no document to replace it; an empty "+
+					"retained payload is a retraction and the fleet is now gone", p.topic)
+			}
+
+			// And the sweep refuses too.
+			old := reconcileCollectWindow
+			reconcileCollectWindow = 50 * time.Millisecond
+			t.Cleanup(func() { reconcileCollectWindow = old })
+			c.sweepOrphans(context.Background(), nil)
+			if mqttStub.countSubscribes("homeassistant/#") != 0 {
+				t.Error("the sweep opened its window with no document; every retained " +
+					"per-entity config it finds would be judged an orphan and deleted")
+			}
+			for _, p := range mqttStub.snapshotPublishes() {
+				t.Errorf("the sweep wrote %q with no document", p.topic)
+			}
+		})
+	}
 }

@@ -2,6 +2,87 @@
 
 ## What's Changed
 
+### Changed
+
+- **Home Assistant discovery is now ONE retained device document**
+  (ADR 0070 phase 6, step 6). Instead of 100 retained messages at
+  `homeassistant/<platform>/MTEC_<key>/config`, each repeating the whole
+  `device` block, the daemon publishes a single retained document at
+  **`homeassistant/device/<serial>/config`** carrying the device block
+  once, an `origin` block, and all 100 entities as components. **Home
+  Assistant 2024.11 or newer is required from this release.**
+
+  **Nothing is re-keyed.** Every `unique_id` is byte-identical to the one
+  the previous release published, and `unique_id` is what Home Assistant's
+  entity registry is keyed on — so entity ids, renames, icons, area
+  assignments, hidden flags, history and automation references all survive
+  the move untouched. The only payload differences are the ones the form
+  requires: `platform` moves from the topic into each component, the
+  `device` block is hoisted out of all 100 entities to the top of the
+  document, and an `origin` block is added. Everything else is
+  byte-identical, checked field by field against the frozen pre-upgrade
+  payloads.
+
+  **What a migrating user sees: nothing, if it goes as intended.** The
+  first start after upgrading retracts the 100 per-entity configs and then
+  publishes the document, in that order. It must be that order: Home
+  Assistant refuses a device document while a per-entity config for the
+  same `unique_id` is still retained, and refuses the per-entity config
+  while the document is retained. The refusal is symmetric, produces
+  nothing on the wire, and shows up as exactly one line —
+  `WARNING [mqtt.entity] Received a conflicting MQTT discovery message` —
+  with the entities simply not appearing.
+
+  **If the daemon dies between the two steps**, the broker holds no
+  discovery config for the device at all and its entities are *absent*
+  rather than unavailable. This is self-healing: restart the daemon. A
+  fresh process starts with no memory of the retraction, so it re-sends it
+  (a no-op against topics the broker has already cleared) and then
+  publishes the document. No manual step, no broker surgery.
+
+  **Downgrading to 1.9.x or earlier needs one manual step, and this is a
+  deliberate trade.** The document stays retained on the broker, and the
+  older release republishing per-entity configs is refused by the very
+  same symmetry, in the very same silence. Before rolling back, clear it:
+
+  ```bash
+  mosquitto_pub -h <broker> -t homeassistant/device/<serial>/config -r -n
+  ```
+
+  (`<serial>` lower-cased.) The old release then re-adopts the same
+  entities with their history, because nothing was re-keyed. The
+  alternative — keeping the daemon able to unwind its own migration — was
+  rejected: it would mean shipping a rollback path that only the *new*
+  binary can run, which is exactly the binary a rolling-back user has
+  stopped using.
+
+  **Running two daemons against two inverters changes shape.** The
+  document topic is keyed on the inverter serial, where the per-entity
+  topics were not, so the two instances no longer publish to the same
+  topics and cannot retract or overwrite each other. Their entity
+  `unique_id`s are still identical by default, though, and Home Assistant
+  binds each identity to whichever device declared it first. Set
+  `HASS_UNIQUE_ID_INCLUDE_SERIAL: true` on **both** instances (it rewrites
+  every `unique_id` and orphans the existing entities — a deliberate
+  one-way change) before upgrading.
+
+  **Known limitation (F17):** when an entity leaves the catalogue in a
+  future release, the new document simply omits it — and Home Assistant
+  removes a component only when its entry is present carrying a platform
+  and nothing else. This daemon keeps no memory of the previous document,
+  so it cannot write that entry, and the withdrawn entity lingers as a
+  permanently unavailable phantom. The workaround is to delete the entity
+  in Home Assistant. Under the per-entity form the orphan sweep handled
+  this; that capability is lost by the move and is tracked as a follow-up.
+
+  The orphan sweep still runs and still clears per-entity configs left by
+  earlier releases — including entities withdrawn *before* the upgrade,
+  which the retraction cannot reach because they are in no document. It
+  remains as narrow as ever: four-segment topics only, the five platforms
+  this daemon emits, the `MTEC_` unique-id namespace, and a second check
+  on the retained payload. It explicitly does **not** claim device
+  documents, so a sibling instance's fleet is never touched.
+
 ### Fixed
 
 - **Every Home Assistant entity now has an availability source, and the

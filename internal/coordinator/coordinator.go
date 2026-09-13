@@ -162,6 +162,39 @@ const StateQoS = publisher.QoSAtMostOnce
 // library reads an omitted field as neither.
 const CommandQoS = publisher.QoSAtLeastOnce
 
+// HARuntimeConfig is the publisher.Config this daemon's Home Assistant
+// plane runs on, in ONE place.
+//
+// It exists because the composition root and the test fixtures each used
+// to spell it out, and a mutation pass found the consequence: dropping
+// [publisher.Config.LegacyEntityTopics] from the composition root was
+// caught by nothing at all, while every test went on exercising a runtime
+// that still had it. That field is not a detail — omitting it makes the
+// library retract the five-segment form this fleet is not on, which
+// retracts nothing, publishes the device document into a tree still
+// holding all 100 per-entity configs, and produces the silent refusal this
+// whole release exists to avoid. Now there is one spelling and the tests
+// run on it.
+//
+// The logger is a parameter because the daemon and the fixtures want
+// different ones; everything else is derived.
+func HARuntimeConfig(cfg *config.Config, logger *slog.Logger) publisher.Config {
+	return publisher.Config{
+		Prefix: cfg.HASSBaseTopic,
+		Layout: hass.Layout{Root: cfg.MQTTTopic},
+		QoS:    DiscoveryQoS,
+		// The per-entity topic form this fleet's installed base is on,
+		// stated rather than defaulted. publisher.Runtime.PublishBundle
+		// reads it to decide which retained configs the device document
+		// supersedes; naming a form REPLACES the library's five-segment
+		// default rather than adding to it, which is the intent — 100 of
+		// 100 of this fleet's retained configs are on the four-segment
+		// form and the default matches 0.
+		LegacyEntityTopics: hass.LegacyConfigTopicForms(),
+		Logger:             logger,
+	}
+}
+
 // DiscoveryQoS is the delivery guarantee of every retained discovery
 // config publish and of the bridge availability marker.
 //
@@ -392,16 +425,7 @@ func (c *Coordinator) Run(ctx context.Context) error {
 		// or daemon versions), so they don't linger as unavailable entities
 		// in Home Assistant.
 		//
-		// Skipped outright when there is no document. After the move to the
-		// device bundle this daemon publishes no four-segment per-entity
-		// config at all, so every one of them the window finds is an orphan
-		// by the sweep's own rule — which is exactly right when the bundle
-		// went out and catastrophic when it did not: it would delete the
-		// working entities of the release being upgraded from and put
-		// nothing in their place.
-		if c.haBundle != nil {
-			c.reconcileOrphans(ctx, published)
-		}
+		c.reconcileOrphans(ctx, published)
 	}
 
 	g, runCtx := errgroup.WithContext(ctx)

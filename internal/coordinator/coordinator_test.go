@@ -139,13 +139,10 @@ func (s *stubModbus) IsConnected() bool { return s.connected.Load() }
 func wirePlanes(t *testing.T, deps *Deps, mqttStub *stubMQTT) {
 	t.Helper()
 	tr := hagomqtt.Split(mqttStub, mqttStub)
-	rt := publisher.New(tr, publisher.Config{
-		Prefix:             deps.Cfg.HASSBaseTopic,
-		Layout:             hass.Layout{Root: deps.Cfg.MQTTTopic},
-		QoS:                DiscoveryQoS,
-		LegacyEntityTopics: hass.LegacyConfigTopicForms(),
-		Logger:             slog.New(slog.DiscardHandler),
-	})
+	// The production composition, not a second spelling of it: dropping
+	// Config.LegacyEntityTopics at the composition root used to be caught
+	// by nothing, because the fixtures built a runtime that still had it.
+	rt := publisher.New(tr, HARuntimeConfig(deps.Cfg, slog.New(slog.DiscardHandler)))
 	t.Cleanup(rt.Close)
 	deps.HARuntime = rt
 	deps.StatePlane = publisher.StateFor(rt, publisher.StateConfig{

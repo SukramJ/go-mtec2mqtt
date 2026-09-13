@@ -161,10 +161,14 @@ Running **several daemon instances against one Home Assistant
 installation** (one per inverter) additionally needs
 `HASS_UNIQUE_ID_INCLUDE_SERIAL: true` on every instance: by default the
 HA `unique_id`s are serial-less (`MTEC_grid_power`, matching
-`aiomtec2mqtt`), so two instances would overwrite each other's retained
-discovery configs and their entities would flap between the devices.
-The opt-in scopes every `unique_id` and discovery topic by the inverter
-serial (`MTEC_<serial>_grid_power`). Beware on an existing single-inverter
+`aiomtec2mqtt`), and the collision is **total** rather than partial — two
+default-configured instances render the same 100 entity identities. Since
+1.10.0 they at least publish to two different discovery topics (the
+document is keyed on the serial), so neither overwrites or retracts the
+other; what still collides is the identities inside them, and Home
+Assistant binds each `unique_id` to whichever device declared it first.
+The opt-in scopes every `unique_id` by the inverter serial
+(`MTEC_<serial>_grid_power`). Beware on an existing single-inverter
 install: enabling it changes every `unique_id`, which creates fresh HA
 entities and orphans the established ones together with their history —
 MQTT discovery has no `unique_id` migration.
@@ -192,7 +196,7 @@ MTEC/<serial>/total/<key>/state            lifetime energy totals
 MTEC/<serial>/config/<key>/state           writable settings (mirror)
 MTEC/<serial>/static/<key>/state           serial / firmware / equipment
 MTEC/<serial>/<group>/<key>/set            command topic for writables
-homeassistant/<platform>/MTEC_<key>/config retained HA discovery payloads
+homeassistant/device/<serial>/config       ONE retained HA discovery document
 MTEC/bridge/status = online | offline      daemon availability (retained)
 ```
 
@@ -219,6 +223,56 @@ daemon goes away instead of showing stale readings forever.
 > Home Assistant's own birth tree. It moved, and the daemon clears the old
 > retained copy itself on every connect — an automation or dashboard that
 > watched the old topic must be repointed at `MTEC/bridge/status`.
+
+### Home Assistant discovery: one document per device
+
+Discovery is published as a **single retained device document** at
+`homeassistant/device/<serial>/config`, carrying the `device` block once,
+an `origin` block, and all 100 entities as components. Home Assistant
+**2024.11 or newer** is required.
+
+Earlier releases published one retained message per entity at
+`homeassistant/<platform>/MTEC_<key>/config` — 100 messages, each
+repeating the whole `device` block. On the first start after upgrading the
+daemon **retracts all 100 of them and then publishes the document, in that
+order**. It has to be that order: Home Assistant refuses a device document
+while a per-entity config for the same `unique_id` is still retained, and
+it refuses the per-entity config while the document is retained. The
+refusal is silent — one `WARNING [mqtt.entity] Received a conflicting MQTT
+discovery message` in Home Assistant's log, and the entities simply do not
+appear.
+
+**Nothing is re-keyed.** Every `unique_id` is byte-identical, and
+`unique_id` is what Home Assistant's entity registry is keyed on, so
+history, renames, icons, areas, hidden flags and automation references all
+survive the move untouched. `MQTT_TOPIC` must still not be changed — it
+namespaces nothing in a `unique_id`, but it does key every state topic.
+
+> **Downgrading to ≤ 1.9.x needs one manual step.** The document stays
+> retained on the broker, and the older release republishing per-entity
+> configs is refused for exactly the same reason, in the same silence.
+> Clear it first:
+>
+> ```bash
+> mosquitto_pub -h <broker> -t homeassistant/device/<serial>/config -r -n
+> ```
+>
+> `<serial>` is the inverter serial, lower-cased. The old release then
+> re-adopts the same entities with their history intact.
+
+> **If the daemon dies between the two steps** — retractions out, document
+> not — the device has no discovery config at all and its entities are
+> *absent* rather than unavailable. Restarting repairs it: a fresh process
+> re-sends the retractions (a no-op against topics the broker has already
+> cleared) and then publishes the document. No manual step is needed.
+
+> **Two daemons against two inverters** now own two different documents,
+> because the topic is keyed on the serial where the per-entity topics were
+> not. The entity `unique_id`s are still shared by default, though, and
+> Home Assistant will bind each one to whichever device declared it first.
+> Set `HASS_UNIQUE_ID_INCLUDE_SERIAL: true` on **both** instances before
+> upgrading if you run more than one. (It is a deliberate one-way change:
+> it rewrites every `unique_id` and orphans the existing entities.)
 
 ## Development
 

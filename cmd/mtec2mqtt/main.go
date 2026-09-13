@@ -145,22 +145,7 @@ func run(configPath, registersPath string, logger *slog.Logger) error {
 	// The client it publishes through does not exist yet, so the transport
 	// is wired in below, before anything connects.
 	haLink := &deferredTransport{}
-	haRuntime := publisher.New(haLink, publisher.Config{
-		Prefix: cfg.HASSBaseTopic,
-		Layout: hass.Layout{Root: cfg.MQTTTopic},
-		QoS:    coordinator.DiscoveryQoS,
-		// The per-entity topic form this fleet is on, stated rather than
-		// defaulted. Inert today — publisher.Config.LegacyEntityTopics is
-		// read by PublishBundle alone and nothing publishes a bundle yet —
-		// but stating it now puts the form in the boot log
-		// ("publisher.legacy_forms") where an operator can see it BEFORE
-		// the migration rather than after it failed silently. Naming a form
-		// REPLACES the library's five-segment default rather than adding to
-		// it, which is the intent: 100 of 100 of this fleet's retained
-		// configs are on the four-segment form and the default matches 0.
-		LegacyEntityTopics: hass.LegacyConfigTopicForms(),
-		Logger:             logger,
-	})
+	haRuntime := publisher.New(haLink, coordinator.HARuntimeConfig(cfg, logger))
 	will, err := haRuntime.Will()
 	if err != nil {
 		return fmt.Errorf("mtec2mqtt: mqtt will: %w", err)
