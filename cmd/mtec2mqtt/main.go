@@ -212,7 +212,12 @@ func run(configPath, registersPath string, logger *slog.Logger) error {
 		Catalog: catalog,
 		Modbus:  modbusClient,
 		Reader:  reader,
-		MQTT:    &mqttSession{Breaker: breaker, MQTTSubscriber: mqttClient},
+		// Publish is gated by the circuit breaker, while
+		// Subscribe/Unsubscribe go straight to the client —
+		// subscriptions are startup-path calls with their own
+		// SUBACK-bounded wait and must not be rejected during a
+		// publish-side broker brownout.
+		MQTT:    mqtt.SplitClient(breaker, mqttClient),
 		HASS:    discovery,
 		Logger:  logger,
 		Store:   store,
@@ -388,23 +393,6 @@ func loadCatalog(explicit string, logger *slog.Logger) (*registers.Map, error) {
 		slog.Int("registers", len(m.All)))
 	return m, nil
 }
-
-// mqttSession is the MQTT surface handed to the coordinator: Publish
-// is gated by the circuit breaker, while Subscribe/Unsubscribe go
-// straight to the client — subscriptions are startup-path calls with
-// their own SUBACK-bounded wait and must not be rejected during a
-// publish-side broker brownout.
-type mqttSession struct {
-	*mqtt.Breaker
-	coordinator.MQTTSubscriber
-}
-
-// Compile-time contract: the session satisfies the coordinator's
-// combined MQTT dependency.
-var _ interface {
-	coordinator.MQTTPublisher
-	coordinator.MQTTSubscriber
-} = (*mqttSession)(nil)
 
 func locateRegisters() string {
 	candidates := []string{}

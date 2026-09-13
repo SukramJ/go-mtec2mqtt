@@ -4,6 +4,15 @@
 
 ### Changed
 
+- **`go-mqtt` v1.3.0 → v1.5.1**, and the hand-rolled MQTT session is gone.
+  v1.4.0 added `mqtt.SplitClient`, which is what this daemon's private
+  `mqttSession` struct did — breaker on the publish path, raw client on
+  the subscribe path — so the struct and its two tests were deleted in
+  favour of the library's. v1.5.0/v1.5.1 added MQTT 5.0 Subscription
+  Identifiers and made dispatch of an identifier-less PUBLISH fail closed;
+  this daemon never asks for an identifier, so every one of its
+  subscriptions stays unstamped and dispatch is unchanged. No user-visible
+  effect: same topics, same payloads, same QoS.
 - **Dropped the dead `object_id` discovery key.** Home Assistant's MQTT
   discovery schemas are `extra=REMOVE_EXTRA`: an undeclared key is
   discarded on arrival, silently and without a log line. Measured against
