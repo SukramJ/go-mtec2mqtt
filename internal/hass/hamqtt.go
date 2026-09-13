@@ -655,3 +655,71 @@ var publishedPlatforms = map[Platform]bool{
 	PlatformSelect:       true,
 	PlatformSwitch:       true,
 }
+
+// --- the device bundle (ADR 0070 phase 6, step 6) ---------------------------
+
+// OriginName and OriginURL identify this bridge in the `origin` block Home
+// Assistant requires on a device bundle. Constants, not configuration:
+// the block is what an operator reads on the Home Assistant device page to
+// find out which program wrote the document, and a configurable value
+// there would name whatever the last writer happened to be called.
+const (
+	OriginName = "go-mtec2mqtt"
+	OriginURL  = "https://github.com/SukramJ/go-mtec2mqtt"
+)
+
+// BundleOrigin is the `origin` block this daemon stamps on its device
+// bundle. sw is the bridge's own build version (internal/version.Version),
+// NOT the inverter firmware — that one is already the device block's
+// `sw_version` and the two answer different questions.
+//
+// It is a parameter rather than a direct read of internal/version so the
+// pinned bundle golden does not move on every release: the payload is
+// otherwise byte-deterministic, and a link-time variable inside it would
+// make the frozen artefact stale the moment a tag is cut.
+// TestBundleOriginIsWiredFromTheBuildVersion pins the wiring instead.
+func BundleOrigin(sw string) discovery.Origin {
+	return discovery.Origin{Name: OriginName, SW: sw, URL: OriginURL}
+}
+
+// BundleNodeID is the single topic segment this daemon's device bundle is
+// published under.
+//
+// It is discovery.NodeID over [NewDevice], which is topic.Slug of the
+// device's primary identifier — and this bridge's primary identifier is the
+// inverter's bare serial number, with no namespace (see [NewDevice]). So
+// the node id IS the serial, and that is the property that matters:
+//
+//   - It is per-inverter. Two daemons against two inverters publish to two
+//     different bundle topics and cannot overwrite, retract or fight over
+//     each other's document. That is NOT true of the per-entity form this
+//     replaces, whose topics carry no serial at all under the shipped
+//     defaults — recorded as F16 in
+//     notes/adr0070-phase6-steps45-results.md §4.3.
+//   - It is stable. It is derived from the STATIC register read and from
+//     nothing configurable, so no operator setting can move it. A moved
+//     node id would leave the old document retained, announcing the same
+//     device from a second topic.
+//   - It is never the device name. A renamed device keeps its topic.
+//
+// It is empty before [Discovery.Initialize] has run, because the serial is
+// not known until the first STATIC read.
+func BundleNodeID(d *Discovery) string { return discovery.NodeID(NewDevice(d)) }
+
+// BundleConfigTopic is where [BundleNodeID]'s document is retained:
+// "<prefix>/device/<node id>/config".
+func BundleConfigTopic(prefix string, d *Discovery) string {
+	return publisher.BundleConfigTopic(prefix, BundleNodeID(d))
+}
+
+// SupersededConfigTopics is the per-entity config topics the bundle
+// replaces, exactly as publisher.Runtime.PublishBundle will retract them.
+//
+// Exported so a test can compare the retraction list against the frozen
+// pre-migration pins without re-deriving it — deriving it a second time is
+// how two call sites end up disagreeing about which topics get cleared,
+// and the cost of a disagreement here is total and silent (see
+// [LegacyConfigTopicForm]).
+func SupersededConfigTopics(prefix string, b *discovery.Bundle) []string {
+	return publisher.SupersededTopics(prefix, b, LegacyConfigTopicForms()...)
+}

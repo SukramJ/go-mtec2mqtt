@@ -132,6 +132,14 @@ HASS_ENABLE: true
 	// What runStatic would have stored after the STATIC read. Every state
 	// topic is keyed on it, exactly as in production.
 	c.topicBase.Store(topicParts{root: cfg.MQTTTopic, serial: goldenSerial})
+	// The device document, exactly as run() builds it after the STATIC
+	// read. Without it publishDiscovery publishes nothing at all, which is
+	// deliberate (see buildBundle) and would make every test below silent
+	// rather than red.
+	c.buildBundle()
+	if c.haBundle == nil {
+		t.Fatal("the real catalogue does not render a publishable device bundle")
+	}
 	return c, discovery, mqttStub, catalog
 }
 
@@ -390,15 +398,25 @@ func TestPublishQoSAndRetain(t *testing.T) {
 		}
 	}
 
-	// Discovery: retained, QoS 0.
+	// Discovery: retained, QoS 0 — the device document and the 100
+	// retractions that clear the per-entity form it replaces.
+	//
+	// The retraction half is as load-bearing as the document: an empty
+	// payload published NON-retained clears nothing, so the old config
+	// stays on the broker and Home Assistant refuses the document with one
+	// WARNING and no entities. The count is asserted too, because a
+	// retraction that silently covers 99 of 100 topics fails exactly the
+	// same way as one that covers none.
 	stub.mu.Lock()
 	stub.publishes = nil
 	stub.mu.Unlock()
 	c.publishDiscovery(context.Background())
 	discoveryPubs := stub.snapshotPublishes()
-	if len(discoveryPubs) != 100 {
-		t.Fatalf("discovery publishes = %d, want 100", len(discoveryPubs))
+	if len(discoveryPubs) != 101 {
+		t.Fatalf("discovery publishes = %d, want 101 (100 retractions + 1 device document)",
+			len(discoveryPubs))
 	}
+	documents, retractions := 0, 0
 	for _, p := range discoveryPubs {
 		if p.qos != mqtt.QoS0 {
 			t.Errorf("discovery publish %s: qos = %v, want QoS0", p.topic, p.qos)
@@ -406,6 +424,15 @@ func TestPublishQoSAndRetain(t *testing.T) {
 		if !p.retain {
 			t.Errorf("discovery publish %s: retain = false, want true", p.topic)
 		}
+		if len(p.payload) == 0 {
+			retractions++
+		} else {
+			documents++
+		}
+	}
+	if documents != 1 || retractions != 100 {
+		t.Errorf("discovery pass wrote %d documents and %d retractions, want 1 and 100",
+			documents, retractions)
 	}
 }
 
