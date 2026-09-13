@@ -199,6 +199,7 @@
     "homeassistant/switch/MTEC_off_grid_soc_switch/config",
     "homeassistant/switch/MTEC_on_grid_soc_switch/config"
   ],
+  "discovery_bundle_topic": "homeassistant/device/mt1234567890/config",
   "command_topics": [
     "MTEC/MT1234567890/config/charge_active/set",
     "MTEC/MT1234567890/config/charge_limit/set",

@@ -262,22 +262,6 @@ func TestSwitchAlsoPublishesBinarySensor(t *testing.T) {
 	}
 }
 
-// --- unregister path -------------------------------------------------------
-
-func TestUnregisterEntriesAreEmptyPayload(t *testing.T) {
-	d := newDiscovery(t)
-	unreg := d.UnregisterEntries()
-	if len(unreg) != len(d.Entries()) {
-		t.Fatalf("count mismatch: unreg=%d entries=%d", len(unreg), len(d.Entries()))
-	}
-	for _, u := range unreg {
-		if len(u.Payload) != 0 {
-			t.Errorf("unregister payload must be empty for %s, got %d bytes",
-				u.ConfigTopic, len(u.Payload))
-		}
-	}
-}
-
 // --- deterministic output --------------------------------------------------
 
 func TestDiscoveryEntryOrderFollowsYAML(t *testing.T) {

@@ -326,18 +326,19 @@ func (d *Discovery) Diagnostics() []string { return d.diagnostics }
 
 // Entries returns the discovery payloads built by [Initialize]. The
 // slice is shared — callers should iterate, not mutate.
+//
+// Since ADR 0070 phase 6 step 6 this daemon PUBLISHES none of them: it
+// writes one retained device document (see [RenderBundle] and
+// [BundleConfigTopic]) and retracts these 100 per-entity configs first.
+// The builder is kept, and kept exercised, because it is the frozen record
+// of what every installed broker holds at upgrade time — the set the
+// retraction has to cover exactly — and because
+// testdata/discovery_{en,de}.json pins it byte for byte. Comparing the
+// document against a record this build does not also produce is what keeps
+// the two sides from agreeing on a wrong answer.
+//
+// CommandTopic is still live: it is what the command plane subscribes to.
 func (d *Discovery) Entries() []Entry { return d.entries }
-
-// UnregisterEntries returns entries that publish an empty payload to
-// the same config topics, which tells HA to forget every advertised
-// entity. Useful on a clean shutdown when the daemon goes away.
-func (d *Discovery) UnregisterEntries() []Entry {
-	out := make([]Entry, len(d.entries))
-	for i, e := range d.entries {
-		out[i] = Entry{ConfigTopic: e.ConfigTopic, Payload: []byte("")}
-	}
-	return out
-}
 
 // IsOwnConfig reports whether a retained HA discovery config payload was
 // published by this daemon: its unique_id sits in our "MTEC_" namespace and

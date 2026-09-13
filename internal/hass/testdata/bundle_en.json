@@ -1,0 +1,2008 @@
+{
+  "topic": "homeassistant/device/mt1234567890/config",
+  "payload": {
+    "components": {
+      "binary_sensor.grid_inject_switch": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "binary_sensor.grid_injection_limit_switch",
+        "enabled_by_default": true,
+        "name": "Grid injection limit switch",
+        "payload_off": "0",
+        "payload_on": "1",
+        "platform": "binary_sensor",
+        "state_topic": "MTEC/MT1234567890/config/grid_inject_switch/state",
+        "unique_id": "MTEC_grid_inject_switch"
+      },
+      "binary_sensor.off_grid_soc_switch": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "binary_sensor.off_grid_soc_limit_switch",
+        "enabled_by_default": true,
+        "name": "Off-grid SOC limit switch",
+        "payload_off": "0",
+        "payload_on": "1",
+        "platform": "binary_sensor",
+        "state_topic": "MTEC/MT1234567890/config/off_grid_soc_switch/state",
+        "unique_id": "MTEC_off_grid_soc_switch"
+      },
+      "binary_sensor.on_grid_soc_switch": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "binary_sensor.on_grid_soc_limit_switch",
+        "enabled_by_default": true,
+        "name": "On-grid SOC limit switch",
+        "payload_off": "0",
+        "payload_on": "1",
+        "platform": "binary_sensor",
+        "state_topic": "MTEC/MT1234567890/config/on_grid_soc_switch/state",
+        "unique_id": "MTEC_on_grid_soc_switch"
+      },
+      "number.charge_limit": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "command_topic": "MTEC/MT1234567890/config/charge_limit/set",
+        "default_entity_id": "number.charge_limit",
+        "enabled_by_default": false,
+        "mode": "box",
+        "name": "Charge limit",
+        "platform": "number",
+        "state_topic": "MTEC/MT1234567890/config/charge_limit/state",
+        "unique_id": "MTEC_charge_limit",
+        "unit_of_measurement": "A"
+      },
+      "number.discharge_limit": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "command_topic": "MTEC/MT1234567890/config/discharge_limit/set",
+        "default_entity_id": "number.discharge_limit",
+        "enabled_by_default": false,
+        "mode": "box",
+        "name": "Discharge limit",
+        "platform": "number",
+        "state_topic": "MTEC/MT1234567890/config/discharge_limit/state",
+        "unique_id": "MTEC_discharge_limit",
+        "unit_of_measurement": "A"
+      },
+      "number.grid_inject_limit": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "command_topic": "MTEC/MT1234567890/config/grid_inject_limit/set",
+        "default_entity_id": "number.grid_injection_power_limit",
+        "enabled_by_default": false,
+        "mode": "box",
+        "name": "Grid injection power limit",
+        "platform": "number",
+        "state_topic": "MTEC/MT1234567890/config/grid_inject_limit/state",
+        "unique_id": "MTEC_grid_inject_limit",
+        "unit_of_measurement": "%"
+      },
+      "number.off_grid_soc_limit": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "command_topic": "MTEC/MT1234567890/config/off_grid_soc_limit/set",
+        "default_entity_id": "number.off_grid_soc_limit",
+        "enabled_by_default": false,
+        "mode": "box",
+        "name": "Off-grid SOC limit",
+        "platform": "number",
+        "state_topic": "MTEC/MT1234567890/config/off_grid_soc_limit/state",
+        "unique_id": "MTEC_off_grid_soc_limit",
+        "unit_of_measurement": "%"
+      },
+      "number.on_grid_soc_limit": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "command_topic": "MTEC/MT1234567890/config/on_grid_soc_limit/set",
+        "default_entity_id": "number.on_grid_soc_limit",
+        "enabled_by_default": false,
+        "mode": "box",
+        "name": "On-grid SOC limit",
+        "platform": "number",
+        "state_topic": "MTEC/MT1234567890/config/on_grid_soc_limit/state",
+        "unique_id": "MTEC_on_grid_soc_limit",
+        "unit_of_measurement": "%"
+      },
+      "select.mode": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "command_topic": "MTEC/MT1234567890/now-base/mode/set",
+        "default_entity_id": "select.inverter_operation_mode",
+        "enabled_by_default": false,
+        "name": "Inverter operation mode",
+        "options": [
+          "General mode",
+          "Economic mode",
+          "UPS mode",
+          "Off grid"
+        ],
+        "platform": "select",
+        "state_topic": "MTEC/MT1234567890/now-base/mode/state",
+        "unique_id": "MTEC_mode"
+      },
+      "sensor.ac_current_a": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.inverter_ac_current_phase_a",
+        "device_class": "current",
+        "enabled_by_default": true,
+        "name": "Inverter AC current phase A",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-grid/ac_current_a/state",
+        "unique_id": "MTEC_ac_current_a",
+        "unit_of_measurement": "A",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.ac_current_b": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.inverter_ac_current_phase_b",
+        "device_class": "current",
+        "enabled_by_default": true,
+        "name": "Inverter AC current phase B",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-grid/ac_current_b/state",
+        "unique_id": "MTEC_ac_current_b",
+        "unit_of_measurement": "A",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.ac_current_c": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.inverter_ac_current_phase_c",
+        "device_class": "current",
+        "enabled_by_default": true,
+        "name": "Inverter AC current phase C",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-grid/ac_current_c/state",
+        "unique_id": "MTEC_ac_current_c",
+        "unit_of_measurement": "A",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.ac_voltage_a": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.inverter_ac_voltage_phase_a",
+        "device_class": "voltage",
+        "enabled_by_default": true,
+        "name": "Inverter AC voltage phase A",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-grid/ac_voltage_a/state",
+        "unique_id": "MTEC_ac_voltage_a",
+        "unit_of_measurement": "V",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.ac_voltage_a_b": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.inverter_ac_voltage_lines_a_b",
+        "device_class": "voltage",
+        "enabled_by_default": true,
+        "name": "Inverter AC voltage lines A/B",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-grid/ac_voltage_a_b/state",
+        "unique_id": "MTEC_ac_voltage_a_b",
+        "unit_of_measurement": "V",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.ac_voltage_b": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.inverter_ac_voltage_phase_b",
+        "device_class": "voltage",
+        "enabled_by_default": true,
+        "name": "Inverter AC voltage phase B",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-grid/ac_voltage_b/state",
+        "unique_id": "MTEC_ac_voltage_b",
+        "unit_of_measurement": "V",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.ac_voltage_b_c": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.inverter_ac_voltage_lines_b_c",
+        "device_class": "voltage",
+        "enabled_by_default": true,
+        "name": "Inverter AC voltage lines B/C",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-grid/ac_voltage_b_c/state",
+        "unique_id": "MTEC_ac_voltage_b_c",
+        "unit_of_measurement": "V",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.ac_voltage_c": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.inverter_ac_voltage_phase_c",
+        "device_class": "voltage",
+        "enabled_by_default": true,
+        "name": "Inverter AC voltage phase C",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-grid/ac_voltage_c/state",
+        "unique_id": "MTEC_ac_voltage_c",
+        "unit_of_measurement": "V",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.ac_voltage_c_a": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.inverter_ac_voltage_lines_c_a",
+        "device_class": "voltage",
+        "enabled_by_default": true,
+        "name": "Inverter AC voltage lines C/A",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-grid/ac_voltage_c_a/state",
+        "unique_id": "MTEC_ac_voltage_c_a",
+        "unit_of_measurement": "V",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.autarky_rate_day": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.household_autarky_day",
+        "device_class": "power_factor",
+        "enabled_by_default": true,
+        "name": "Household autarky (day)",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/day/autarky_rate_day/state",
+        "unique_id": "MTEC_autarky_rate_day",
+        "unit_of_measurement": "%",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.autarky_rate_total": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.household_autarky_total",
+        "device_class": "power_factor",
+        "enabled_by_default": true,
+        "name": "Household autarky (total)",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/total/autarky_rate_total/state",
+        "unique_id": "MTEC_autarky_rate_total",
+        "unit_of_measurement": "%",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.backup": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.backup_power_total",
+        "device_class": "power",
+        "enabled_by_default": true,
+        "name": "Backup power total",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-base/backup/state",
+        "unique_id": "MTEC_backup",
+        "unit_of_measurement": "W",
+        "value_template": "{{ value | round(0) }}"
+      },
+      "sensor.backup_a": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.backup_power_phase_a",
+        "device_class": "power",
+        "enabled_by_default": true,
+        "name": "Backup power phase A",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-backup/backup_a/state",
+        "unique_id": "MTEC_backup_a",
+        "unit_of_measurement": "W",
+        "value_template": "{{ value | round(0) }}"
+      },
+      "sensor.backup_b": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.backup_power_phase_b",
+        "device_class": "power",
+        "enabled_by_default": true,
+        "name": "Backup power phase B",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-backup/backup_b/state",
+        "unique_id": "MTEC_backup_b",
+        "unit_of_measurement": "W",
+        "value_template": "{{ value | round(0) }}"
+      },
+      "sensor.backup_c": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.backup_power_phase_c",
+        "device_class": "power",
+        "enabled_by_default": true,
+        "name": "Backup power phase C",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-backup/backup_c/state",
+        "unique_id": "MTEC_backup_c",
+        "unit_of_measurement": "W",
+        "value_template": "{{ value | round(0) }}"
+      },
+      "sensor.backup_current_a": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.backup_current_phase_a",
+        "device_class": "current",
+        "enabled_by_default": true,
+        "name": "Backup current phase A",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-backup/backup_current_a/state",
+        "unique_id": "MTEC_backup_current_a",
+        "unit_of_measurement": "A",
+        "value_template": "{{ value | round(2) }}"
+      },
+      "sensor.backup_current_b": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.backup_current_phase_b",
+        "device_class": "current",
+        "enabled_by_default": true,
+        "name": "Backup current phase B",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-backup/backup_current_b/state",
+        "unique_id": "MTEC_backup_current_b",
+        "unit_of_measurement": "A",
+        "value_template": "{{ value | round(2) }}"
+      },
+      "sensor.backup_current_c": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.backup_current_phase_c",
+        "device_class": "current",
+        "enabled_by_default": true,
+        "name": "Backup current phase C",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-backup/backup_current_c/state",
+        "unique_id": "MTEC_backup_current_c",
+        "unit_of_measurement": "A",
+        "value_template": "{{ value | round(2) }}"
+      },
+      "sensor.backup_day": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.backup_energy_day",
+        "device_class": "energy",
+        "enabled_by_default": true,
+        "name": "Backup energy (day)",
+        "platform": "sensor",
+        "state_class": "total_increasing",
+        "state_topic": "MTEC/MT1234567890/day/backup_day/state",
+        "unique_id": "MTEC_backup_day",
+        "unit_of_measurement": "kWh",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.backup_frequency_a": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.backup_frequency_phase_a",
+        "device_class": "frequency",
+        "enabled_by_default": true,
+        "name": "Backup frequency phase A",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-backup/backup_frequency_a/state",
+        "unique_id": "MTEC_backup_frequency_a",
+        "unit_of_measurement": "Hz",
+        "value_template": "{{ value | round(2) }}"
+      },
+      "sensor.backup_frequency_b": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.backup_frequency_phase_b",
+        "device_class": "frequency",
+        "enabled_by_default": true,
+        "name": "Backup frequency phase B",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-backup/backup_frequency_b/state",
+        "unique_id": "MTEC_backup_frequency_b",
+        "unit_of_measurement": "Hz",
+        "value_template": "{{ value | round(2) }}"
+      },
+      "sensor.backup_frequency_c": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.backup_frequency_phase_c",
+        "device_class": "frequency",
+        "enabled_by_default": true,
+        "name": "Backup frequency phase C",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-backup/backup_frequency_c/state",
+        "unique_id": "MTEC_backup_frequency_c",
+        "unit_of_measurement": "Hz",
+        "value_template": "{{ value | round(2) }}"
+      },
+      "sensor.backup_total": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.backup_energy_total",
+        "device_class": "energy",
+        "enabled_by_default": true,
+        "name": "Backup energy (total)",
+        "platform": "sensor",
+        "state_class": "total_increasing",
+        "state_topic": "MTEC/MT1234567890/total/backup_total/state",
+        "unique_id": "MTEC_backup_total",
+        "unit_of_measurement": "kWh",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.backup_voltage_a": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.backup_voltage_phase_a",
+        "device_class": "voltage",
+        "enabled_by_default": true,
+        "name": "Backup voltage phase A",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-backup/backup_voltage_a/state",
+        "unique_id": "MTEC_backup_voltage_a",
+        "unit_of_measurement": "V",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.backup_voltage_b": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.backup_voltage_phase_b",
+        "device_class": "voltage",
+        "enabled_by_default": true,
+        "name": "Backup voltage phase B",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-backup/backup_voltage_b/state",
+        "unique_id": "MTEC_backup_voltage_b",
+        "unit_of_measurement": "V",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.backup_voltage_c": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.backup_voltage_phase_c",
+        "device_class": "voltage",
+        "enabled_by_default": true,
+        "name": "Backup voltage phase C",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-backup/backup_voltage_c/state",
+        "unique_id": "MTEC_backup_voltage_c",
+        "unit_of_measurement": "V",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.battery": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.battery_power",
+        "device_class": "power",
+        "enabled_by_default": true,
+        "name": "Battery power",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-base/battery/state",
+        "unique_id": "MTEC_battery",
+        "unit_of_measurement": "W",
+        "value_template": "{{ value | round(0) }}"
+      },
+      "sensor.battery_cell_t_max": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.battery_cell_temperature_max",
+        "device_class": "temperature",
+        "enabled_by_default": true,
+        "name": "Battery cell temperature max.",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-battery/battery_cell_t_max/state",
+        "unique_id": "MTEC_battery_cell_t_max",
+        "unit_of_measurement": "°C",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.battery_cell_t_min": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.battery_cell_temperature_min",
+        "device_class": "temperature",
+        "enabled_by_default": true,
+        "name": "Battery cell temperature min.",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-battery/battery_cell_t_min/state",
+        "unique_id": "MTEC_battery_cell_t_min",
+        "unit_of_measurement": "°C",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.battery_cell_v_max": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.battery_cell_voltage_max",
+        "device_class": "voltage",
+        "enabled_by_default": true,
+        "name": "Battery cell voltage max.",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-battery/battery_cell_v_max/state",
+        "unique_id": "MTEC_battery_cell_v_max",
+        "unit_of_measurement": "V",
+        "value_template": "{{ value | round(3) }}"
+      },
+      "sensor.battery_cell_v_min": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.battery_cell_voltage_min",
+        "device_class": "voltage",
+        "enabled_by_default": true,
+        "name": "Battery cell voltage min.",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-battery/battery_cell_v_min/state",
+        "unique_id": "MTEC_battery_cell_v_min",
+        "unit_of_measurement": "V",
+        "value_template": "{{ value | round(3) }}"
+      },
+      "sensor.battery_charge_day": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.battery_charge_energy_day",
+        "device_class": "energy",
+        "enabled_by_default": true,
+        "name": "Battery charge energy (day)",
+        "platform": "sensor",
+        "state_class": "total_increasing",
+        "state_topic": "MTEC/MT1234567890/day/battery_charge_day/state",
+        "unique_id": "MTEC_battery_charge_day",
+        "unit_of_measurement": "kWh",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.battery_charge_total": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.battery_energy_charged_total",
+        "device_class": "energy",
+        "enabled_by_default": true,
+        "name": "Battery energy charged (total)",
+        "platform": "sensor",
+        "state_class": "total_increasing",
+        "state_topic": "MTEC/MT1234567890/total/battery_charge_total/state",
+        "unique_id": "MTEC_battery_charge_total",
+        "unit_of_measurement": "kWh",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.battery_current": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.battery_current",
+        "device_class": "current",
+        "enabled_by_default": true,
+        "name": "Battery current",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-base/battery_current/state",
+        "unique_id": "MTEC_battery_current",
+        "unit_of_measurement": "A",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.battery_discharge_day": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.battery_discharge_energy_day",
+        "device_class": "energy",
+        "enabled_by_default": true,
+        "name": "Battery discharge energy (day)",
+        "platform": "sensor",
+        "state_class": "total_increasing",
+        "state_topic": "MTEC/MT1234567890/day/battery_discharge_day/state",
+        "unique_id": "MTEC_battery_discharge_day",
+        "unit_of_measurement": "kWh",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.battery_discharge_total": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.battery_energy_discharged_total",
+        "device_class": "energy",
+        "enabled_by_default": true,
+        "name": "Battery energy discharged (total)",
+        "platform": "sensor",
+        "state_class": "total_increasing",
+        "state_topic": "MTEC/MT1234567890/total/battery_discharge_total/state",
+        "unique_id": "MTEC_battery_discharge_total",
+        "unit_of_measurement": "kWh",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.battery_mode": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.battery_mode",
+        "device_class": "enum",
+        "enabled_by_default": true,
+        "name": "Battery mode",
+        "options": [
+          "Discharge",
+          "Charge",
+          "Unknown"
+        ],
+        "platform": "sensor",
+        "state_topic": "MTEC/MT1234567890/now-base/battery_mode/state",
+        "unique_id": "MTEC_battery_mode"
+      },
+      "sensor.battery_soc": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.battery_soc",
+        "device_class": "battery",
+        "enabled_by_default": true,
+        "name": "Battery SOC",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-base/battery_soc/state",
+        "unique_id": "MTEC_battery_soc",
+        "unit_of_measurement": "%",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.battery_soh": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.battery_soh",
+        "device_class": "power_factor",
+        "enabled_by_default": true,
+        "name": "Battery SOH",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-battery/battery_soh/state",
+        "unique_id": "MTEC_battery_soh",
+        "unit_of_measurement": "%",
+        "value_template": "{{ value | round(2) }}"
+      },
+      "sensor.battery_temp": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.battery_temperature",
+        "device_class": "temperature",
+        "enabled_by_default": true,
+        "name": "Battery temperature",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-battery/battery_temp/state",
+        "unique_id": "MTEC_battery_temp",
+        "unit_of_measurement": "°C",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.battery_voltage": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.battery_voltage",
+        "device_class": "voltage",
+        "enabled_by_default": true,
+        "name": "Battery voltage",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-base/battery_voltage/state",
+        "unique_id": "MTEC_battery_voltage",
+        "unit_of_measurement": "V",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.bms_alarm_code": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.bms_alarm_code",
+        "enabled_by_default": true,
+        "name": "BMS Alarm Code",
+        "platform": "sensor",
+        "state_topic": "MTEC/MT1234567890/now-base/bms_alarm_code/state",
+        "unique_id": "MTEC_bms_alarm_code",
+        "unit_of_measurement": ""
+      },
+      "sensor.bms_error_code": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.bms_error_code",
+        "enabled_by_default": true,
+        "name": "BMS Error Code",
+        "platform": "sensor",
+        "state_topic": "MTEC/MT1234567890/now-base/bms_error_code/state",
+        "unique_id": "MTEC_bms_error_code",
+        "unit_of_measurement": ""
+      },
+      "sensor.bms_protection_code": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.bms_protection_code",
+        "enabled_by_default": true,
+        "name": "BMS Protection Code",
+        "platform": "sensor",
+        "state_topic": "MTEC/MT1234567890/now-base/bms_protection_code/state",
+        "unique_id": "MTEC_bms_protection_code",
+        "unit_of_measurement": ""
+      },
+      "sensor.bms_status": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.bms_status",
+        "device_class": "enum",
+        "enabled_by_default": true,
+        "name": "BMS Status",
+        "options": [
+          "wait for on-grid",
+          "self-check",
+          "on-grid",
+          "fault",
+          "firmware update",
+          "off grid",
+          "Unknown"
+        ],
+        "platform": "sensor",
+        "state_topic": "MTEC/MT1234567890/now-base/bms_status/state",
+        "unique_id": "MTEC_bms_status"
+      },
+      "sensor.charge_limit": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.charge_limit",
+        "enabled_by_default": true,
+        "name": "Charge limit",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/config/charge_limit/state",
+        "unique_id": "MTEC_charge_limit",
+        "unit_of_measurement": "A",
+        "value_template": "{{ value | round(0) }}"
+      },
+      "sensor.consumption": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.household_consumption",
+        "device_class": "power",
+        "enabled_by_default": true,
+        "name": "Household consumption",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-base/consumption/state",
+        "unique_id": "MTEC_consumption",
+        "unit_of_measurement": "W",
+        "value_template": "{{ value | round(0) }}"
+      },
+      "sensor.consumption_day": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.household_consumption_day",
+        "device_class": "energy",
+        "enabled_by_default": true,
+        "name": "Household consumption (day)",
+        "platform": "sensor",
+        "state_class": "total_increasing",
+        "state_topic": "MTEC/MT1234567890/day/consumption_day/state",
+        "unique_id": "MTEC_consumption_day",
+        "unit_of_measurement": "kWh",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.consumption_total": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.household_consumption_total",
+        "device_class": "energy",
+        "enabled_by_default": true,
+        "name": "Household consumption (total)",
+        "platform": "sensor",
+        "state_class": "total_increasing",
+        "state_topic": "MTEC/MT1234567890/total/consumption_total/state",
+        "unique_id": "MTEC_consumption_total",
+        "unit_of_measurement": "kWh",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.discharge_limit": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.discharge_limit",
+        "enabled_by_default": true,
+        "name": "Discharge limit",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/config/discharge_limit/state",
+        "unique_id": "MTEC_discharge_limit",
+        "unit_of_measurement": "A",
+        "value_template": "{{ value | round(0) }}"
+      },
+      "sensor.fault_flag_1": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.fault_flag1",
+        "enabled_by_default": true,
+        "name": "Fault flag1",
+        "platform": "sensor",
+        "state_topic": "MTEC/MT1234567890/now-base/fault_flag_1/state",
+        "unique_id": "MTEC_fault_flag_1",
+        "unit_of_measurement": ""
+      },
+      "sensor.fault_flag_2": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.fault_flag2",
+        "enabled_by_default": true,
+        "name": "Fault flag2",
+        "platform": "sensor",
+        "state_topic": "MTEC/MT1234567890/now-base/fault_flag_2/state",
+        "unique_id": "MTEC_fault_flag_2",
+        "unit_of_measurement": ""
+      },
+      "sensor.grid_a": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.grid_power_phase_a",
+        "device_class": "power",
+        "enabled_by_default": true,
+        "name": "Grid power phase A",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-grid/grid_a/state",
+        "unique_id": "MTEC_grid_a",
+        "unit_of_measurement": "W",
+        "value_template": "{{ value | round(0) }}"
+      },
+      "sensor.grid_b": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.grid_power_phase_b",
+        "device_class": "power",
+        "enabled_by_default": true,
+        "name": "Grid power phase B",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-grid/grid_b/state",
+        "unique_id": "MTEC_grid_b",
+        "unit_of_measurement": "W",
+        "value_template": "{{ value | round(0) }}"
+      },
+      "sensor.grid_c": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.grid_power_phase_c",
+        "device_class": "power",
+        "enabled_by_default": true,
+        "name": "Grid power phase C",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-grid/grid_c/state",
+        "unique_id": "MTEC_grid_c",
+        "unit_of_measurement": "W",
+        "value_template": "{{ value | round(0) }}"
+      },
+      "sensor.grid_feed_day": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.grid_injection_energy_day",
+        "device_class": "energy",
+        "enabled_by_default": true,
+        "name": "Grid injection energy (day)",
+        "platform": "sensor",
+        "state_class": "total_increasing",
+        "state_topic": "MTEC/MT1234567890/day/grid_feed_day/state",
+        "unique_id": "MTEC_grid_feed_day",
+        "unit_of_measurement": "kWh",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.grid_feed_total": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.grid_energy_injected_total",
+        "device_class": "energy",
+        "enabled_by_default": true,
+        "name": "Grid energy injected (total)",
+        "platform": "sensor",
+        "state_class": "total_increasing",
+        "state_topic": "MTEC/MT1234567890/total/grid_feed_total/state",
+        "unique_id": "MTEC_grid_feed_total",
+        "unit_of_measurement": "kWh",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.grid_fequency": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.grid_frequency",
+        "device_class": "frequency",
+        "enabled_by_default": true,
+        "name": "Grid frequency",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-grid/grid_fequency/state",
+        "unique_id": "MTEC_grid_fequency",
+        "unit_of_measurement": "Hz",
+        "value_template": "{{ value | round(2) }}"
+      },
+      "sensor.grid_inject_limit": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.grid_injection_power_limit",
+        "enabled_by_default": true,
+        "name": "Grid injection power limit",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/config/grid_inject_limit/state",
+        "unique_id": "MTEC_grid_inject_limit",
+        "unit_of_measurement": "%",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.grid_power": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.grid_power",
+        "device_class": "power",
+        "enabled_by_default": true,
+        "name": "Grid power",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-base/grid_power/state",
+        "unique_id": "MTEC_grid_power",
+        "unit_of_measurement": "W",
+        "value_template": "{{ value | round(0) }}"
+      },
+      "sensor.grid_purchase_day": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.grid_purchased_energy_day",
+        "device_class": "energy",
+        "enabled_by_default": true,
+        "name": "Grid purchased energy (day)",
+        "platform": "sensor",
+        "state_class": "total_increasing",
+        "state_topic": "MTEC/MT1234567890/day/grid_purchase_day/state",
+        "unique_id": "MTEC_grid_purchase_day",
+        "unit_of_measurement": "kWh",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.grid_purchase_total": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.grid_energy_purchased_total",
+        "device_class": "energy",
+        "enabled_by_default": true,
+        "name": "Grid energy purchased (total)",
+        "platform": "sensor",
+        "state_class": "total_increasing",
+        "state_topic": "MTEC/MT1234567890/total/grid_purchase_total/state",
+        "unique_id": "MTEC_grid_purchase_total",
+        "unit_of_measurement": "kWh",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.inverter": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.inverter_ac_power",
+        "device_class": "power",
+        "enabled_by_default": true,
+        "name": "Inverter AC power",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-base/inverter/state",
+        "unique_id": "MTEC_inverter",
+        "unit_of_measurement": "W",
+        "value_template": "{{ value | round(0) }}"
+      },
+      "sensor.inverter_a": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.inverter_power_phase_a",
+        "device_class": "power",
+        "enabled_by_default": true,
+        "name": "Inverter power phase A",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-inverter/inverter_a/state",
+        "unique_id": "MTEC_inverter_a",
+        "unit_of_measurement": "W",
+        "value_template": "{{ value | round(0) }}"
+      },
+      "sensor.inverter_b": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.inverter_power_phase_b",
+        "device_class": "power",
+        "enabled_by_default": true,
+        "name": "Inverter power phase B",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-inverter/inverter_b/state",
+        "unique_id": "MTEC_inverter_b",
+        "unit_of_measurement": "W",
+        "value_template": "{{ value | round(0) }}"
+      },
+      "sensor.inverter_c": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.inverter_power_phase_c",
+        "device_class": "power",
+        "enabled_by_default": true,
+        "name": "Inverter power phase C",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-inverter/inverter_c/state",
+        "unique_id": "MTEC_inverter_c",
+        "unit_of_measurement": "W",
+        "value_template": "{{ value | round(0) }}"
+      },
+      "sensor.inverter_status": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.inverter_status",
+        "device_class": "enum",
+        "enabled_by_default": true,
+        "name": "Inverter status",
+        "options": [
+          "wait for on-grid",
+          "self-check",
+          "on-grid",
+          "fault",
+          "firmware update",
+          "off grid",
+          "Unknown"
+        ],
+        "platform": "sensor",
+        "state_topic": "MTEC/MT1234567890/now-base/inverter_status/state",
+        "unique_id": "MTEC_inverter_status"
+      },
+      "sensor.inverter_temp1": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.inverter_temperature_sensor_1",
+        "device_class": "temperature",
+        "enabled_by_default": true,
+        "name": "Inverter temperature sensor 1",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-inverter/inverter_temp1/state",
+        "unique_id": "MTEC_inverter_temp1",
+        "unit_of_measurement": "°C",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.inverter_temp2": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.inverter_temperature_sensor_2",
+        "device_class": "temperature",
+        "enabled_by_default": true,
+        "name": "Inverter temperature sensor 2",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-inverter/inverter_temp2/state",
+        "unique_id": "MTEC_inverter_temp2",
+        "unit_of_measurement": "°C",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.inverter_temp3": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.inverter_temperature_sensor_3",
+        "device_class": "temperature",
+        "enabled_by_default": true,
+        "name": "Inverter temperature sensor 3",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-inverter/inverter_temp3/state",
+        "unique_id": "MTEC_inverter_temp3",
+        "unit_of_measurement": "°C",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.inverter_temp4": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.inverter_temperature_sensor_4",
+        "device_class": "temperature",
+        "enabled_by_default": true,
+        "name": "Inverter temperature sensor 4",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-inverter/inverter_temp4/state",
+        "unique_id": "MTEC_inverter_temp4",
+        "unit_of_measurement": "°C",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.mode": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.inverter_operation_mode",
+        "device_class": "enum",
+        "enabled_by_default": true,
+        "name": "Inverter operation mode",
+        "options": [
+          "General mode",
+          "Economic mode",
+          "UPS mode",
+          "Off grid",
+          "Unknown"
+        ],
+        "platform": "sensor",
+        "state_topic": "MTEC/MT1234567890/now-base/mode/state",
+        "unique_id": "MTEC_mode"
+      },
+      "sensor.off_grid_soc_limit": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.off_grid_soc_limit",
+        "enabled_by_default": true,
+        "name": "Off-grid SOC limit",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/config/off_grid_soc_limit/state",
+        "unique_id": "MTEC_off_grid_soc_limit",
+        "unit_of_measurement": "%",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.on_grid_soc_limit": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.on_grid_soc_limit",
+        "enabled_by_default": true,
+        "name": "On-grid SOC limit",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/config/on_grid_soc_limit/state",
+        "unique_id": "MTEC_on_grid_soc_limit",
+        "unit_of_measurement": "%",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.own_consumption_day": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.own_consumption_rate_day",
+        "device_class": "power_factor",
+        "enabled_by_default": true,
+        "name": "Own consumption rate (day)",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/day/own_consumption_day/state",
+        "unique_id": "MTEC_own_consumption_day",
+        "unit_of_measurement": "%",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.own_consumption_total": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.own_consumption_rate_total",
+        "device_class": "power_factor",
+        "enabled_by_default": true,
+        "name": "Own consumption rate (total)",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/total/own_consumption_total/state",
+        "unique_id": "MTEC_own_consumption_total",
+        "unit_of_measurement": "%",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.pv": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.pv_power",
+        "device_class": "power",
+        "enabled_by_default": true,
+        "name": "PV power",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-base/pv/state",
+        "unique_id": "MTEC_pv",
+        "unit_of_measurement": "W",
+        "value_template": "{{ value | round(0) }}"
+      },
+      "sensor.pv_1": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.pv1_power",
+        "device_class": "power",
+        "enabled_by_default": true,
+        "name": "PV1 power",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-pv/pv_1/state",
+        "unique_id": "MTEC_pv_1",
+        "unit_of_measurement": "W",
+        "value_template": "{{ value | round(0) }}"
+      },
+      "sensor.pv_2": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.pv2_power",
+        "device_class": "power",
+        "enabled_by_default": true,
+        "name": "PV2 power",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-pv/pv_2/state",
+        "unique_id": "MTEC_pv_2",
+        "unit_of_measurement": "W",
+        "value_template": "{{ value | round(0) }}"
+      },
+      "sensor.pv_current_1": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.pv1_current",
+        "device_class": "current",
+        "enabled_by_default": true,
+        "name": "PV1 current",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-pv/pv_current_1/state",
+        "unique_id": "MTEC_pv_current_1",
+        "unit_of_measurement": "A",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.pv_current_2": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.pv2_current",
+        "device_class": "current",
+        "enabled_by_default": true,
+        "name": "PV2 current",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-pv/pv_current_2/state",
+        "unique_id": "MTEC_pv_current_2",
+        "unit_of_measurement": "A",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.pv_day": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.pv_energy_generated_day",
+        "device_class": "energy",
+        "enabled_by_default": true,
+        "name": "PV energy generated (day)",
+        "platform": "sensor",
+        "state_class": "total_increasing",
+        "state_topic": "MTEC/MT1234567890/day/pv_day/state",
+        "unique_id": "MTEC_pv_day",
+        "unit_of_measurement": "kWh",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.pv_generation_duration": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.pv_generation_time_total",
+        "device_class": "duration",
+        "enabled_by_default": true,
+        "name": "PV generation time total",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-pv/pv_generation_duration/state",
+        "unique_id": "MTEC_pv_generation_duration",
+        "unit_of_measurement": "h",
+        "value_template": "{{ value }}"
+      },
+      "sensor.pv_total": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.pv_energy_generated_total",
+        "device_class": "energy",
+        "enabled_by_default": true,
+        "name": "PV energy generated (total)",
+        "platform": "sensor",
+        "state_class": "total_increasing",
+        "state_topic": "MTEC/MT1234567890/total/pv_total/state",
+        "unique_id": "MTEC_pv_total",
+        "unit_of_measurement": "kWh",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.pv_voltage_1": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.pv1_voltage",
+        "device_class": "voltage",
+        "enabled_by_default": true,
+        "name": "PV1 voltage",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-pv/pv_voltage_1/state",
+        "unique_id": "MTEC_pv_voltage_1",
+        "unit_of_measurement": "V",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "sensor.pv_voltage_2": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "default_entity_id": "sensor.pv2_voltage",
+        "device_class": "voltage",
+        "enabled_by_default": true,
+        "name": "PV2 voltage",
+        "platform": "sensor",
+        "state_class": "measurement",
+        "state_topic": "MTEC/MT1234567890/now-pv/pv_voltage_2/state",
+        "unique_id": "MTEC_pv_voltage_2",
+        "unit_of_measurement": "V",
+        "value_template": "{{ value | round(1) }}"
+      },
+      "switch.charge_active": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "command_topic": "MTEC/MT1234567890/config/charge_active/set",
+        "default_entity_id": "switch.charge_active",
+        "enabled_by_default": true,
+        "name": "Charge active",
+        "payload_off": "0",
+        "payload_on": "1",
+        "platform": "switch",
+        "state_topic": "MTEC/MT1234567890/config/charge_active/state",
+        "unique_id": "MTEC_charge_active"
+      },
+      "switch.discharge_active": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "command_topic": "MTEC/MT1234567890/config/discharge_active/set",
+        "default_entity_id": "switch.discharge_active",
+        "enabled_by_default": true,
+        "name": "Discharge active",
+        "payload_off": "0",
+        "payload_on": "1",
+        "platform": "switch",
+        "state_topic": "MTEC/MT1234567890/config/discharge_active/state",
+        "unique_id": "MTEC_discharge_active"
+      },
+      "switch.grid_inject_switch": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "command_topic": "MTEC/MT1234567890/config/grid_inject_switch/set",
+        "default_entity_id": "switch.grid_injection_limit_switch",
+        "enabled_by_default": false,
+        "name": "Grid injection limit switch",
+        "payload_off": "0",
+        "payload_on": "1",
+        "platform": "switch",
+        "state_topic": "MTEC/MT1234567890/config/grid_inject_switch/state",
+        "unique_id": "MTEC_grid_inject_switch"
+      },
+      "switch.off_grid_soc_switch": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "command_topic": "MTEC/MT1234567890/config/off_grid_soc_switch/set",
+        "default_entity_id": "switch.off_grid_soc_limit_switch",
+        "enabled_by_default": false,
+        "name": "Off-grid SOC limit switch",
+        "payload_off": "0",
+        "payload_on": "1",
+        "platform": "switch",
+        "state_topic": "MTEC/MT1234567890/config/off_grid_soc_switch/state",
+        "unique_id": "MTEC_off_grid_soc_switch"
+      },
+      "switch.on_grid_soc_switch": {
+        "availability": [
+          {
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "topic": "MTEC/bridge/status"
+          }
+        ],
+        "availability_mode": "all",
+        "command_topic": "MTEC/MT1234567890/config/on_grid_soc_switch/set",
+        "default_entity_id": "switch.on_grid_soc_limit_switch",
+        "enabled_by_default": false,
+        "name": "On-grid SOC limit switch",
+        "payload_off": "0",
+        "payload_on": "1",
+        "platform": "switch",
+        "state_topic": "MTEC/MT1234567890/config/on_grid_soc_switch/state",
+        "unique_id": "MTEC_on_grid_soc_switch"
+      }
+    },
+    "device": {
+      "identifiers": [
+        "MT1234567890"
+      ],
+      "manufacturer": "M-TEC",
+      "model": "Energy-Butler",
+      "model_id": "EB-10kW",
+      "name": "MTEC EnergyButler",
+      "serial_number": "MT1234567890",
+      "sw_version": "1.2.3"
+    },
+    "origin": {
+      "name": "go-mtec2mqtt",
+      "support_url": "https://github.com/SukramJ/go-mtec2mqtt",
+      "sw_version": "0.0.0-golden"
+    }
+  }
+}

@@ -63,8 +63,21 @@ type topicGolden struct {
 	// StateTopics is every topic publishGroupOnce writes a value to,
 	// across all catalog groups.
 	StateTopics []string `json:"state_topics"`
-	// DiscoveryConfigTopics is every retained config topic.
+	// DiscoveryConfigTopics is every per-entity config topic this daemon
+	// RETRACTS on the migration to the device bundle.
+	//
+	// Until this release it was every config topic the daemon published.
+	// The list is byte-identical either way, and that is the point: the
+	// retraction has to name exactly the fleet the previous release left
+	// retained, or Home Assistant refuses the document over the survivor.
+	// It is now derived from the document's own components through
+	// hass.SupersededConfigTopics -- the same call publisher.Runtime makes
+	// -- rather than from the pre-migration builder, so the two cannot
+	// drift.
 	DiscoveryConfigTopics []string `json:"discovery_config_topics"`
+	// DiscoveryBundleTopic is the ONE retained discovery message this
+	// daemon now writes.
+	DiscoveryBundleTopic string `json:"discovery_bundle_topic"`
 	// CommandTopics is every topic an entity tells Home Assistant to
 	// write back to.
 	CommandTopics []string `json:"command_topics"`
@@ -242,9 +255,11 @@ func TestTopicGolden(t *testing.T) {
 	}
 
 	configSet := map[string]bool{}
+	for _, topic := range hass.SupersededConfigTopics(c.deps.HARuntime.Prefix(), c.haBundle) {
+		configSet[topic] = true
+	}
 	commandSet := map[string]bool{}
 	for _, e := range discovery.Entries() {
-		configSet[e.ConfigTopic] = true
 		if e.CommandTopic != "" {
 			commandSet[e.CommandTopic] = true
 		}
@@ -264,6 +279,7 @@ func TestTopicGolden(t *testing.T) {
 	got := topicGolden{
 		StateTopics:              sortedKeys(stateSet),
 		DiscoveryConfigTopics:    sortedKeys(configSet),
+		DiscoveryBundleTopic:     c.haBundleTopic,
 		CommandTopics:            sortedKeys(commandSet),
 		SubscribeFilters:         subscribeFilters(t, c, stub),
 		StateTopicsWithoutEntity: sortedKeys(orphanState),
@@ -295,6 +311,10 @@ func TestTopicGolden(t *testing.T) {
 	}
 	diffTopicList(t, "state_topics", want.StateTopics, got.StateTopics)
 	diffTopicList(t, "discovery_config_topics", want.DiscoveryConfigTopics, got.DiscoveryConfigTopics)
+	if want.DiscoveryBundleTopic != got.DiscoveryBundleTopic {
+		t.Errorf("discovery_bundle_topic moved:\n golden: %s\n  built: %s",
+			want.DiscoveryBundleTopic, got.DiscoveryBundleTopic)
+	}
 	diffTopicList(t, "command_topics", want.CommandTopics, got.CommandTopics)
 	diffTopicList(t, "subscribe_filters", want.SubscribeFilters, got.SubscribeFilters)
 	diffTopicList(t, "state_topics_without_entity", want.StateTopicsWithoutEntity, got.StateTopicsWithoutEntity)
