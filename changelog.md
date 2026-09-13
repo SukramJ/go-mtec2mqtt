@@ -2,6 +2,23 @@
 
 ## What's Changed
 
+### Fixed
+
+- **State is now published retained** (ADR 0070 phase 6, step 2a). Until
+  now every value went out non-retained, so a subscriber that connected
+  between two polls — Home Assistant after a restart, most of all — saw
+  `unknown` until the next cycle: up to five minutes for the `day` and
+  `total` groups and **up to an hour** for `static`. Discovery was already
+  retained, so the entities existed; they just had no value. They now show
+  their last known reading immediately. QoS is unchanged at 0.
+- **A nil reading can no longer retract an entity's value.** An empty
+  payload on a retained topic is MQTT's retraction — the broker deletes the
+  stored message instead of replacing it — and `formatValue(nil)` renders
+  exactly that. No decode path produces a nil today, which is why this was
+  inert while state was non-retained; the publish path now refuses an empty
+  payload outright (logged as `coordinator.empty_payload_skipped`) rather
+  than deleting the value. This is why retain was not flipped on its own.
+
 ### Changed
 
 - **`go-mqtt` v1.3.0 → v1.5.1**, and the hand-rolled MQTT session is gone.

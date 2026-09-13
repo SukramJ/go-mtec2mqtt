@@ -237,6 +237,11 @@ func findRegisterByOutputKey(catalog *registers.Map, key string) *registers.Regi
 // and the int64 an unscaled U32/S32 register decodes to identically
 // (no exponent, no thousands separator), so a wide register publishes
 // its full value without a width-specific case here.
+//
+// A nil value renders as "", which is not a payload: on the retained
+// state plane an empty payload is MQTT's retraction. The empty string is
+// kept as the "no payload" signal rather than being invented into a
+// placeholder, and publishGroupOnce refuses to publish it.
 func formatValue(v any, floatFmt string) string {
 	switch x := v.(type) {
 	case float64:

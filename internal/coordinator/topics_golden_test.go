@@ -343,9 +343,13 @@ func TestCommandTopicsAreSubscribed(t *testing.T) {
 // this daemon makes. Before this test, every MQTT stub in the repository
 // discarded the QoS argument, so the guarantee was asserted nowhere.
 //
-// The state row pins F3: QoS 0 and retain=false, so a Home Assistant
-// restart finds no value for any entity. When step 2 flips it, this test
-// fails, and that failure is the whole point.
+// The state row was F3's pin — QoS 0 and retain=false, so a Home
+// Assistant restart found no value for any entity. Step 2a fixed it, and
+// the row now asserts the fixed contract: every state publish is retained
+// and stays at QoS 0. The QoS half is as load-bearing as the retain half:
+// the ADR 0070 migration moves this plane onto a library whose default is
+// QoS 1, and the installed base's delivery guarantee must not move with
+// it.
 func TestPublishQoSAndRetain(t *testing.T) {
 	c, _, stub, catalog := realTopicCoordinator(t)
 
@@ -353,8 +357,9 @@ func TestPublishQoSAndRetain(t *testing.T) {
 		if p.qos != mqtt.QoS0 {
 			t.Errorf("state publish %s: qos = %v, want QoS0", p.topic, p.qos)
 		}
-		if p.retain {
-			t.Errorf("state publish %s: retain = true — F3 is fixed; update this test", p.topic)
+		if !p.retain {
+			t.Errorf("state publish %s: retain = false, want true — a late "+
+				"subscriber must get the last value, not `unknown` (F3)", p.topic)
 		}
 	}
 
@@ -409,14 +414,66 @@ func TestSubscribeQoS(t *testing.T) {
 }
 
 // TestStatePayloadsAreCanonical pins that no state publish carries an
-// empty payload today. Under F3's fix an empty *retained* payload is
-// MQTT's retraction — it would delete the value rather than blank it —
-// which is F8, and is why F3 must not be fixed by flipping a boolean.
+// empty payload. On the now-retained state plane an empty payload is
+// MQTT's retraction — it deletes the stored value rather than blanking
+// it — which is F8, and is why F3 was not fixed by flipping a boolean.
 func TestStatePayloadsAreCanonical(t *testing.T) {
 	c, _, stub, catalog := realTopicCoordinator(t)
 	for _, p := range publishEveryGroup(t, c, catalog, stub) {
 		if len(bytes.TrimSpace(p.payload)) == 0 {
-			t.Errorf("%s published an empty payload — under a retained state plane this is a retraction (F8)", p.topic)
+			t.Errorf("%s published an empty payload — on the retained state plane this is a retraction (F8)", p.topic)
 		}
+	}
+}
+
+// TestNilValueIsNotPublished is F8's fixed contract, driven end to end
+// through the production path: a nil reaching publishGroupOnce must
+// produce *no publish at all* on that topic, not a retained empty payload
+// that retracts the entity's last known value.
+//
+// The nil is injected at the reader, the only place a decode could ever
+// hand one up, and flows through processValues → processOne (which
+// preserves it) → formatValue (which renders "") exactly as it would in
+// production. Asserting it here rather than on formatValue alone is the
+// point: formatValue returning "" is correct; publishing that string is
+// not.
+func TestNilValueIsNotPublished(t *testing.T) {
+	c, _, stub, _ := realTopicCoordinator(t)
+
+	// grid_power carries no hass_value_items, so processOne passes the
+	// value through untouched — the shortest real path from a nil read to
+	// the publish call.
+	const nilKey = "grid_power"
+	data, ok := c.deps.Reader.(*stubReader).groupData[registers.GroupBase]
+	if !ok {
+		t.Fatal("no now-base group data")
+	}
+	if _, present := data[nilKey]; !present {
+		t.Fatalf("%s is not a now-base register any more; pick another plain sensor", nilKey)
+	}
+	data[nilKey] = nil
+
+	c.publishGroupOnce(t.Context(), slog.New(slog.DiscardHandler), registers.GroupBase)
+	pubs := stub.snapshotPublishes()
+	if len(pubs) == 0 {
+		t.Fatal("no publishes — the poll path did not run")
+	}
+
+	nilTopic := "MTEC/" + goldenSerial + "/now-base/" + nilKey + "/state"
+	sawOthers := false
+	for _, p := range pubs {
+		if p.topic == nilTopic {
+			t.Errorf("%s was published with payload %q retain=%v — an empty retained "+
+				"payload retracts the entity's stored value (F8)", p.topic, p.payload, p.retain)
+		}
+		if len(bytes.TrimSpace(p.payload)) == 0 {
+			t.Errorf("%s published an empty payload", p.topic)
+		}
+		if p.topic != nilTopic {
+			sawOthers = true
+		}
+	}
+	if !sawOthers {
+		t.Error("the whole group was dropped, not just the nil value")
 	}
 }

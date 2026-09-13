@@ -146,14 +146,34 @@ func (c *Coordinator) publishGroupOnce(ctx context.Context, log *slog.Logger, gr
 	if c.deps.Store != nil {
 		c.deps.Store.UpdateGroup(string(group), processed, c.deps.Now())
 	}
+	published := 0
 	for key, val := range processed {
 		topic := fmt.Sprintf("%s/%s/%s/state", topicBase, group, key)
 		payload := formatValue(val, c.deps.Cfg.GoFloatVerb())
-		if err := c.deps.MQTT.Publish(ctx, topic, []byte(payload), mqtt.QoS0, false); err != nil {
+		// An empty payload on a *retained* topic is MQTT's retraction: the
+		// broker drops the stored message instead of replacing it, so the
+		// entity's last value would be deleted rather than refreshed. That
+		// is why this guard and the retain flag below are one change and
+		// not two — with retain=false an empty payload was merely inert.
+		// formatValue only yields "" for a nil value, which no current
+		// decode path produces; the guard is what keeps that true by
+		// construction rather than by accident.
+		if payload == "" {
+			log.Warn("coordinator.empty_payload_skipped", slog.String("topic", topic))
+			continue
+		}
+		// Retained: a subscriber that connects between two polls — Home
+		// Assistant after a restart, most of all — gets the last known
+		// value immediately instead of sitting at `unknown` until the next
+		// cycle, which is up to an hour for the `static` group. QoS stays
+		// 0: the retained copy, not the delivery guarantee, is what makes
+		// a late subscriber correct.
+		if err := c.deps.MQTT.Publish(ctx, topic, []byte(payload), mqtt.QoS0, true); err != nil {
 			log.Warn("coordinator.publish_failed",
 				slog.String("topic", topic),
 				slog.String("err", err.Error()))
 		}
+		published++
 	}
-	log.Debug("coordinator.published", slog.Int("count", len(processed)))
+	log.Debug("coordinator.published", slog.Int("count", published))
 }
