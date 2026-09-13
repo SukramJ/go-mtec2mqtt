@@ -5,6 +5,7 @@ package coordinator
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"slices"
 	"sort"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/SukramJ/go-mtec2mqtt/internal/hass"
 	"github.com/SukramJ/go-mtec2mqtt/internal/registers"
+	"github.com/SukramJ/go-mtec2mqtt/internal/version"
 )
 
 // TestPublishDiscoveryReturnsPublishedSet checks that publishDiscovery
@@ -62,6 +64,59 @@ func TestPublishDiscoveryReturnsPublishedSet(t *testing.T) {
 	if retractions != len(c.deps.HASS.Entries()) {
 		t.Errorf("retracted %d per-entity topics, want %d (one per pre-migration entry)",
 			retractions, len(c.deps.HASS.Entries()))
+	}
+}
+
+// TestTheDocumentsOriginNamesThisBuild reads the `origin` block off the
+// wire rather than off hass.BundleOrigin, because the wiring is what a
+// mutation pass found unguarded: the coordinator could have handed it the
+// INVERTER's firmware and every assertion still passed.
+//
+// Home Assistant requires an origin on a device bundle — discovery.Validate
+// blocks without a name, which withholds the whole migration — and its
+// sw_version is the one thing on the document that answers "which build of
+// which program wrote this". The device block's own sw_version answers the
+// other question and the two must not be swapped.
+func TestTheDocumentsOriginNamesThisBuild(t *testing.T) {
+	c, _, mqttStub, _ := buildDeps(t, true)
+	initDiscovery(t, c)
+	c.publishDiscovery(context.Background())
+
+	const doc = "homeassistant/device/mtec-test-001/config"
+	var body []byte
+	for _, p := range mqttStub.snapshotPublishes() {
+		if p.topic == doc {
+			body = p.payload
+		}
+	}
+	if body == nil {
+		t.Fatal("the device document was never published")
+	}
+	var got struct {
+		Origin struct {
+			Name string `json:"name"`
+			SW   string `json:"sw_version"`
+			URL  string `json:"support_url"`
+		} `json:"origin"`
+		Device struct {
+			SW string `json:"sw_version"`
+		} `json:"device"`
+	}
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("the published document is not valid json: %v", err)
+	}
+	if got.Origin.Name != hass.OriginName || got.Origin.URL != hass.OriginURL {
+		t.Errorf("origin = %+v, want name %q url %q", got.Origin, hass.OriginName, hass.OriginURL)
+	}
+	if got.Origin.SW != version.Version {
+		t.Errorf("origin.sw_version = %q, want this build's version %q",
+			got.Origin.SW, version.Version)
+	}
+	// The fixture's inverter firmware is "V1"; the two answers must not be
+	// the same string by accident either.
+	if got.Origin.SW == got.Device.SW {
+		t.Errorf("origin.sw_version and device.sw_version are both %q; origin names "+
+			"the program, device names the inverter", got.Origin.SW)
 	}
 }
 

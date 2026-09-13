@@ -1271,3 +1271,61 @@ func summariseTopics(pubs []publishCall) string {
 	}
 	return strings.Join(parts, ", ")
 }
+
+// TestNewRefusesARuntimeThatDoesNotStateTheLegacyForm is the boot-time
+// guard on the one composition-root mistake that is total, silent, and
+// invisible from every direction.
+//
+// A publisher.Runtime built without Config.LegacyEntityTopics retracts the
+// five-segment per-entity form, which 0 of this fleet's 100 retained
+// configs are on. The device document is then published while all 100 are
+// still retained, Home Assistant refuses it with a single
+// "WARNING [mqtt.entity] Received a conflicting MQTT discovery message" in
+// its own log, and the entities do not appear. Nothing on the wire reports
+// it.
+//
+// A mutation pass is why this exists: dropping the field was caught by
+// nothing at all, because the daemon and the test fixture each spelled the
+// publisher.Config out and the fixture still had it. HARuntimeConfig made
+// it one spelling; this makes bypassing that spelling a failed boot rather
+// than a silent migration.
+func TestNewRefusesARuntimeThatDoesNotStateTheLegacyForm(t *testing.T) {
+	mqttStub := newStubMQTT()
+	cfg := buildConfig(t, true)
+	tr := hagomqtt.Split(mqttStub, mqttStub)
+	// The library default: LegacyEntityTopics unset.
+	rt := publisher.New(tr, publisher.Config{
+		Prefix: cfg.HASSBaseTopic,
+		Layout: hass.Layout{Root: cfg.MQTTTopic},
+		QoS:    DiscoveryQoS,
+		Logger: slog.New(slog.DiscardHandler),
+	})
+	t.Cleanup(rt.Close)
+	deps := Deps{
+		Cfg:       cfg,
+		Catalog:   &registers.Map{},
+		Modbus:    &stubModbus{},
+		Reader:    newStubReader(),
+		MQTT:      mqttStub,
+		Logger:    slog.New(slog.DiscardHandler),
+		HARuntime: rt,
+		StatePlane: publisher.StateFor(rt, publisher.StateConfig{
+			QoS:      StateQoS,
+			Encoding: discovery.RawEncoding,
+			Logger:   slog.New(slog.DiscardHandler),
+		}),
+	}
+
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("New accepted a runtime on the five-segment default; the migration " +
+				"would retract nothing and Home Assistant would refuse the document")
+		}
+		msg, _ := r.(string)
+		if !strings.Contains(msg, "legacy config topic forms") {
+			t.Errorf("the panic does not name the cause: %v", r)
+		}
+	}()
+	New(deps)
+}

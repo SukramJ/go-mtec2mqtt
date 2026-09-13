@@ -33,10 +33,16 @@ HASS_ENABLE: false # Enable home assistant
 HASS_BASE_TOPIC: homeassistant # Basis MQTT topic of home assistant
 HASS_BIRTH_GRACETIME: 15 # Give HASS some time to get ready after the birth message was received
 # Opt-in: fold the inverter serial number into every Home Assistant
-# entity's unique_id and into the MQTT discovery topics, so multiple
-# inverters (multiple instances of this daemon) can share one Home
-# Assistant installation without their entities colliding. Off by
-# default. WARNING: flipping this on for an EXISTING installation
+# entity's unique_id, so multiple inverters (multiple instances of this
+# daemon) can share one Home Assistant installation without their
+# entities colliding. Off by default, and the collision it prevents is
+# TOTAL rather than partial: two default-configured instances render the
+# same 100 entity identities. The discovery TOPIC is already per-inverter
+# since 1.10.0 (the device document is keyed on the serial), so the two
+# instances no longer overwrite each other's discovery messages -- what
+# still collides is the unique_ids inside them, which Home Assistant
+# binds to whichever device declared each one first. Set this on EVERY
+# instance, before upgrading. WARNING: flipping this on for an EXISTING installation
 # creates a brand-new set of unique_ids and orphans the previously
 # discovered entities — MQTT discovery has no migration path for a
 # unique_id change, so HA cannot rename the old entity, only discover

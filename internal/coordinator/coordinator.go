@@ -195,6 +195,31 @@ func HARuntimeConfig(cfg *config.Config, logger *slog.Logger) publisher.Config {
 	}
 }
 
+// wantLegacyForms is what [publisher.Runtime.LegacyForms] must report for
+// a runtime this package will drive. The library exports that accessor
+// "for a consumer's own assertion"; this is the consumer making it.
+//
+// Derived from [HARuntimeConfig] rather than written out as a literal, so
+// the guard and the thing it guards cannot drift apart. That the form it
+// resolves to is the one this fleet's 100 retained configs are actually on
+// is asserted in internal/hass, against the pins.
+func wantLegacyForms() []string {
+	cfg := HARuntimeConfig(&config.Config{}, slog.New(slog.DiscardHandler))
+	probe := publisher.New(nopTransport{}, cfg)
+	defer probe.Close()
+	return probe.LegacyForms()
+}
+
+// nopTransport satisfies publisher.Transport for the probe above, which
+// never publishes, subscribes or unsubscribes.
+type nopTransport struct{}
+
+func (nopTransport) Publish(context.Context, string, []byte, byte, bool) error { return nil }
+
+func (nopTransport) Subscribe(context.Context, string, byte, publisher.Handler) error { return nil }
+
+func (nopTransport) Unsubscribe(context.Context, string) error { return nil }
+
 // DiscoveryQoS is the delivery guarantee of every retained discovery
 // config publish and of the bridge availability marker.
 //
@@ -311,6 +336,28 @@ func New(d Deps) *Coordinator {
 	}
 	if d.HARuntime == nil {
 		panic("coordinator: Deps.HARuntime is required; build it at the composition root so Will() can be read before CONNECT")
+	}
+	// The runtime must state the per-entity topic form this fleet is on,
+	// and it is checked here rather than trusted because getting it wrong
+	// is total, silent, and invisible from every direction: a runtime built
+	// without publisher.Config.LegacyEntityTopics retracts the five-segment
+	// form nothing in this fleet uses, so the device document is published
+	// while all 100 per-entity configs are still retained, Home Assistant
+	// refuses it with a single WARNING in its own log, and the entities
+	// simply do not appear. Nothing on the wire says so and nothing here
+	// would have.
+	//
+	// A panic, because it is a composition-root mistake and not a runtime
+	// condition — the same reason the nil check above is one.
+	// [HARuntimeConfig] is the answer; this is what makes bypassing it
+	// loud.
+	want := wantLegacyForms()
+	if forms := d.HARuntime.LegacyForms(); !slices.Equal(forms, want) {
+		panic("coordinator: Deps.HARuntime states legacy config topic forms " +
+			fmt.Sprint(forms) + ", want " + fmt.Sprint(want) +
+			"; build it with HARuntimeConfig, or the device bundle is published " +
+			"while the per-entity configs are still retained and Home Assistant " +
+			"refuses it in silence")
 	}
 	if d.StatePlane == nil {
 		panic("coordinator: Deps.StatePlane is required; build it at the composition root so the state QoS is stated there")

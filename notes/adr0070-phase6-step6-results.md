@@ -70,9 +70,12 @@ before the document goes out.
 `publisher.Runtime.PublishBundle` does both, in that order, and aborts
 before the document if a retraction fails. This daemon states the form its
 fleet is on (`hass.LegacyConfigTopicForms()` →
-`publisher.LegacyTopicByUniqueID`) at the composition root; stating a form
-*replaces* the library's five-segment default rather than adding to it,
-which is what makes that one line sufficient and not merely helpful.
+`publisher.LegacyTopicByUniqueID`) in `coordinator.HARuntimeConfig`;
+stating a form *replaces* the library's five-segment default rather than
+adding to it, which is what makes that one line sufficient and not merely
+helpful. It is **one** function rather than a literal at the composition
+root because the first mutation pass found that a literal there was
+guarded by nothing — see §9.
 
 ### 2.1 "All 100", derived and not listed
 
@@ -205,7 +208,8 @@ it; the diagnosis is one `ERROR` naming the node id and the issues.
 Warnings — keys Home Assistant accepts and then rewrites — are logged and
 the document is published.
 
-**The sweep is skipped outright when there is no document** (`run()`), and
+**The sweep refuses outright when there is no document** — the guard lives
+in `sweepOrphans` itself, so it travels with the code it protects — and
 this is not a nicety. After this release the daemon publishes no
 four-segment config at all, so every one the sweep's window finds is an
 orphan by its own rule — which is right when the document went out and
