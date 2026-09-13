@@ -214,7 +214,7 @@
   ],
   "subscribe_filters": [
     "MTEC/+/+/+/set",
-    "homeassistant/+/+/config",
+    "homeassistant/#",
     "homeassistant/status"
   ],
   "state_topics_without_entity": [

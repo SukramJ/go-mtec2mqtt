@@ -26,11 +26,15 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/SukramJ/go-hamqtt/discovery"
+	"github.com/SukramJ/go-hamqtt/publisher"
+	hagomqtt "github.com/SukramJ/go-hamqtt/publisher/gomqtt"
 	"github.com/SukramJ/go-mqtt"
 
 	"github.com/SukramJ/go-mtec2mqtt/internal/config"
@@ -121,21 +125,56 @@ func run(configPath, registersPath string, logger *slog.Logger) error {
 	})
 	reader := modbus.NewReader(modbusClient, catalog)
 
+	// --- home assistant runtime (LWT, retained configs, sweep) ---
+	//
+	// Built BEFORE the MQTT client, because the Last Will is part of
+	// CONNECT and the will is this runtime's statement: Will() returns the
+	// same topic and the same two payloads AnnounceOnline and
+	// AnnounceOffline write, and publisher.Config refuses a StatusTopic
+	// that disagrees with its Layout's Bridge(). So the bridge structurally
+	// cannot configure a will no published entity references — the measured
+	// defect of two sibling bridges, where a hard crash writes "offline"
+	// where nothing reads it and every entity in Home Assistant stays
+	// available forever, showing the last value it ever saw.
+	//
+	// The status topic is hass.BridgeStatusTopic, the SAME function the
+	// discovery builder points all 100 entities at. It is deliberately NOT
+	// under the serial: the marker is published at CONNECT, before the
+	// STATIC read that learns the serial number.
+	//
+	// The client it publishes through does not exist yet, so the transport
+	// is wired in below, before anything connects.
+	haLink := &deferredTransport{}
+	haRuntime := publisher.New(haLink, publisher.Config{
+		Prefix: cfg.HASSBaseTopic,
+		Layout: hass.Layout{Root: cfg.MQTTTopic},
+		QoS:    coordinator.DiscoveryQoS,
+		// The per-entity topic form this fleet is on, stated rather than
+		// defaulted. Inert today — publisher.Config.LegacyEntityTopics is
+		// read by PublishBundle alone and nothing publishes a bundle yet —
+		// but stating it now puts the form in the boot log
+		// ("publisher.legacy_forms") where an operator can see it BEFORE
+		// the migration rather than after it failed silently. Naming a form
+		// REPLACES the library's five-segment default rather than adding to
+		// it, which is the intent: 100 of 100 of this fleet's retained
+		// configs are on the four-segment form and the default matches 0.
+		LegacyEntityTopics: hass.LegacyConfigTopicForms(),
+		Logger:             logger,
+	})
+	will, err := haRuntime.Will()
+	if err != nil {
+		return fmt.Errorf("mtec2mqtt: mqtt will: %w", err)
+	}
+
 	// --- mqtt ---
 	clientID := clientIDBase + cfg.MQTTTopic
-	// Retained availability topic: the broker-side will covers
-	// ungraceful death, the OnConnect hook below publishes the matching
-	// "online" birth, and the shutdown path re-publishes "offline"
-	// because a graceful DISCONNECT suppresses the will. Every discovery
-	// payload points its `availability` at this same string, which is why
-	// both sides read it from one function.
-	statusTopic := hass.BridgeStatusTopic(cfg.MQTTTopic)
-	// Releases up to 1.9.0 wrote the marker to "<hass_base>/status/lwt"
-	// — homeassistant/status/lwt by default, inside Home Assistant's own
-	// birth tree. Nothing read it, so nothing ever surfaced that it was in
-	// the wrong place. It moved; the retained copy an upgrading broker
-	// still holds has to be cleared, or it sits there forever claiming a
-	// daemon that no longer publishes it is online.
+	// Releases up to 1.9.0 wrote the availability marker to
+	// "<hass_base>/status/lwt" — homeassistant/status/lwt by default,
+	// inside Home Assistant's own birth tree. Nothing read it, so nothing
+	// ever surfaced that it was in the wrong place. It moved; the retained
+	// copy an upgrading broker still holds has to be cleared, or it sits
+	// there forever claiming a daemon that no longer publishes it is
+	// online.
 	legacyStatusTopic := cfg.HASSBaseTopic + "/status/lwt"
 	// TLS is opt-in via MQTT_SSL; NewClientTLSConfig always sets
 	// ServerName (tls.Client does not infer it from the dialed address)
@@ -152,27 +191,20 @@ func run(configPath, registersPath string, logger *slog.Logger) error {
 		Password:   cfg.MQTTPassword,
 		KeepAlive:  60 * time.Second,
 		CleanStart: true,
+		// Every field from Will(), none of them a literal here. A literal
+		// would be a second statement of the availability policy that has
+		// to agree with the library's, and "has to agree" is how the two
+		// sibling bridges got theirs wrong.
 		Will: &mqtt.Will{
-			Topic:   statusTopic,
-			Payload: []byte(hass.PayloadNotAvailable),
-			Retain:  true,
+			Topic:   will.Topic,
+			Payload: will.Payload,
+			QoS:     mqtt.QoS(will.QoS),
+			Retain:  will.Retain,
 		},
 		TLSConfig: tlsConfig,
 		Logger:    logger,
 	})
 	mqttLifecycle := mqtt.NewLifecycle(mqtt.DefaultLifecycle(), mqttClient)
-	// The will only fires on ungraceful death; without a matching birth
-	// publish a single network blip would leave the retained
-	// availability topic stuck at "offline" for the rest of the
-	// daemon's uptime. Registered before Start so the first connect
-	// announces too.
-	mqttLifecycle.OnConnect(func(hookCtx context.Context) {
-		retractLegacyAvailability(mqttClient, legacyStatusTopic, logger)(hookCtx)
-		announceAvailability(mqttClient, statusTopic, hass.PayloadAvailable, logger)(hookCtx)
-	})
-	if err := startMQTT(ctx, mqttLifecycle, time.Second, 30*time.Second, logger); err != nil {
-		return fmt.Errorf("mtec2mqtt: mqtt start: %w", err)
-	}
 	// Circuit breaker between the coordinator and the broker: during a
 	// degraded-broker phase (TCP link up, acks missing) publishes fail
 	// fast with mqtt.ErrCircuitOpen instead of each stalling on the ack
@@ -187,26 +219,43 @@ func run(configPath, registersPath string, logger *slog.Logger) error {
 				slog.String("to", to.String()))
 		},
 	})
-	defer func() {
-		// Graceful disconnect — bounded so a hung broker can't block
-		// shutdown for more than a few seconds. A clean DISCONNECT
-		// suppresses the broker-side will, so leave the retained
-		// availability topic at "offline" ourselves first.
-		stopCtx, stopCancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer stopCancel()
-		announceAvailability(mqttClient, statusTopic, hass.PayloadNotAvailable, logger)(stopCtx)
-		_ = mqttLifecycle.Stop(stopCtx)
-	}()
+	// The runtime publishes through the breaker and subscribes around it,
+	// for the same reason the coordinator's client is split: breaking the
+	// subscribe path would only delay resubscription after a reconnect
+	// without preventing anything.
+	haLink.wire(hagomqtt.Split(breaker, mqttClient))
+
+	// --- state plane ---
+	//
+	// StateFor inherits the runtime's transport and logger; what it does
+	// NOT inherit is a QoS it was never told, which is the whole point of
+	// stating coordinator.StateQoS. publisher.QoS's zero value means
+	// *unset* and resolves to QoS 1; this bridge has published its entire
+	// state plane at QoS 0 since its first release, and a step whose
+	// purpose is de-duplication is not where an installed base's delivery
+	// guarantee changes on the wire.
+	//
+	// CommandFilters is the one thing the library can check that this
+	// bridge could not: a state topic falling inside this process's own
+	// /set subscription would be echoed back into its own command handler.
+	// The filter is stated once, in hass.CommandFilter, and read by the
+	// router route and by this guard.
+	statePlane := publisher.StateFor(haRuntime, publisher.StateConfig{
+		QoS:            coordinator.StateQoS,
+		Encoding:       discovery.RawEncoding,
+		CommandFilters: []string{hass.CommandFilter(cfg.MQTTTopic)},
+		Logger:         logger,
+	})
 
 	// --- hass discovery (optional) ---
 	// The synthetic charge/discharge "active" switches are defined once
 	// and shared: the discovery builder advertises them to HA while the
 	// coordinator implements their toggle/restore write logic.
 	virtualSwitches := hass.DefaultVirtualSwitches(cfg.ChargeActiveValue, cfg.DischargeActiveValue)
-	var discovery *hass.Discovery
+	var hassDiscovery *hass.Discovery
 	if cfg.HASSEnable {
-		discovery = hass.New(cfg.HASSBaseTopic, cfg.MQTTTopic, catalog, cfg.Language, virtualSwitches, cfg.DeviceName)
-		discovery.IncludeSerialInUniqueIDs(cfg.HassUniqueIDIncludeSerial)
+		hassDiscovery = hass.New(cfg.HASSBaseTopic, cfg.MQTTTopic, catalog, cfg.Language, virtualSwitches, cfg.DeviceName)
+		hassDiscovery.IncludeSerialInUniqueIDs(cfg.HassUniqueIDIncludeSerial)
 	}
 
 	// --- web ui (optional) ---
@@ -229,12 +278,36 @@ func run(configPath, registersPath string, logger *slog.Logger) error {
 		// subscriptions are startup-path calls with their own
 		// SUBACK-bounded wait and must not be rejected during a
 		// publish-side broker brownout.
-		MQTT:    mqtt.SplitClient(breaker, mqttClient),
-		HASS:    discovery,
-		Logger:  logger,
-		Store:   store,
-		Virtual: virtualSwitches,
+		MQTT:       mqtt.SplitClient(breaker, mqttClient),
+		HASS:       hassDiscovery,
+		Logger:     logger,
+		Store:      store,
+		Virtual:    virtualSwitches,
+		HARuntime:  haRuntime,
+		StatePlane: statePlane,
 	})
+
+	// Registered before Start so the first connect announces too. The
+	// will only fires on ungraceful death; without a matching birth
+	// publish a single network blip would leave the retained availability
+	// topic stuck at "offline" for the rest of the daemon's uptime.
+	mqttLifecycle.OnConnect(func(hookCtx context.Context) {
+		retractLegacyAvailability(breaker, legacyStatusTopic, logger)(hookCtx)
+		c.PublishOnline(hookCtx)
+	})
+	if err := startMQTT(ctx, mqttLifecycle, time.Second, 30*time.Second, logger); err != nil {
+		return fmt.Errorf("mtec2mqtt: mqtt start: %w", err)
+	}
+	defer func() {
+		// Graceful disconnect — bounded so a hung broker can't block
+		// shutdown for more than a few seconds. A clean DISCONNECT
+		// suppresses the broker-side will, so leave the retained
+		// availability topic at "offline" ourselves first.
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer stopCancel()
+		c.PublishOffline(stopCtx)
+		_ = mqttLifecycle.Stop(stopCtx)
+	}()
 
 	if !cfg.WebEnable {
 		return c.Run(ctx)
@@ -287,21 +360,6 @@ func startMQTT(ctx context.Context, lc mqttStarter, backoff, maxBackoff time.Dur
 		case <-time.After(backoff):
 		}
 		backoff = min(2*backoff, maxBackoff)
-	}
-}
-
-// announceAvailability returns a callback that publishes the retained
-// availability payload to the LWT topic. Registered as the lifecycle's
-// OnConnect hook with "online" (fired on every (re)connect) and called
-// directly with "offline" during graceful shutdown. Publish failures
-// are logged, never fatal — availability is best-effort.
-func announceAvailability(pub coordinator.MQTTPublisher, topic, payload string, logger *slog.Logger) func(context.Context) {
-	return func(ctx context.Context) {
-		if err := pub.Publish(ctx, topic, []byte(payload), mqtt.QoS0, true); err != nil {
-			logger.Warn("mtec2mqtt.lwt_publish_failed",
-				slog.String("payload", payload),
-				slog.String("err", err.Error()))
-		}
 	}
 }
 
@@ -444,4 +502,74 @@ func locateRegisters() string {
 		}
 	}
 	return ""
+}
+
+// errTransportNotWired is returned by a [deferredTransport] used before
+// its client was supplied. A programming error, reported rather than
+// panicked because the caller is a publish path and the daemon losing one
+// config message is better than the daemon dying.
+var errTransportNotWired = errors.New("mtec2mqtt: transport used before the client was wired")
+
+// deferredTransport is a [publisher.Transport] whose client is supplied
+// after construction.
+//
+// It exists for one ordering constraint, and it is a real one: the Last
+// Will is part of CONNECT, so the MQTT client must be built with it —
+// while the will itself is [publisher.Runtime.Will]'s answer, which is
+// what makes the will's topic and the availability topic all 100 entities
+// reference provably one string. One of the two has to be built first, and
+// making it the runtime is what keeps the will a single statement instead
+// of a literal here that has to agree with a literal in the library.
+//
+// wire is called before the lifecycle connects, so nothing can reach a
+// method here beforehand. The field is guarded anyway: once connected it
+// is read from the transport's read loop (the sweep's snapshot window) and
+// from the poll path at the same time.
+type deferredTransport struct {
+	mu sync.RWMutex
+	tr publisher.Transport
+}
+
+// wire supplies the transport. Calling it twice is a programming error and
+// the last call wins; nothing in this daemon does.
+func (d *deferredTransport) wire(tr publisher.Transport) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.tr = tr
+}
+
+func (d *deferredTransport) target() (publisher.Transport, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	if d.tr == nil {
+		return nil, errTransportNotWired
+	}
+	return d.tr, nil
+}
+
+// Publish implements [publisher.Transport].
+func (d *deferredTransport) Publish(ctx context.Context, topic string, payload []byte, qos byte, retain bool) error {
+	tr, err := d.target()
+	if err != nil {
+		return err
+	}
+	return tr.Publish(ctx, topic, payload, qos, retain)
+}
+
+// Subscribe implements [publisher.Transport].
+func (d *deferredTransport) Subscribe(ctx context.Context, filter string, qos byte, h publisher.Handler) error {
+	tr, err := d.target()
+	if err != nil {
+		return err
+	}
+	return tr.Subscribe(ctx, filter, qos, h)
+}
+
+// Unsubscribe implements [publisher.Transport].
+func (d *deferredTransport) Unsubscribe(ctx context.Context, filter string) error {
+	tr, err := d.target()
+	if err != nil {
+		return err
+	}
+	return tr.Unsubscribe(ctx, filter)
 }

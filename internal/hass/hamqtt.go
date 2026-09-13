@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 
 	hacatalog "github.com/SukramJ/go-ha-catalog"
 	"github.com/SukramJ/go-hamqtt/discovery"
 	hamodel "github.com/SukramJ/go-hamqtt/model"
+	"github.com/SukramJ/go-hamqtt/publisher"
 	"github.com/SukramJ/go-hamqtt/topic"
 
 	"github.com/SukramJ/go-mtec2mqtt/internal/registers"
@@ -517,4 +519,139 @@ func virtualSwitchEntity(serial string, v VirtualSwitch) *Entity {
 		EntityIDSeed:   v.Name,
 		PlatformFields: discovery.SwitchFields{PayloadOn: "1", PayloadOff: "0"},
 	}
+}
+
+// --- the runtime seams (ADR 0070 phase 6, steps 4 and 5) --------------------
+//
+// Everything below is consumed by the publish path rather than by the
+// parallel rendering experiment above. It exists in this file because it
+// is the same [Layout] and the same go-hamqtt vocabulary: the point of
+// step 4 is that the topic a value is published to and the topic a config
+// advertises are one function, not two expressions that happen to agree.
+
+// LegacyConfigTopic renders one retained per-entity discovery config topic
+// through go-hamqtt's own [publisher.LegacyTopicByUniqueID] — the
+// four-segment "<prefix>/<platform>/<unique_id>/config" form named by
+// [LegacyConfigTopicForm].
+//
+// It is the single spelling of that topic in this repository: the builder
+// publishes to it, the orphan sweep retracts through it, and step 6 will
+// hand the same function to publisher.Config.LegacyEntityTopics via
+// [LegacyConfigTopicForms]. Three readers, one formula — which is what
+// keeps the retract-then-publish ordering of step 6 expressible at all: a
+// bundle can only supersede the topics the fleet is actually on, and a
+// second spelling here would retract a shape nobody published.
+func LegacyConfigTopic(prefix string, platform Platform, uniqueID string) string {
+	return publisher.LegacyTopicByUniqueID(publisher.LegacyEntity{
+		Prefix:   prefix,
+		Platform: string(platform),
+		UniqueID: uniqueID,
+	})
+}
+
+// LegacyConfigTopicForms is what publisher.Config.LegacyEntityTopics must
+// be set to for this fleet, and is named here rather than at the
+// composition root because [LegacyConfigTopicForm] measured it here.
+//
+// Stating it replaces the library's default rather than adding to it, and
+// that is the intent: this bridge's 100 retained configs are all on the
+// four-segment form (100 of 100, measured against the pins; the
+// five-segment default matches 0), so retracting the five-segment shape as
+// well would reach into a discovery tree this daemon shares with other
+// writers for no gain.
+//
+// It is already wired at the composition root even though nothing
+// publishes a bundle yet: publisher.Config.LegacyEntityTopics is read by
+// [publisher.Runtime.PublishBundle] alone, so setting it now is inert on
+// the wire and puts the form in the boot log
+// ("publisher.legacy_forms"), where an operator can see it before the
+// migration rather than after it failed silently.
+func LegacyConfigTopicForms() []publisher.LegacyTopicFunc {
+	return []publisher.LegacyTopicFunc{publisher.LegacyTopicByUniqueID}
+}
+
+// StateTopic is the topic a register's current value is published to:
+// "<root>/<serial>/<group>/<key>/state".
+//
+// One function, three callers — the config builder's `state_topic`, the
+// poll loop's publish, and the topic golden — because until this release
+// there were two independent expressions for it (an fmt.Sprintf in
+// internal/hass and another in internal/coordinator) and nothing compared
+// them. That is F5 of the phase-6 measurement, and the failure mode is
+// silent in both directions: every entity points at a topic nobody
+// publishes to, permanently `unknown`, with nothing in the log.
+//
+// It renders through [Layout] rather than by concatenation so the shipped
+// builder and the go-hamqtt path cannot disagree either.
+func StateTopic(root, serial, group, key string) string {
+	return Layout{Root: root}.State(stateSlot(serial, group, key))
+}
+
+// CommandTopic is the topic Home Assistant writes a writable entity's new
+// value to: "<root>/<serial>/<group>/<key>/set". The inbound twin of
+// [StateTopic], and one function for the same reason.
+func CommandTopic(root, serial, group, key string) string {
+	return Layout{Root: root}.Command(stateSlot(serial, group, key))
+}
+
+// CommandFilter is the MQTT topic filter this daemon subscribes for
+// inbound commands: "<root>/+/+/+/set".
+//
+// Exported because three readers need the same string and used to hold
+// three literals: the subscription itself, the command router's route,
+// and publisher.StateConfig.CommandFilters — the guard that refuses a
+// state publish which would land inside this process's own command
+// subscription and be echoed straight back into its own handler.
+func CommandFilter(root string) string { return root + "/+/+/+/set" }
+
+func stateSlot(serial, group, key string) hamodel.Slot {
+	return hamodel.Slot{Address: serial, Path: []string{group, key}}
+}
+
+// OwnsConfigTopic reports whether a parsed retained discovery config topic
+// has the shape this daemon publishes.
+//
+// It is the only question [publisher.SweepRequest.Owns] can be asked: the
+// predicate runs on the transport's read loop with the parsed topic and
+// nothing else, before the payload is offered to Inspect. It is therefore
+// deliberately the NARROWER of the two ownership checks and not the
+// decisive one — [Discovery.IsOwnConfig] still judges the body, and a
+// retained config this daemon did not write is never retracted on the
+// strength of its topic alone.
+//
+// Narrow means three conditions, each of which excludes a real population
+// of a shared discovery tree:
+//
+//   - the four-segment per-entity form only. A device document (step 6's
+//     shape, and every Tasmota-style writer's), a five-segment node-id
+//     config and the node-id-less three-segment form all belong to
+//     somebody else today.
+//   - a platform this daemon actually emits. Five of Home Assistant's 32.
+//   - an object id — which in this form IS the unique_id — inside the
+//     compile-time "MTEC_" namespace.
+//
+// The width of this predicate is what a sweep can destroy: openccu-loom's
+// PR #817 found retraction prefixes that owned 100 % of a sibling
+// daemon's configs. Widening any of the three conditions is a decision
+// about what this daemon is willing to delete from a tree it does not own.
+func OwnsConfigTopic(t publisher.ConfigTopic) bool {
+	if t.Bundle || t.Platform == "" || t.NodeID != "" || t.ObjectID == "" {
+		return false
+	}
+	if !publishedPlatforms[Platform(t.Platform)] {
+		return false
+	}
+	return strings.HasPrefix(t.ObjectID, uniqueIDPrefix)
+}
+
+// publishedPlatforms is the closed set of Home Assistant platforms this
+// daemon emits, read by [OwnsConfigTopic]. A platform absent here is a
+// platform whose retained configs under the shared discovery prefix are
+// not this daemon's business.
+var publishedPlatforms = map[Platform]bool{
+	PlatformSensor:       true,
+	PlatformBinarySensor: true,
+	PlatformNumber:       true,
+	PlatformSelect:       true,
+	PlatformSwitch:       true,
 }

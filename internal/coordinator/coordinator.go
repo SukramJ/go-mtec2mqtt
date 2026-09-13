@@ -26,6 +26,8 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/SukramJ/go-hamqtt/publisher"
+	hagomqtt "github.com/SukramJ/go-hamqtt/publisher/gomqtt"
 	"github.com/SukramJ/go-mqtt"
 
 	"github.com/SukramJ/go-mtec2mqtt/internal/config"
@@ -103,7 +105,69 @@ type Deps struct {
 	// target register on every poll and their writes toggle that register
 	// between the configured value and 0. Empty disables the feature.
 	Virtual []hass.VirtualSwitch
+
+	// HARuntime owns this daemon's Home Assistant plane: the retained
+	// discovery configs it has published, the bridge availability marker
+	// its Last Will clears, and the orphan sweep. Required.
+	//
+	// It is built at the composition root rather than here for a reason
+	// that cannot be worked around: [publisher.Runtime.Will] has to be read
+	// BEFORE the MQTT client is constructed, because the Last Will is part
+	// of CONNECT. Having the runtime state the will is what makes the topic
+	// the broker writes "offline" to and the topic every one of the 100
+	// entities names as its availability source provably one string — a
+	// will no entity references is the measured defect of two sibling
+	// bridges, where a hard crash leaves every entity available forever,
+	// showing the last value it ever saw.
+	HARuntime *publisher.Runtime
+
+	// StatePlane writes every register's retained state value. Required.
+	//
+	// Built at the composition root for the same reason as HARuntime and
+	// for one of its own: the one thing it must be told is the quality of
+	// service, and that is a statement about an installed base rather than
+	// about this package. See [StateQoS].
+	StatePlane *publisher.StatePublisher
 }
+
+// StateQoS is the delivery guarantee of every state publish this daemon
+// makes, stated rather than defaulted.
+//
+// QoS 0, unchanged: every release of this bridge has published its state
+// plane at QoS 0 (poll.go's publish call, pinned by
+// TestPublishQoSAndRetain), and a migration step whose purpose is
+// de-duplication is not the place to change the delivery guarantee of an
+// installed base on the wire.
+//
+// It has to be SAID, and that is the trap this constant exists to close.
+// [publisher.QoS]'s zero value is QoSUnset, which resolves to QoS 1 —
+// so a StateConfig that simply omitted the field would have tripled this
+// bridge's broker traffic silently, with a broker capture as the only
+// evidence. [publisher.QoSAtMostOnce] is deliberately 0x80, outside the
+// wire's 0-2 range, precisely so "unset" and "deliberately at most once"
+// cannot be written the same way.
+//
+// Changing it is its own release with its own changelog line.
+const StateQoS = publisher.QoSAtMostOnce
+
+// CommandQoS is the delivery guarantee of this daemon's command
+// subscription, likewise stated.
+//
+// QoS 1, unchanged and pinned by TestSubscribeQoS: a command dropped in
+// transit is a button press in Home Assistant that did nothing, with
+// nothing anywhere to explain it. It is spelled out beside [StateQoS]
+// because the two are different answers to different questions and the
+// library reads an omitted field as neither.
+const CommandQoS = publisher.QoSAtLeastOnce
+
+// DiscoveryQoS is the delivery guarantee of every retained discovery
+// config publish and of the bridge availability marker.
+//
+// QoS 0, unchanged and pinned by TestPublishQoSAndRetain. It is the
+// library's [publisher.Config] QoS, which also governs the sweep's
+// snapshot subscription — the reason that window subscribes at QoS 0
+// where this daemon's hand-rolled reconcile did the same.
+const DiscoveryQoS = publisher.QoSAtMostOnce
 
 // Coordinator is the M-TEC → MQTT data-flow root.
 type Coordinator struct {
@@ -156,6 +220,12 @@ type Coordinator struct {
 	// is skipped (discovery changes are infrequent). The zero value is
 	// ready to use, so it needs no initialisation in New.
 	reconcileGate sync.Mutex
+
+	// commands routes inbound /set publishes. It is built here rather than
+	// at the composition root because the handler it dispatches to is a
+	// method of this type; what the composition root would otherwise own —
+	// the QoS — is stated once, in [CommandQoS].
+	commands *publisher.CommandRouter
 }
 
 // writeReq is one HA → device command pending dispatch.
@@ -194,7 +264,13 @@ func New(d Deps) *Coordinator {
 	for _, v := range d.Virtual {
 		vbk[v.Key] = v
 	}
-	return &Coordinator{
+	if d.HARuntime == nil {
+		panic("coordinator: Deps.HARuntime is required; build it at the composition root so Will() can be read before CONNECT")
+	}
+	if d.StatePlane == nil {
+		panic("coordinator: Deps.StatePlane is required; build it at the composition root so the state QoS is stated there")
+	}
+	c := &Coordinator{
 		deps:            d,
 		startedAt:       d.Now(),
 		writeQueue:      make(chan writeReq, 32),
@@ -202,6 +278,29 @@ func New(d Deps) *Coordinator {
 		virtualByKey:    vbk,
 		lastActive:      make(map[string]float64),
 	}
+	// The router subscribes and dispatches; it never publishes, so it goes
+	// straight to the client rather than through whatever breaker the
+	// composition root put in front of the publish half. Breaking the
+	// subscribe path would only delay resubscription after a reconnect.
+	c.commands = publisher.NewCommandRouter(hagomqtt.Split(d.MQTT, d.MQTT), publisher.CommandConfig{
+		QoS: CommandQoS,
+		// One route, one worker: this daemon serialises every write behind
+		// its own drop-oldest queue anyway (see enqueueWrite), and the
+		// Modbus client serialises the wire transactions behind that, so a
+		// second worker would only deepen a queue without speeding the
+		// inverter up.
+		Workers: 1,
+		// Unchanged, and the default is the behaviour this daemon already
+		// had by hand: a retained delivery on a command topic is the broker
+		// replaying a past command on (re)subscribe, not a live request.
+		// Writing it to the inverter on every restart and reconnect would
+		// keep overriding settings the user has since changed. Home
+		// Assistant never publishes commands retained, so dropping them
+		// loses nothing.
+		DeliverRetained: false,
+		Logger:          d.Logger,
+	})
+	return c
 }
 
 // Run executes the full daemon loop:
@@ -261,6 +360,11 @@ func (c *Coordinator) Run(ctx context.Context) error {
 		return err
 	}
 
+	// The self-echo guard, now that every state topic's serial is known.
+	if err := c.checkCommandDisjoint(); err != nil {
+		return err
+	}
+
 	if c.deps.HASS != nil {
 		c.deps.HASS.Initialize(c.serialNo, c.firmware, c.equipmentInfo)
 		// A register asking for a platform the builder cannot emit would
@@ -286,6 +390,14 @@ func (c *Coordinator) Run(ctx context.Context) error {
 	}
 
 	err := g.Wait()
+
+	// Stop the command plane before the availability marker goes to
+	// "offline": a command accepted after this daemon has announced itself
+	// gone would be executed by nobody and acknowledged by nothing.
+	stopCtx, stopCancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	c.stopCommands(stopCtx)
+	stopCancel()
+
 	// Context cancellation is the expected exit, not a failure.
 	if err != nil && ctx.Err() == nil {
 		return err
@@ -294,40 +406,84 @@ func (c *Coordinator) Run(ctx context.Context) error {
 	return nil
 }
 
-// installInboundHandler wires the single subscriber callback that
-// routes every inbound MQTT publish — HA birth messages and writable
-// /set commands — into the right handler. Subscriptions for
-// individual command topics happen later in publishDiscovery.
+// installInboundHandler wires this daemon's two inbound subscriptions:
+// Home Assistant's own birth topic, and — through
+// [publisher.CommandRouter] — every writable entity's /set topic.
+//
+// Two narrow filters rather than one fat '#' wildcard, so an unrelated
+// topic on the broker cannot drive the daemon:
+//
+//	<hass_base>/status     → HA online/offline birth
+//	<mqtt_topic>/+/+/+/set → the command plane
+//
+// The command half moved onto the library's router in ADR 0070 phase 6
+// step 5. What that buys, beyond one fewer hand-rolled dispatch: the
+// route's '+' levels arrive already split ([publisher.Command.Wildcards])
+// instead of being recovered by index arithmetic — two of the measured
+// consumer's confirmed defects were exactly that — handlers run on a
+// router worker rather than the transport's read loop, retained commands
+// are dropped by policy rather than by a hand-written check, and the
+// subscription carries MQTT 5.0's No Local so this process cannot echo
+// its own publishes back into its own handler. The filter, the QoS and
+// the topic shape on the wire are unchanged.
+//
+// A failing subscribe is retried with the same bounded backoff the Modbus
+// connect uses instead of killing the daemon: a broker that is still
+// booting alongside us looks exactly like a broker that will never accept
+// the filter, and losing the command path for the process lifetime is the
+// worse outcome. Only the half that failed is retried.
 func (c *Coordinator) installInboundHandler(ctx context.Context) error {
-	// Subscribe to a wide filter that catches both the HASS status
-	// topic and every device /set topic. The TCPClient adapter does
-	// the wildcard routing internally; one handler is plenty.
-	//
-	// We subscribe to two narrow filters rather than one fat #-wildcard
-	// so an unrelated topic on the broker can't accidentally drive
-	// the daemon. Wildcards:
-	//   <hass_base>/status   → HA online/offline birth
-	//   <mqtt_topic>/+/+/+/set → writable command path
-	subs := []string{
-		c.hassStatusTopic,
-		c.deps.Cfg.MQTTTopic + "/+/+/+/set",
+	if err := c.retryWithBackoff(ctx, "coordinator.subscribe_retry",
+		func(ctx context.Context) error {
+			_, err := c.deps.MQTT.Subscribe(ctx, c.hassStatusTopic, mqtt.QoS1, c.onMessage)
+			return err
+		},
+		slog.String("filter", c.hassStatusTopic)); err != nil {
+		return fmt.Errorf("coordinator: subscribe %s: %w", c.hassStatusTopic, err)
 	}
-	// A failing subscribe is retried with the same bounded backoff the
-	// Modbus connect uses instead of killing the daemon: a broker that
-	// is still booting alongside us looks exactly like a broker that
-	// will never accept the filter, and losing the command path for the
-	// process lifetime is the worse outcome. Only the filter that failed
-	// is retried, so a successful one is never re-subscribed.
-	for _, s := range subs {
-		err := c.retryWithBackoff(ctx, "coordinator.subscribe_retry",
-			func(ctx context.Context) error {
-				_, err := c.deps.MQTT.Subscribe(ctx, s, mqtt.QoS1, c.onMessage)
-				return err
-			},
-			slog.String("filter", s))
-		if err != nil {
-			return fmt.Errorf("coordinator: subscribe %s: %w", s, err)
+
+	filter := hass.CommandFilter(c.deps.Cfg.MQTTTopic)
+	if err := c.commands.Handle(filter, c.onCommand); err != nil {
+		// A rejected route is a programming error (a malformed filter, a
+		// duplicate, or an overlap with another route), not a broker
+		// condition, so it is not retried.
+		return fmt.Errorf("coordinator: route %s: %w", filter, err)
+	}
+	if err := c.retryWithBackoff(ctx, "coordinator.subscribe_retry",
+		c.commands.Start,
+		slog.String("filter", filter)); err != nil {
+		return fmt.Errorf("coordinator: subscribe %s: %w", filter, err)
+	}
+	return nil
+}
+
+// checkCommandDisjoint refuses a boot in which anything this daemon
+// publishes would land inside its own command subscription and be echoed
+// straight back into [Coordinator.onCommand].
+//
+// This daemon had no equivalent guard. Checked by hand in the phase-6
+// measurement and clean then — a five-segment state topic ending `state`
+// against a five-segment filter ending `set`, a three-segment bridge
+// topic, four-segment configs — but clean-by-inspection is what it was,
+// and the inspection had to be redone every time a topic moved. It runs
+// after the STATIC read because every state topic is keyed on the serial.
+//
+// It is a boot failure rather than a warning: a self-echo turns a state
+// publish into a command, and the least diagnosable shape of that is a
+// device that appears to change its own settings.
+func (c *Coordinator) checkCommandDisjoint() error {
+	topics := []string{hass.BridgeStatusTopic(c.deps.Cfg.MQTTTopic)}
+	serial := c.serialNo
+	for _, g := range c.deps.Catalog.Groups {
+		for _, r := range c.deps.Catalog.ByGroup(g) {
+			topics = append(topics, hass.StateTopic(c.deps.Cfg.MQTTTopic, serial, string(g), r.MQTT))
 		}
+	}
+	for _, v := range c.deps.Virtual {
+		topics = append(topics, hass.StateTopic(c.deps.Cfg.MQTTTopic, serial, v.Group, v.Key))
+	}
+	if err := c.commands.CheckDisjoint(topics...); err != nil {
+		return fmt.Errorf("coordinator: command routes are not disjoint from what this daemon publishes: %w", err)
 	}
 	return nil
 }
@@ -372,51 +528,61 @@ func (c *Coordinator) retryWithBackoff(ctx context.Context, event string, fn fun
 	}
 }
 
-// onMessage dispatches one inbound publish. Errors are logged and
-// swallowed — the message loop must not exit because a single bad
-// payload arrived.
+// onMessage handles one delivery on the Home Assistant birth topic.
+//
+// It no longer routes commands: those arrive through
+// [publisher.CommandRouter] at [Coordinator.onCommand]. What is left is
+// the birth edge, which this daemon deliberately keeps rather than moving
+// onto publisher.Runtime.WatchBirth — see
+// [Coordinator.discoveryRepublisher].
+//
+// Errors are logged and swallowed: the message loop must not exit because
+// a single bad payload arrived.
 func (c *Coordinator) onMessage(msg *mqtt.Message) {
-	log := c.deps.Logger
-	topic, payload := msg.Topic, msg.Payload
-	if topic == c.hassStatusTopic {
-		if string(payload) == "online" {
-			log.Info("coordinator.hass_birth_seen")
-			// Bump the generation first: a publishDiscovery already in
-			// flight compares it against the value it sampled and refuses
-			// to mark discovery as sent, so this birth cannot be lost in
-			// the gap between our Store(false) and its Store(true).
-			c.discoveryGen.Add(1)
-			c.discoverySent.Store(false) // trigger republish next chance
-		}
+	if msg.Topic != c.hassStatusTopic {
 		return
 	}
-	// Expected shape: <topic>/<serial>/<group>/<mqtt_key>/set
+	if string(msg.Payload) != "online" {
+		return
+	}
+	c.deps.Logger.Info("coordinator.hass_birth_seen")
+	// Bump the generation first: a publishDiscovery already in flight
+	// compares it against the value it sampled and refuses to mark
+	// discovery as sent, so this birth cannot be lost in the gap between
+	// our Store(false) and its Store(true).
+	c.discoveryGen.Add(1)
+	c.discoverySent.Store(false) // trigger republish next chance
+}
+
+// onCommand handles one routed /set publish.
+//
+// The route is "<root>/+/+/+/set", so [publisher.Command.Wildcards] is
+// exactly [serial, group, mqtt_key] — the topic arithmetic this daemon
+// used to do by hand with splitPath and a negative index. The serial is
+// checked against this process's own rather than ignored: one broker can
+// carry several inverters, and a command addressed to a sibling's serial
+// is not this daemon's to execute.
+//
+// It runs on a router worker, not the transport's read loop, and it still
+// hands the write to the bounded drop-oldest queue rather than touching
+// Modbus inline — the queue's policy (drop the OLDEST pending command) is
+// what keeps a dragged Home Assistant slider ending on the value the user
+// released it at, and the router's own FIFO does not have it.
+func (c *Coordinator) onCommand(_ context.Context, cmd publisher.Command) {
 	topicBase := c.loadTopicBase()
 	if topicBase == "" {
 		return // not initialised yet — drop silently
 	}
-	if !startsWith(topic, topicBase+"/") || !endsWith(topic, "/set") {
+	if len(cmd.Wildcards) != 3 {
 		return
 	}
-	// A retained delivery is the broker replaying a past command on
-	// (re)subscribe, not a live request — writing it to the inverter on
-	// every restart and reconnect would keep overriding settings the
-	// user has since changed. Home Assistant never publishes commands
-	// retained, so dropping these loses nothing.
-	if msg.Retain {
-		log.Warn("coordinator.retained_command_ignored",
-			slog.String("topic", topic))
-		return
+	serial, mqttKey := cmd.Wildcards[0], cmd.Wildcards[2]
+	if c.deps.Cfg.MQTTTopic+"/"+serial != topicBase {
+		return // addressed to another inverter on the same broker
 	}
-	// We want the second-to-last path segment as the MQTT key.
-	parts := splitPath(topic)
-	if len(parts) < 4 {
-		return
-	}
-	mqttKey := parts[len(parts)-2]
 	// Errors are already logged by enqueueWrite; the MQTT path has no
 	// caller to report back to.
-	_ = c.enqueueWrite(writeReq{mqttKey: mqttKey, value: string(payload)})
+	_ = c.enqueueWrite(writeReq{mqttKey: mqttKey, value: string(cmd.Payload)})
 }
 
 // enqueueWrite puts req on the write queue, making room by dropping the
@@ -526,7 +692,7 @@ func (c *Coordinator) tryInitFromStatic(ctx context.Context) error {
 	c.firmware = firmware
 	c.equipmentInfo = equip
 	topicBase := c.deps.Cfg.MQTTTopic + "/" + serial
-	c.topicBase.Store(topicBase)
+	c.topicBase.Store(topicParts{root: c.deps.Cfg.MQTTTopic, serial: serial})
 	if c.deps.Store != nil {
 		c.deps.Store.SetStatic(serial, firmware, equip, c.deps.Now())
 	}
@@ -538,12 +704,32 @@ func (c *Coordinator) tryInitFromStatic(ctx context.Context) error {
 	return nil
 }
 
+// topicParts is the "<mqtt_topic>" root and the inverter serial, stored
+// together because every state topic is rendered from both.
+//
+// They travel as one value rather than as two atomics: the serial is
+// written once by Run and read by the poll goroutines, and a reader that
+// could observe a new serial against an old root would publish under a
+// topic tree that never existed.
+type topicParts struct{ root, serial string }
+
 // loadTopicBase returns the "<mqtt_topic>/<serial>" topic prefix, or
 // "" while static initialisation has not completed yet. Safe to call
 // from any goroutine.
 func (c *Coordinator) loadTopicBase() string {
-	tb, _ := c.topicBase.Load().(string)
-	return tb
+	tp, ok := c.loadTopicParts()
+	if !ok {
+		return ""
+	}
+	return tp.root + "/" + tp.serial
+}
+
+// loadTopicParts returns the two levels every state and command topic is
+// built from, and whether static initialisation has completed. Safe to
+// call from any goroutine.
+func (c *Coordinator) loadTopicParts() (topicParts, bool) {
+	tp, ok := c.topicBase.Load().(topicParts)
+	return tp, ok
 }
 
 // publishDiscovery sends every HA discovery payload with retain=true
@@ -571,13 +757,29 @@ func (c *Coordinator) publishDiscovery(ctx context.Context) map[string]bool {
 	entries := c.deps.HASS.Entries()
 	published := make(map[string]bool, len(entries))
 	failed := 0
+	written := 0
 	for _, e := range entries {
 		published[e.ConfigTopic] = true
-		if err := c.deps.MQTT.Publish(ctx, e.ConfigTopic, e.Payload, mqtt.QoS0, true); err != nil {
+		// Through the runtime rather than straight to the client: the
+		// runtime records what this process claims, and that claim set is
+		// what keeps the orphan sweep off a config this daemon is
+		// publishing right now — including one still inside its own
+		// Publish call. internal/hass keeps rendering the payload; only
+		// the writer changed.
+		//
+		// It also dedups: on a steady-state republish every one of the 100
+		// payloads is byte-identical to the retained one already on the
+		// broker, and Home Assistant re-reads and re-validates each.
+		ok, err := c.deps.HARuntime.Publish(ctx, e.ConfigTopic, e.Payload)
+		if err != nil {
 			failed++
 			log.Warn("coordinator.discovery_publish",
 				slog.String("topic", e.ConfigTopic),
 				slog.String("err", err.Error()))
+			continue
+		}
+		if ok {
+			written++
 		}
 	}
 	birthRaced := c.discoveryGen.Load() != gen
@@ -590,7 +792,12 @@ func (c *Coordinator) publishDiscovery(ctx context.Context) map[string]bool {
 			slog.Bool("birth_raced", birthRaced))
 		return published
 	}
-	log.Info("coordinator.discovery_sent", slog.Int("entries", len(entries)))
+	// written is reported beside entries because the gap between them is
+	// the measurable effect of the dedup gate: a birth-triggered republish
+	// of an unchanged fleet should show written=0.
+	log.Info("coordinator.discovery_sent",
+		slog.Int("entries", len(entries)),
+		slog.Int("written", written))
 	return published
 }
 
@@ -600,6 +807,30 @@ func (c *Coordinator) publishDiscovery(ctx context.Context) map[string]bool {
 // the broker lost its retained config topics. publishDiscovery is
 // idempotent (same retained payloads to the same topics), so an extra
 // pass is harmless.
+//
+// This is deliberately NOT replaced by publisher.Runtime.WatchBirth,
+// which the phase-6 measurement's step 5 offered as a candidate. Three
+// reasons, all of which point the same way:
+//
+//   - WatchBirth subscribes at the runtime's own QoS, which here is
+//     [DiscoveryQoS] (0). This daemon subscribes <hass_base>/status at
+//     QoS 1 and has since its first release, pinned by TestSubscribeQoS;
+//     downgrading a birth subscription inside a step whose claim is that
+//     nothing moved is exactly the trade this programme keeps refusing.
+//   - The generation counter. publishDiscovery samples discoveryGen
+//     before its first publish and only marks the batch sent when it is
+//     unchanged afterwards, so a birth arriving mid-publish is not
+//     swallowed by the final Store(true). WatchBirth has no equivalent
+//     and no seam to add one.
+//   - This loop retries a FAILED batch every 5 s, not only on a birth. An
+//     open circuit breaker at startup publishes nothing at all, and
+//     WatchBirth would then leave Home Assistant without entities until
+//     the next birth — which, if Home Assistant was already up, never
+//     comes.
+//
+// What did move onto the library is the writer underneath
+// (publishDiscovery publishes through publisher.Runtime), so the replay
+// still feeds the claim set the sweep reads.
 func (c *Coordinator) discoveryRepublisher(ctx context.Context) error {
 	const tick = 5 * time.Second
 	for {
@@ -762,4 +993,46 @@ func splitPath(s string) []string {
 	}
 	out = append(out, s[start:])
 	return out
+}
+
+// PublishOnline (re)announces this daemon's availability and reopens the
+// state plane's dedup gate. Wired to the MQTT lifecycle's OnConnect hook,
+// so it runs on every (re)connect and not only at boot.
+//
+// The will only fires on ungraceful death; without a matching birth
+// publish a single network blip would leave the retained availability
+// topic stuck at "offline" for the rest of the daemon's uptime.
+//
+// The Reset is the half that is new rather than preserved. A (re)connect
+// may be to a broker that came back without its retained store, in which
+// case the dedup gate would suppress every value it believes is already
+// there and leave every entity blank until its next change — which for
+// the `static` and `total` groups is effectively never. Reset opens the
+// gate without forgetting the index, so the next poll writes the fleet
+// once and is deduped again afterwards. The poll cycle is the snapshot
+// pass the library's Reset documentation asks a consumer to pair it with.
+func (c *Coordinator) PublishOnline(ctx context.Context) {
+	c.deps.StatePlane.Reset()
+	if err := c.deps.HARuntime.AnnounceOnline(ctx); err != nil {
+		c.deps.Logger.Warn("coordinator.online_failed", slog.String("err", err.Error()))
+	}
+}
+
+// PublishOffline marks this daemon unavailable on a clean shutdown. The
+// Last Will only fires on an ungraceful disconnect, so a graceful
+// DISCONNECT must announce offline explicitly or the retained status
+// stays "online" for a daemon that is gone.
+func (c *Coordinator) PublishOffline(ctx context.Context) {
+	if err := c.deps.HARuntime.AnnounceOffline(ctx); err != nil {
+		c.deps.Logger.Warn("coordinator.offline_failed", slog.String("err", err.Error()))
+	}
+}
+
+// stopCommands takes the command subscription down. Failures are logged:
+// a broker that will not accept the UNSUBSCRIBE is about to lose the
+// connection anyway.
+func (c *Coordinator) stopCommands(ctx context.Context) {
+	if err := c.commands.Stop(ctx); err != nil {
+		c.deps.Logger.Warn("coordinator.command_stop_failed", slog.String("err", err.Error()))
+	}
 }

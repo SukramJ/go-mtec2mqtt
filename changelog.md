@@ -60,6 +60,81 @@
 
 ### Changed
 
+- **The runtime now publishes through `go-hamqtt` — state, birth/LWT, the
+  command router and the orphan sweep** (ADR 0070 phase 6, steps 4 and 5).
+  Step 3 proved the shared library reproduces every published byte while
+  publishing nothing; this is where that path takes over. Discovery stays
+  in the per-entity form — no device bundle is published yet — and no
+  topic, payload, QoS or retain flag moves. The two behaviour changes an
+  operator could notice are both below.
+
+  - **State and discovery are now de-duplicated.** A value byte-identical
+    to the one the broker already retains is not written again. This
+    daemon previously re-published every value of a group on every poll
+    cycle: roughly **11 136 messages an hour** on the shipped cadences,
+    nearly all of them unchanged. Groups like `config`, `day`, `total` and
+    most of `static` are near-constant and will now publish once per
+    process or once per change. Anything downstream that counted
+    *messages* rather than reading the retained value — a second MQTT
+    consumer, a Node-RED flow triggered on message rather than on change —
+    will see far fewer of them. The same gate applies to the 100 retained
+    discovery configs on a Home Assistant birth: an unchanged fleet now
+    costs zero writes instead of 100.
+  - **A reconnect rewrites the whole fleet once.** If the broker came back
+    without its retained store, every entity would otherwise stay blank
+    until its value happened to change — which for `static` and `total` is
+    effectively never. The (re)connect hook reopens the de-duplication
+    gate, so the next poll writes everything once and is de-duplicated
+    again afterwards.
+
+  **QoS is unchanged at 0**, deliberately and now explicitly. The library's
+  default is QoS 1 and its `QoS` zero value means *unset* rather than
+  *QoS 0*, so the wiring states `publisher.QoSAtMostOnce` for state and for
+  discovery, and `QoSAtLeastOnce` (1, likewise unchanged) for the command
+  subscription. Said here because a reader who knows the library's default
+  will assume it moved.
+
+  Two smaller things that are new rather than preserved: the boot now
+  **fails** if anything this daemon publishes would fall inside its own
+  `/set` subscription and be echoed back into its own command handler
+  (there was no such guard, and it was checked by hand), and the command
+  subscription carries MQTT 5.0's *No Local* so the broker will not return
+  this client's own publishes to it. Retained messages on a command topic
+  are still dropped, the bounded drop-oldest write queue is still what
+  serialises writes, and the Home Assistant birth handling — including its
+  5-second retry of a failed discovery batch — is unchanged.
+
+  **The one wire-visible change**: the orphan sweep's snapshot
+  subscription is now `homeassistant/#` for the ~2 seconds it is open,
+  where it was `homeassistant/+/+/config`, because the library parses all
+  three discovery topic forms through one window. It still retracts only
+  configs whose topic *and* retained payload are both this daemon's, and
+  the pass itself is report-only — this daemon chooses the list. Measured
+  over the real catalogue against a broker holding a mixed discovery tree:
+  108 retained configs offered, 100 claimed, **1** retracted. See
+  [notes/adr0070-phase6-steps45-results.md](./notes/adr0070-phase6-steps45-results.md).
+
+- **`go-hamqtt` v0.31.0 → v0.32.0.** v0.32.0 narrows
+  `discovery.Validate`'s duplicate-`unique_id` check to key on
+  `(platform, unique_id)`, mirroring Home Assistant's own
+  `(domain, platform, unique_id)` registry index. This bridge publishes
+  nine `unique_id`s twice, under two platforms each (a writable register
+  also gets a read-only sensor view), and a test added in the previous
+  release pinned the library's refusal of that inside a device bundle. It
+  is now accepted, in both shipped languages — which means the later
+  bundle migration needs no catalogue change and neither of the two
+  fallbacks that had been planned for it. No user-visible effect in this
+  release: nothing publishes a bundle yet.
+
+- **The state and command topic were built in five places; now they are
+  built in one.** The config payload's `state_topic`, the poll loop's
+  publish, the command topic, and the two synthetic charge/discharge
+  switches each composed the string themselves, and nothing compared them.
+  A divergence would have left entities pointing at topics nobody
+  publishes to — permanently `unknown`, with nothing in the log. All five
+  now render through one function, and the pinned payloads and topic tree
+  are byte-identical across the change.
+
 - **Added `github.com/SukramJ/go-hamqtt` v0.31.0 (MIT) as a dependency**,
   for a parallel Home Assistant discovery rendering path that is not yet
   wired to anything (ADR 0070 phase 6, step 3). The shipped builder still

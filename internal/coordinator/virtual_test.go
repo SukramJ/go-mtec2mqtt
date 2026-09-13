@@ -18,18 +18,22 @@ import (
 func newVirtualCoord(t *testing.T) (*Coordinator, *stubReader) {
 	t.Helper()
 	reader := newStubReader()
-	c := New(Deps{
+	stub := newStubMQTT()
+	deps := Deps{
 		Cfg: &config.Config{
 			HASSBaseTopic:        "homeassistant",
+			MQTTTopic:            "MTEC",
 			Language:             "en",
 			ChargeActiveValue:    50,
 			DischargeActiveValue: 40,
 		},
 		Reader:  reader,
+		MQTT:    stub,
 		Virtual: hass.DefaultVirtualSwitches(50, 40),
 		Now:     func() time.Time { return time.Unix(0, 0) },
-	})
-	return c, reader
+	}
+	wirePlanes(t, &deps, stub)
+	return New(deps), reader
 }
 
 func TestApplyVirtualSwitchesDerivesState(t *testing.T) {
@@ -137,18 +141,23 @@ func TestRegistersLocalizedWithVirtual(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := New(Deps{
+	stub := newStubMQTT()
+	deps := Deps{
 		Cfg: &config.Config{
 			HASSBaseTopic:        "homeassistant",
+			MQTTTopic:            "MTEC",
 			Language:             "de",
 			ChargeActiveValue:    50,
 			DischargeActiveValue: 40,
 		},
 		Catalog: cat,
 		Reader:  newStubReader(),
+		MQTT:    stub,
 		Virtual: hass.DefaultVirtualSwitches(50, 40),
 		Now:     func() time.Time { return time.Unix(0, 0) },
-	})
+	}
+	wirePlanes(t, &deps, stub)
+	c := New(deps)
 
 	regs := c.Registers()
 	if len(regs) != 3 { // 1 catalog + 2 virtual switches

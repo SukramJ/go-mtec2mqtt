@@ -5,14 +5,12 @@ package coordinator
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"time"
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/SukramJ/go-mqtt"
-
+	"github.com/SukramJ/go-mtec2mqtt/internal/hass"
 	"github.com/SukramJ/go-mtec2mqtt/internal/registers"
 )
 
@@ -113,8 +111,8 @@ func secondaryIndex(v int32) int {
 // Modbus, process values, compute pseudo-registers, publish each
 // value to its MQTT topic. Always returns — errors land in the log.
 func (c *Coordinator) publishGroupOnce(ctx context.Context, log *slog.Logger, group registers.Group) {
-	topicBase := c.loadTopicBase()
-	if topicBase == "" {
+	topicBase, ok := c.loadTopicParts()
+	if !ok {
 		// Initialisation hasn't completed yet — nothing to publish under.
 		return
 	}
@@ -146,9 +144,15 @@ func (c *Coordinator) publishGroupOnce(ctx context.Context, log *slog.Logger, gr
 	if c.deps.Store != nil {
 		c.deps.Store.UpdateGroup(string(group), processed, c.deps.Now())
 	}
-	published := 0
+	published, written := 0, 0
 	for key, val := range processed {
-		topic := fmt.Sprintf("%s/%s/%s/state", topicBase, group, key)
+		// One function, not a second fmt.Sprintf: hass.StateTopic is the
+		// same call internal/hass makes for the config's `state_topic`.
+		// Until this release the two sides were independent expressions
+		// (F5 of the phase-6 measurement) and nothing compared them; a
+		// divergence points every entity at a topic nobody writes to,
+		// permanently `unknown`, with nothing in the log.
+		topic := hass.StateTopic(topicBase.root, topicBase.serial, string(group), key)
 		payload := formatValue(val, c.deps.Cfg.GoFloatVerb())
 		// An empty payload on a *retained* topic is MQTT's retraction: the
 		// broker drops the stored message instead of replacing it, so the
@@ -157,23 +161,42 @@ func (c *Coordinator) publishGroupOnce(ctx context.Context, log *slog.Logger, gr
 		// not two — with retain=false an empty payload was merely inert.
 		// formatValue only yields "" for a nil value, which no current
 		// decode path produces; the guard is what keeps that true by
-		// construction rather than by accident.
+		// construction rather than by accident. The library refuses it too
+		// (publisher.ErrEmptyStatePayload), but refusing it here keeps the
+		// warning that names the topic.
 		if payload == "" {
 			log.Warn("coordinator.empty_payload_skipped", slog.String("topic", topic))
 			continue
 		}
-		// Retained: a subscriber that connects between two polls — Home
-		// Assistant after a restart, most of all — gets the last known
-		// value immediately instead of sitting at `unknown` until the next
-		// cycle, which is up to an hour for the `static` group. QoS stays
-		// 0: the retained copy, not the delivery guarantee, is what makes
-		// a late subscriber correct.
-		if err := c.deps.MQTT.Publish(ctx, topic, []byte(payload), mqtt.QoS0, true); err != nil {
+		// Through the state plane rather than straight to the client.
+		// Retained and QoS 0 exactly as before (coordinator.StateQoS states
+		// the 0 rather than defaulting to it — publisher.QoS's zero value
+		// means *unset* and resolves to QoS 1, which would have tripled
+		// this bridge's broker traffic silently). What is new is the dedup
+		// gate: a value byte-identical to the one the broker already
+		// retains is not written again. This loop re-published every value
+		// of a group on every cycle — roughly 11 136 messages an hour,
+		// nearly all of them unchanged — and that collapses to the changes
+		// only.
+		//
+		// The payload is still formatValue's bytes rather than
+		// publisher.RenderRawValue's: the float verb is operator-
+		// configurable here (GoFloatVerb) and the library renders a Go
+		// float with %v, so routing the rendering through it would move
+		// bytes the goldens pin.
+		ok, err := c.deps.StatePlane.Publish(ctx, topic, []byte(payload))
+		if err != nil {
 			log.Warn("coordinator.publish_failed",
 				slog.String("topic", topic),
 				slog.String("err", err.Error()))
 		}
+		if ok {
+			written++
+		}
 		published++
 	}
-	log.Debug("coordinator.published", slog.Int("count", published))
+	// written is reported beside count because the gap between them is the
+	// measurable effect of the dedup gate: a steady-state group should
+	// show written=0, and an operator should be able to see that.
+	log.Debug("coordinator.published", slog.Int("count", published), slog.Int("written", written))
 }

@@ -11,8 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/SukramJ/go-hamqtt/publisher"
 	"github.com/SukramJ/go-mqtt"
 
+	"github.com/SukramJ/go-mtec2mqtt/internal/coordinator"
 	"github.com/SukramJ/go-mtec2mqtt/internal/hass"
 )
 
@@ -115,33 +117,97 @@ func (p *recordingPublisher) Publish(_ context.Context, topic string, payload []
 	return nil
 }
 
-// TestAnnounceAvailabilityPublishesRetained proves the birth/last-will
-// companion publish is retained on the documented LWT topic, so the
-// availability topic recovers to "online" after a reconnect instead
-// of sticking at the will's "offline" forever.
-func TestAnnounceAvailabilityPublishesRetained(t *testing.T) {
+// TestWillIsTheRuntimesOwnStatement is what replaces the two
+// announceAvailability tests this daemon used to carry.
+//
+// The birth and the will used to be two literals in run(): a topic
+// string handed to mqtt.Will and the same string handed to a publish
+// helper. They agreed, and "they agree" is precisely the property two
+// sibling bridges failed to keep — their will's topic is referenced by no
+// published entity, so a hard crash writes "offline" where nothing reads
+// it and every entity stays available forever, showing the last value it
+// ever saw.
+//
+// There is now one statement. publisher.Config takes the topic.Layout the
+// discovery side renders from and derives the status topic from its
+// Bridge(); Will() hands back the topic, the payload, the QoS and the
+// retain flag; run() copies all four into mqtt.TCPConfig.Will without
+// writing any of them down. This asserts the values that reach CONNECT.
+//
+// What it cannot assert is that run() uses them rather than a literal of
+// its own — that is a property of eleven lines of wiring in a function
+// that dials a broker. It is stated here so the gap is on the record.
+func TestWillIsTheRuntimesOwnStatement(t *testing.T) {
 	t.Parallel()
 
-	pub := &recordingPublisher{}
-	announceAvailability(pub, "MTEC/status/lwt", "online", discardLogger())(t.Context())
-
-	if pub.calls != 1 {
-		t.Fatalf("publisher saw %d calls, want 1", pub.calls)
+	rt := publisher.New(nopTransport{}, publisher.Config{
+		Prefix: "homeassistant",
+		Layout: hass.Layout{Root: "MTEC"},
+		QoS:    coordinator.DiscoveryQoS,
+		Logger: discardLogger(),
+	})
+	will, err := rt.Will()
+	if err != nil {
+		t.Fatalf("Will() = %v", err)
 	}
-	if pub.topic != "MTEC/status/lwt" || pub.payload != "online" || !pub.retain {
-		t.Fatalf("got topic=%q payload=%q retain=%v, want MTEC/status/lwt/online/retained",
-			pub.topic, pub.payload, pub.retain)
+	if will.Topic != hass.BridgeStatusTopic("MTEC") {
+		t.Errorf("will topic = %q, want %q — the will and the 100 entities' "+
+			"availability_topic must be one string", will.Topic, hass.BridgeStatusTopic("MTEC"))
+	}
+	if string(will.Payload) != hass.PayloadNotAvailable {
+		t.Errorf("will payload = %q, want %q", will.Payload, hass.PayloadNotAvailable)
+	}
+	if !will.Retain {
+		t.Error("will retain = false — an unretained marker tells nothing to a " +
+			"Home Assistant that subscribes after the crash, which is exactly when it needs telling")
+	}
+	if mqtt.QoS(will.QoS) != mqtt.QoS0 {
+		t.Errorf("will qos = %v, want QoS0 — unchanged from every previous release", will.QoS)
+	}
+	// The runtime derives the status topic from the Layout rather than
+	// taking a literal, and refuses a disagreement. Asserted because it is
+	// the property that makes the rest of this test more than a tautology.
+	layout := hass.Layout{Root: "MTEC"}
+	if rt.BridgeTopic() != layout.Bridge() {
+		t.Errorf("BridgeTopic() = %q, Layout.Bridge() = %q", rt.BridgeTopic(), layout.Bridge())
 	}
 }
 
-// TestAnnounceAvailabilitySwallowsPublishError proves a failed
-// availability publish is best-effort: logged, never panicking or
-// propagating (it runs inside the reconnect hook and shutdown path).
-func TestAnnounceAvailabilitySwallowsPublishError(t *testing.T) {
+// TestLegacyFormsNamesTheMeasuredForm proves the composition root states
+// the per-entity topic form this fleet is actually on.
+//
+// publisher.Config.LegacyEntityTopics REPLACES the library's five-segment
+// default rather than adding to it, so saying nothing is a statement too —
+// and the wrong one here. Step 3 measured the four-segment
+// LegacyTopicByUniqueID reproducing 100 of 100 pinned config topics while
+// the five-segment default reproduced 0. Getting it wrong in step 6 is
+// silent and total: the bundle publishes, this module logs nothing, and
+// Home Assistant refuses the document with one WARNING.
+func TestLegacyFormsNamesTheMeasuredForm(t *testing.T) {
 	t.Parallel()
 
-	announceAvailability(&failingPublisher{}, "MTEC/status/lwt", "offline", discardLogger())(t.Context())
+	rt := publisher.New(nopTransport{}, publisher.Config{
+		Prefix:             "homeassistant",
+		Layout:             hass.Layout{Root: "MTEC"},
+		QoS:                coordinator.DiscoveryQoS,
+		LegacyEntityTopics: hass.LegacyConfigTopicForms(),
+		Logger:             discardLogger(),
+	})
+	forms := rt.LegacyForms()
+	if len(forms) != 1 || forms[0] != hass.LegacyConfigTopicForm {
+		t.Fatalf("LegacyForms() = %v, want exactly [%s]", forms, hass.LegacyConfigTopicForm)
+	}
 }
+
+// nopTransport is a publisher.Transport that reaches no broker. The two
+// tests above read configuration back out of a Runtime; neither publishes.
+type nopTransport struct{}
+
+func (nopTransport) Publish(context.Context, string, []byte, byte, bool) error { return nil }
+func (nopTransport) Subscribe(context.Context, string, byte, publisher.Handler) error {
+	return nil
+}
+func (nopTransport) Unsubscribe(context.Context, string) error { return nil }
 
 // TestBridgeStatusTopicIsNotInTheDiscoveryTree pins the string this daemon
 // wills, births and buries itself on. Until this release it was

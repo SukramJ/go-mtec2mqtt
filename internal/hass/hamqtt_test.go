@@ -247,90 +247,95 @@ func TestRenderedBodiesValidateAgainstHomeAssistantSchemas(t *testing.T) {
 	}
 }
 
-// TestRenderedBundleIsRefusedForDuplicateUniqueIDs is the finding this
-// step was told not to resolve, recorded as an assertion.
+// TestRenderedBundleAcceptsTheDuplicatedUniqueIDs is the step-3 pin,
+// updated to the answer go-hamqtt v0.32.0 gives.
 //
 // Nine unique_ids are published twice, under two platforms each, because a
-// writable register also gets a read-only view. That is legal in the
-// per-entity form — Home Assistant keys the registry on (domain,
-// integration, unique_id) and sensor and number are different domains —
-// and the 200 assertions above prove those payloads are unaffected.
+// writable register also gets a read-only view. Step 3 measured
+// discovery.Validate (v0.31.0) refusing that inside a device bundle, and
+// pinned the refusal so the day the library or the catalogue changed would
+// be a failing test rather than a surprise. It was the library: v0.32.0
+// narrowed the duplicate check to key on (platform, unique_id), mirroring
+// Home Assistant's own (domain, platform, unique_id) registry index, and
+// the nine are now legal in the bundle exactly as they have always been
+// legal in the per-entity form.
 //
-// Inside a device bundle it is not legal, and the library says so without
-// needing a live Home Assistant: discovery.Render accepts the duplication
-// silently (it refuses duplicate component KEYS, and these nine differ),
-// but discovery.Validate reports all nine as BLOCKING issues and the
-// result matches discovery.ErrInvalidBundle — meaning a runtime that
-// validates before publishing would withhold the whole device.
+// That pin did its job: the bump turned it red rather than letting the
+// change land unnoticed, and this is the updated expectation rather than a
+// deleted assertion. The consequences are recorded in
+// notes/adr0070-phase6-step3-results.md §3, which this supersedes: the
+// former step 3b live-HA gate is cancelled, and step 6 needs neither of the
+// two fallbacks the measurement named — no re-keying of the nine sensor
+// views, no dropping them, no catalogue change at all.
 //
-// The measurement recorded this as unmeasured and expected it to need a
-// live HA. It does not: v0.31.0's validator has the check
-// (discovery/validate.go, `seenUnique`), which a grep for "UniqueID" in
-// that file does not find because the identifiers are spelled `uniqueID`
-// and `seenUnique`.
-//
-// This is NOT resolved here. The catalogue is unchanged, the duplication
-// is reproduced deliberately, and the decision between re-keying the nine
-// sensor views (an orphaning change, its own release) and dropping them
-// belongs to step 6.
-func TestRenderedBundleIsRefusedForDuplicateUniqueIDs(t *testing.T) {
-	d := realDiscovery(t, "en")
+// Both shipped languages are asserted, not just English: the duplication is
+// a property of the catalogue rather than of a rendering, but "we only ever
+// validated the language the test happened to pick" is exactly the kind of
+// blind spot this programme keeps finding.
+func TestRenderedBundleAcceptsTheDuplicatedUniqueIDs(t *testing.T) {
+	for _, lang := range []string{"en", "de"} {
+		t.Run(lang, func(t *testing.T) {
+			d := realDiscovery(t, lang)
 
-	bundle, err := RenderBundle(d, discovery.Origin{Name: "go-mtec2mqtt", SW: goldenFirmware})
-	if err != nil {
-		t.Fatalf("discovery.Render refuses the entity set outright: %v", err)
-	}
-	if len(bundle.Components) != 100 {
-		t.Errorf("bundle carries %d components, want 100", len(bundle.Components))
-	}
+			bundle, err := RenderBundle(d, discovery.Origin{Name: "go-mtec2mqtt", SW: goldenFirmware})
+			if err != nil {
+				t.Fatalf("discovery.Render refuses the entity set outright: %v", err)
+			}
+			if len(bundle.Components) != 100 {
+				t.Errorf("bundle carries %d components, want 100", len(bundle.Components))
+			}
 
-	byUID := map[string][]string{}
-	for _, comp := range bundle.Components {
-		byUID[comp.UniqueID] = append(byUID[comp.UniqueID], string(comp.Platform))
-	}
-	if len(byUID) != 91 {
-		t.Errorf("distinct unique_ids in the bundle = %d, want 91", len(byUID))
-	}
-	dup := map[string][]string{}
-	for uid, platforms := range byUID {
-		if len(platforms) > 1 {
-			sort.Strings(platforms)
-			dup[uid] = platforms
-		}
-	}
-	want := map[string][]string{
-		"MTEC_charge_limit":        {"number", "sensor"},
-		"MTEC_discharge_limit":     {"number", "sensor"},
-		"MTEC_grid_inject_limit":   {"number", "sensor"},
-		"MTEC_off_grid_soc_limit":  {"number", "sensor"},
-		"MTEC_on_grid_soc_limit":   {"number", "sensor"},
-		"MTEC_grid_inject_switch":  {"binary_sensor", "switch"},
-		"MTEC_off_grid_soc_switch": {"binary_sensor", "switch"},
-		"MTEC_on_grid_soc_switch":  {"binary_sensor", "switch"},
-		"MTEC_mode":                {"select", "sensor"},
-	}
-	if wb, gb := canonical(t, want), canonical(t, dup); !bytes.Equal(wb, gb) {
-		t.Errorf("the duplicated unique_ids changed:\n want: %s\n  got: %s", wb, gb)
-	}
+			byUID := map[string][]string{}
+			for _, comp := range bundle.Components {
+				byUID[comp.UniqueID] = append(byUID[comp.UniqueID], string(comp.Platform))
+			}
+			if len(byUID) != 91 {
+				t.Errorf("distinct unique_ids in the bundle = %d, want 91", len(byUID))
+			}
+			dup := map[string][]string{}
+			for uid, platforms := range byUID {
+				if len(platforms) > 1 {
+					sort.Strings(platforms)
+					dup[uid] = platforms
+				}
+			}
+			want := map[string][]string{
+				"MTEC_charge_limit":        {"number", "sensor"},
+				"MTEC_discharge_limit":     {"number", "sensor"},
+				"MTEC_grid_inject_limit":   {"number", "sensor"},
+				"MTEC_off_grid_soc_limit":  {"number", "sensor"},
+				"MTEC_on_grid_soc_limit":   {"number", "sensor"},
+				"MTEC_grid_inject_switch":  {"binary_sensor", "switch"},
+				"MTEC_off_grid_soc_switch": {"binary_sensor", "switch"},
+				"MTEC_on_grid_soc_switch":  {"binary_sensor", "switch"},
+				"MTEC_mode":                {"select", "sensor"},
+			}
+			if wb, gb := canonical(t, want), canonical(t, dup); !bytes.Equal(wb, gb) {
+				t.Errorf("the duplicated unique_ids changed:\n want: %s\n  got: %s", wb, gb)
+			}
+			// Every duplicate is a (platform, unique_id) pair that is
+			// distinct — which is precisely the key v0.32.0 uses. Asserted
+			// rather than assumed, because a catalogue that ever emitted the
+			// SAME platform twice under one unique_id would still be refused,
+			// and that refusal would be correct.
+			seen := map[string]bool{}
+			for _, comp := range bundle.Components {
+				key := string(comp.Platform) + "\x00" + comp.UniqueID
+				if seen[key] {
+					t.Errorf("two components share (platform=%s, unique_id=%s)", comp.Platform, comp.UniqueID)
+				}
+				seen[key] = true
+			}
 
-	err = discovery.Validate(bundle)
-	if err == nil {
-		t.Fatal("discovery.Validate accepts a bundle carrying nine duplicated unique_ids — " +
-			"this is new information and step 6's fallback is no longer needed; update this test")
-	}
-	var verr *discovery.ValidationError
-	if !errors.As(err, &verr) {
-		t.Fatalf("Validate returned %T, want *discovery.ValidationError: %v", err, err)
-	}
-	if !verr.Blocking() {
-		t.Errorf("Validate reports the duplication as advisory only; it is expected to block")
-	}
-	if !errors.Is(err, discovery.ErrInvalidBundle) {
-		t.Errorf("Validate's result does not match ErrInvalidBundle, so a runtime would publish it anyway")
-	}
-	if len(verr.Issues) != len(want) {
-		t.Errorf("Validate reports %d issues, want one per duplicated unique_id (%d): %v",
-			len(verr.Issues), len(want), verr.Issues)
+			if err := discovery.Validate(bundle); err != nil {
+				var verr *discovery.ValidationError
+				if errors.As(err, &verr) {
+					t.Fatalf("discovery.Validate refuses the bundle with %d issues (blocking=%v): %v",
+						len(verr.Issues), verr.Blocking(), verr.Issues)
+				}
+				t.Fatalf("discovery.Validate refuses the bundle: %v", err)
+			}
+		})
 	}
 }
 
@@ -530,4 +535,174 @@ func pinnedHasTopic(entries []goldenEntry, cfgTopic string) bool {
 		}
 	}
 	return false
+}
+
+// TestLayoutStateTopicEqualsTheConfigsOwnStateTopic closes the one trap
+// §5.2 of the phase-6 measurement left open, and it is the reason step 4
+// may publish through [StateTopic] at all.
+//
+// go-hamqtt's rule is blunt: publish through
+// publisher.StatePublisher.PublishComponentValue or
+// publisher.ComponentStateTopic, NEVER through topic.Layout.State. The
+// reason is that a Layout returns a topic for all 32 Home Assistant
+// platforms while the renderer projects `state_topic` into a config on
+// only 22 of them, so on climate, water_heater, lawn_mower, camera, tag,
+// button, device_automation, image, notify and scene the layout hands out
+// a plausible-looking topic that no config references — and the entity
+// stays `unknown` for the life of the fleet with nothing logged anywhere.
+//
+// This bridge's poll loop cannot take that route: it publishes by (group,
+// key) off a Modbus read, and five of its state topics are read by no
+// entity at all (F10), so there is no component to ask. What it can do is
+// PROVE the two answers are the same string for every entity it actually
+// renders — which is what this asserts, over all 100 components, in both
+// languages. The day a platform without a `state_topic` joins this
+// catalogue — `button` is already a declared platform of this bridge with
+// an empty dispatch case, F6 — this test goes red instead of the fleet
+// going quiet.
+func TestLayoutStateTopicEqualsTheConfigsOwnStateTopic(t *testing.T) {
+	for _, lang := range []string{"en", "de"} {
+		t.Run(lang, func(t *testing.T) {
+			d := realDiscovery(t, lang)
+			ctx := NewRenderContext(d)
+			dev := NewDevice(d)
+
+			checked := 0
+			for _, e := range NewEntities(d) {
+				ent, ok := e.(*Entity)
+				if !ok {
+					t.Fatalf("%s is not an *Entity", e.Key())
+				}
+				comp, err := discovery.RenderComponent(ctx, dev, ent, discovery.Origin{})
+				if err != nil {
+					t.Fatalf("render %s: %v", ent.Key(), err)
+				}
+				// The config's own answer, read off the rendered component
+				// rather than derived — the only string provably equal to
+				// what Home Assistant was told to read.
+				fromComponent, err := publisher.ComponentStateTopic(comp)
+				if err != nil {
+					t.Fatalf("%s declares no state_topic (%v) — this bridge's poll loop "+
+						"publishes to Layout.State for every register, so such an entity "+
+						"would be permanently unknown", ent.Key(), err)
+				}
+				bind := ent.Binds[0].Slot
+				fromLayout := StateTopic(d.mqttTopic, bind.Address, bind.Path[0], bind.Path[1])
+				if fromComponent != fromLayout {
+					t.Errorf("%s: config says %q, the poll loop publishes to %q",
+						ent.Key(), fromComponent, fromLayout)
+				}
+				checked++
+			}
+			if checked != 100 {
+				t.Errorf("checked %d components, want 100", checked)
+			}
+		})
+	}
+}
+
+// TestOwnsConfigTopicIsNarrow pins the sweep's ownership predicate against
+// the populations of a shared discovery tree it must decline.
+//
+// This is the predicate whose width decides what a sweep can destroy.
+// openccu-loom's PR #817 is the live example: its retraction prefixes
+// turned out to own 100 % of a sibling daemon's configs. Every row below
+// is a topic that exists on somebody's broker.
+func TestOwnsConfigTopicIsNarrow(t *testing.T) {
+	const prefix = "homeassistant"
+	cases := []struct {
+		topic string
+		want  bool
+		why   string
+	}{
+		{"homeassistant/sensor/MTEC_grid_power/config", true, "this bridge's own form"},
+		{"homeassistant/switch/MTEC_on_grid_soc_switch/config", true, "a writable control"},
+		{"homeassistant/binary_sensor/MTEC_grid_inject_switch/config", true, "the sensor view of one"},
+		{"homeassistant/number/MTEC_charge_limit/config", true, "a number control"},
+		{"homeassistant/select/MTEC_mode/config", true, "the one select"},
+
+		{"homeassistant/sensor/tasmota_ABC123/config", false, "another integration in the same namespace"},
+		{"homeassistant/sensor/zendure_hub_soc/config", false, "a sibling bridge of this family"},
+		{"homeassistant/device/MTEC_MT1234567890/config", false, "a device bundle — step 6's shape, not this one's"},
+		{"homeassistant/sensor/node/MTEC_grid_power/config", false, "the five-segment node-id form"},
+		{"homeassistant/climate/MTEC_thermostat/config", false, "a platform this bridge does not emit"},
+		{"homeassistant/light/MTEC_lamp/config", false, "likewise"},
+		{"homeassistant/sensor/MTECH_grid_power/config", false, "a namespace that merely starts alike is not this one"},
+	}
+	for _, tc := range cases {
+		parsed, ok := publisher.ParseConfigTopic(prefix, tc.topic)
+		if !ok {
+			if tc.want {
+				t.Errorf("%s: ParseConfigTopic declined a topic this bridge publishes", tc.topic)
+			}
+			continue
+		}
+		if got := OwnsConfigTopic(parsed); got != tc.want {
+			t.Errorf("OwnsConfigTopic(%s) = %v, want %v (%s)", tc.topic, got, tc.want, tc.why)
+		}
+	}
+}
+
+// TestOwnsConfigTopicCoversEveryPinnedConfigTopic is the other half: the
+// predicate must be narrow, and it must still claim every one of the 100
+// retained configs this daemon actually publishes. A predicate that
+// declined its own fleet would leave every orphan on the broker forever,
+// which is the quiet failure — nothing in the log, nothing on the wire.
+func TestOwnsConfigTopicCoversEveryPinnedConfigTopic(t *testing.T) {
+	d := realDiscovery(t, "en")
+	n := 0
+	for _, e := range d.Entries() {
+		parsed, ok := publisher.ParseConfigTopic("homeassistant", e.ConfigTopic)
+		if !ok {
+			t.Errorf("%s does not parse as a discovery config topic", e.ConfigTopic)
+			continue
+		}
+		if !OwnsConfigTopic(parsed) {
+			t.Errorf("the sweep would not claim this daemon's own %s", e.ConfigTopic)
+		}
+		n++
+	}
+	if n != 100 {
+		t.Errorf("checked %d config topics, want 100", n)
+	}
+}
+
+// TestLegacyConfigTopicFormIsTheOneWired ties the constant step 3 recorded
+// to the function the code now calls, so the two cannot drift: step 3
+// measured the four-segment form against the pins (100 of 100; the
+// five-segment default matched 0) and wrote the verdict down as a string.
+// A string is not wiring. This asserts that what
+// [LegacyConfigTopicForms] hands publisher.Config.LegacyEntityTopics
+// renders the same topic [Discovery.configTopic] publishes to — which is
+// the identity step 6's retract-then-publish ordering rests on.
+func TestLegacyConfigTopicFormIsTheOneWired(t *testing.T) {
+	forms := LegacyConfigTopicForms()
+	if len(forms) != 1 {
+		t.Fatalf("LegacyConfigTopicForms() has %d entries, want exactly one — naming a form "+
+			"REPLACES the library default rather than adding to it", len(forms))
+	}
+	if LegacyConfigTopicForm != "publisher.LegacyTopicByUniqueID" {
+		t.Errorf("the recorded form name is %q", LegacyConfigTopicForm)
+	}
+
+	d := realDiscovery(t, "en")
+	n := 0
+	for _, e := range d.Entries() {
+		parsed, ok := publisher.ParseConfigTopic("homeassistant", e.ConfigTopic)
+		if !ok {
+			t.Fatalf("%s does not parse", e.ConfigTopic)
+		}
+		got := forms[0](publisher.LegacyEntity{
+			Prefix:   "homeassistant",
+			Platform: parsed.Platform,
+			UniqueID: parsed.ObjectID,
+		})
+		if got != e.ConfigTopic {
+			t.Errorf("the wired legacy form renders %q for %q", got, e.ConfigTopic)
+		}
+		n++
+	}
+	if n != 100 {
+		t.Errorf("checked %d entries, want 100", n)
+	}
 }

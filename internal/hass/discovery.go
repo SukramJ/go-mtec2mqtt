@@ -339,15 +339,6 @@ func (d *Discovery) UnregisterEntries() []Entry {
 	return out
 }
 
-// ConfigFilter is the MQTT topic filter matching this daemon's discovery
-// config topics (e.g. "homeassistant/+/+/config", one '+' for the platform
-// and one for the unique_id). Orphan reconciliation subscribes to it to
-// collect the retained configs the broker replays, then compares them
-// against the freshly published set.
-func (d *Discovery) ConfigFilter() string {
-	return d.hassBaseTopic + "/+/+/config"
-}
-
 // IsOwnConfig reports whether a retained HA discovery config payload was
 // published by this daemon: its unique_id sits in our "MTEC_" namespace and
 // its state_topic (when present) is under our MQTT publish root. Orphan
@@ -435,7 +426,12 @@ func (d *Discovery) buildEntries() {
 // payload_on/off are "1"/"0" to match the coordinator-published state.
 func (d *Discovery) appendVirtualSwitch(v VirtualSwitch) {
 	uid := d.uniqueID(v.Key)
-	command := fmt.Sprintf("%s/%s/%s/%s/set", d.mqttTopic, d.serialNo, v.Group, v.Key)
+	// Through the shared [CommandTopic]/[StateTopic] like every real
+	// register: these two lines were the FOURTH and FIFTH independent
+	// spelling of this bridge's topic schema, and a synthetic switch whose
+	// topics drift is the least visible kind — no register backs it, so
+	// nothing else ever writes there to reveal the mismatch.
+	command := CommandTopic(d.mqttTopic, d.serialNo, v.Group, v.Key)
 	payload := map[string]any{
 		"command_topic":      command,
 		"device":             d.device,
@@ -444,7 +440,7 @@ func (d *Discovery) appendVirtualSwitch(v VirtualSwitch) {
 		"name":               v.LocalizedName(d.lang),
 		"payload_off":        "0",
 		"payload_on":         "1",
-		"state_topic":        fmt.Sprintf("%s/%s/%s/%s/state", d.mqttTopic, d.serialNo, v.Group, v.Key),
+		"state_topic":        StateTopic(d.mqttTopic, d.serialNo, v.Group, v.Key),
 		"unique_id":          uid,
 	}
 	d.appendEntry(PlatformSwitch, uid, payload, command)
@@ -599,8 +595,16 @@ func (d *Discovery) appendEntry(platform Platform, uid string, payload map[strin
 
 // configTopic returns "<hass_base>/<platform>/<unique_id>/config" —
 // HA's auto-discovery topic.
+//
+// Rendered through [LegacyConfigTopic] rather than by concatenation, so
+// the topic this builder publishes to, the topic the orphan sweep
+// retracts through and the form step 6's bundle must supersede are one
+// function. They were three spellings, and the cost of a disagreement is
+// total and silent: a bundle published while the per-entity configs it
+// failed to retract are still retained is refused by Home Assistant with
+// one WARNING and no entities.
 func (d *Discovery) configTopic(p Platform, uniqueID string) string {
-	return fmt.Sprintf("%s/%s/%s/config", d.hassBaseTopic, p, uniqueID)
+	return LegacyConfigTopic(d.hassBaseTopic, p, uniqueID)
 }
 
 // availability returns the entity's availability list: one bridge-level
@@ -623,16 +627,19 @@ func (d *Discovery) availability() []map[string]any {
 
 // stateTopic returns the topic the coordinator publishes the
 // register's current value to: "<mqtt_topic>/<serial>/<group>/<mqtt_key>/state".
+//
+// It delegates to [StateTopic], which the poll loop now calls too. Until
+// this release the two sides were independent fmt.Sprintf expressions
+// (F5 of the phase-6 measurement) and nothing in the repository compared
+// them; a divergence points every entity at a topic nobody writes to.
 func (d *Discovery) stateTopic(r *registers.Register) string {
-	return fmt.Sprintf("%s/%s/%s/%s/state",
-		d.mqttTopic, d.serialNo, r.Group, r.MQTT)
+	return StateTopic(d.mqttTopic, d.serialNo, string(r.Group), r.MQTT)
 }
 
 // commandTopic returns the topic HA writes back to for writable
 // entities: "<mqtt_topic>/<serial>/<group>/<mqtt_key>/set".
 func (d *Discovery) commandTopic(r *registers.Register) string {
-	return fmt.Sprintf("%s/%s/%s/%s/set",
-		d.mqttTopic, d.serialNo, r.Group, r.MQTT)
+	return CommandTopic(d.mqttTopic, d.serialNo, string(r.Group), r.MQTT)
 }
 
 // valueItemsValues returns the HA select options derived from

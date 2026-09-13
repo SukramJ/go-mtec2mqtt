@@ -12,4 +12,4 @@ require (
 	github.com/SukramJ/go-mqtt v1.5.1
 )
 
-require github.com/SukramJ/go-hamqtt v0.31.0
+require github.com/SukramJ/go-hamqtt v0.32.0

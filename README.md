@@ -197,7 +197,16 @@ MTEC/bridge/status = online | offline      daemon availability (retained)
 ```
 
 State topics are **retained**, so a subscriber that connects between two
-polls gets the last known value immediately instead of `unknown`.
+polls gets the last known value immediately instead of `unknown`. They are
+also **de-duplicated**: a value identical to the one the broker already
+holds is not published again, so a register that does not change is
+written once rather than once per poll. Read the retained value rather
+than counting messages — a consumer that triggers on *message received*
+will see far fewer of them than before 1.10.0.
+
+Every publish this daemon makes is **QoS 0** (state, discovery configs and
+the availability marker alike); the command subscription is **QoS 1**.
+Both are unchanged from every previous release.
 
 `MTEC/bridge/status` is the daemon's own liveness marker: `online` on
 every (re)connect, `offline` on a clean shutdown, and `offline` via the

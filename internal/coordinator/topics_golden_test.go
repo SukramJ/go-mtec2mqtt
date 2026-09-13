@@ -116,7 +116,7 @@ HASS_ENABLE: true
 	discovery := hass.New(cfg.HASSBaseTopic, cfg.MQTTTopic, catalog, cfg.Language, virtual, cfg.DeviceName)
 	discovery.Initialize(goldenSerial, goldenFirmware, goldenEquipment)
 
-	c := New(Deps{
+	deps := Deps{
 		Cfg:     cfg,
 		Catalog: catalog,
 		Modbus:  &stubModbus{},
@@ -126,10 +126,12 @@ HASS_ENABLE: true
 		Virtual: virtual,
 		Logger:  slog.New(slog.DiscardHandler),
 		Now:     func() time.Time { return time.Date(2026, 5, 25, 14, 30, 45, 0, time.UTC) },
-	})
+	}
+	wirePlanes(t, &deps, mqttStub)
+	c := New(deps)
 	// What runStatic would have stored after the STATIC read. Every state
 	// topic is keyed on it, exactly as in production.
-	c.topicBase.Store(cfg.MQTTTopic + "/" + goldenSerial)
+	c.topicBase.Store(topicParts{root: cfg.MQTTTopic, serial: goldenSerial})
 	return c, discovery, mqttStub, catalog
 }
 
@@ -178,20 +180,45 @@ func sortedKeys(set map[string]bool) []string {
 	return out
 }
 
-// subscribeFilters asks the production code what it subscribes to —
-// installInboundHandler for the two startup filters and
-// Discovery.ConfigFilter for the orphan sweep's — rather than
-// re-deriving the strings in the test, which would pin nothing.
-func subscribeFilters(t *testing.T, c *Coordinator, d *hass.Discovery, stub *stubMQTT) []string {
+// subscribeFilters asks the production code what it subscribes to, by
+// running it: installInboundHandler for the two startup filters and one
+// real sweep pass for the snapshot window. Nothing here re-derives a
+// filter string, which would pin nothing.
+//
+// The snapshot filter MOVED in ADR 0070 phase 6 step 5, and it is the one
+// wire-visible change of that step. The hand-rolled orphan reconcile
+// subscribed "homeassistant/+/+/config"; publisher.Runtime.Sweep opens
+// its window over "homeassistant/#" so that all three discovery topic
+// forms — the four-segment one this fleet is on, the five-segment node-id
+// form, and the device document step 6 will publish — reach one parser
+// instead of a wildcard shape that only matches one of them. For the two
+// seconds the window is open this daemon therefore receives every
+// retained message under the discovery prefix rather than only the
+// four-segment configs. It acts on none of them that
+// hass.OwnsConfigTopic and Discovery.IsOwnConfig do not both claim, and
+// the pass is report-only, so the widening is what it reads, never what
+// it writes.
+//
+// The golden's subscribe_filters row was updated by hand for that one
+// string and for nothing else. It was NOT regenerated: the other four
+// rows of testdata/topics.json are byte-identical to what #49 and #50
+// pinned.
+func subscribeFilters(t *testing.T, c *Coordinator, stub *stubMQTT) []string {
 	t.Helper()
 	if err := c.installInboundHandler(context.Background()); err != nil {
 		t.Fatalf("installInboundHandler: %v", err)
 	}
+	oldWindow := reconcileCollectWindow
+	reconcileCollectWindow = 20 * time.Millisecond
+	t.Cleanup(func() { reconcileCollectWindow = oldWindow })
+	// A real pass over an empty broker: it opens the window, judges
+	// nothing and retracts nothing, which is all this needs from it.
+	c.sweepOrphans(context.Background(), map[string]bool{})
+
 	stub.mu.Lock()
 	got := append([]string(nil), stub.subscribes...)
 	stub.subscribes, stub.subscribeQoS = nil, nil
 	stub.mu.Unlock()
-	got = append(got, d.ConfigFilter())
 	sort.Strings(got)
 	return got
 }
@@ -230,7 +257,7 @@ func TestTopicGolden(t *testing.T) {
 		StateTopics:              sortedKeys(stateSet),
 		DiscoveryConfigTopics:    sortedKeys(configSet),
 		CommandTopics:            sortedKeys(commandSet),
-		SubscribeFilters:         subscribeFilters(t, c, discovery, stub),
+		SubscribeFilters:         subscribeFilters(t, c, stub),
 		StateTopicsWithoutEntity: sortedKeys(orphanState),
 	}
 

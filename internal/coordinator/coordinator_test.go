@@ -16,6 +16,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/SukramJ/go-hamqtt/discovery"
+	"github.com/SukramJ/go-hamqtt/publisher"
+	hagomqtt "github.com/SukramJ/go-hamqtt/publisher/gomqtt"
 	"github.com/SukramJ/go-mqtt"
 
 	"github.com/SukramJ/go-mtec2mqtt/internal/config"
@@ -125,6 +128,34 @@ func (s *stubModbus) Connect(context.Context) error {
 func (s *stubModbus) Close() error      { s.closeCalls.Add(1); s.connected.Store(false); return nil }
 func (s *stubModbus) IsConnected() bool { return s.connected.Load() }
 
+// wirePlanes builds the two go-hamqtt planes a Coordinator requires, over
+// a stub transport, with EXACTLY the configuration the composition root
+// uses.
+//
+// It reads coordinator.DiscoveryQoS / coordinator.StateQoS rather than
+// spelling 0 twice, so a test cannot accidentally assert a delivery
+// guarantee production does not have — which is the whole failure mode
+// those two constants exist to close.
+func wirePlanes(t *testing.T, deps *Deps, mqttStub *stubMQTT) {
+	t.Helper()
+	tr := hagomqtt.Split(mqttStub, mqttStub)
+	rt := publisher.New(tr, publisher.Config{
+		Prefix:             deps.Cfg.HASSBaseTopic,
+		Layout:             hass.Layout{Root: deps.Cfg.MQTTTopic},
+		QoS:                DiscoveryQoS,
+		LegacyEntityTopics: hass.LegacyConfigTopicForms(),
+		Logger:             slog.New(slog.DiscardHandler),
+	})
+	t.Cleanup(rt.Close)
+	deps.HARuntime = rt
+	deps.StatePlane = publisher.StateFor(rt, publisher.StateConfig{
+		QoS:            StateQoS,
+		Encoding:       discovery.RawEncoding,
+		CommandFilters: []string{hass.CommandFilter(deps.Cfg.MQTTTopic)},
+		Logger:         slog.New(slog.DiscardHandler),
+	})
+}
+
 // stubMQTT captures publishes and subscribe handlers.
 type stubMQTT struct {
 	mu           sync.Mutex
@@ -217,18 +248,6 @@ func (s *stubMQTT) countSubscribes(filter string) int {
 	defer s.mu.Unlock()
 	n := 0
 	for _, f := range s.subscribes {
-		if f == filter {
-			n++
-		}
-	}
-	return n
-}
-
-func (s *stubMQTT) countUnsubscribes(filter string) int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	n := 0
-	for _, f := range s.unsubscribes {
 		if f == filter {
 			n++
 		}
@@ -424,6 +443,7 @@ func buildDeps(t *testing.T, hassEnable bool) (*Coordinator, *stubReader, *stubM
 	if hassEnable {
 		deps.HASS = hass.New(cfg.HASSBaseTopic, cfg.MQTTTopic, catalog, cfg.Language, nil, cfg.DeviceName)
 	}
+	wirePlanes(t, &deps, mqttStub)
 	return New(deps), reader, mqttStub, modbusStub
 }
 
@@ -638,10 +658,27 @@ func TestTryInitFromStaticRejectsTopicUnsafeSerial(t *testing.T) {
 }
 
 // TestHASSBirthTriggersDiscoveryRepublish covers the full loop: HA
-// announces itself ("online" birth), onMessage clears discoverySent,
-// and the discoveryRepublisher goroutine re-sends every retained
-// discovery config. The republisher ticks every 5s, so this test —
-// like TestModbusWatchdogReconnects — polls for several seconds.
+// announces itself ("online" birth), onMessage clears discoverySent, and
+// the discoveryRepublisher goroutine re-runs the whole discovery batch.
+// The republisher ticks every 5s, so this test — like
+// TestModbusWatchdogReconnects — polls for several seconds.
+//
+// What it can no longer assert is a second burst of publishes ON THE
+// WIRE, and that is the point of ADR 0070 phase 6 step 5 rather than a
+// weakening of the test: configs now go out through publisher.Runtime,
+// whose dedup gate compares the bytes against what the broker accepted
+// and writes nothing when a payload is unchanged. A steady-state
+// republish of an unchanged fleet is exactly the case the gate exists
+// for — Home Assistant re-reads and re-validates every retained config it
+// is handed, and 100 of them that say nothing new is work for nobody.
+//
+// So the assertion moves one level in, to the thing the wire used to
+// stand in for: the birth must clear discoverySent and the republish pass
+// must set it again. A pass that never ran leaves it false, which is what
+// this catches. That the pass writes nothing when nothing changed is
+// asserted separately, by TestDiscoveryRepublishIsDeduplicated; that it
+// writes everything when something DID change is the same gate's other
+// direction, asserted here by mutating one entry's payload.
 func TestHASSBirthTriggersDiscoveryRepublish(t *testing.T) {
 	c, _, mqttStub, _ := buildDeps(t, true)
 	// The config loader maps 0 to the 15s default; skip the birth wait
@@ -672,20 +709,65 @@ func TestHASSBirthTriggersDiscoveryRepublish(t *testing.T) {
 	if initial == 0 {
 		t.Fatal("no initial discovery publishes")
 	}
+	if !c.discoverySent.Load() {
+		t.Fatal("the initial batch did not mark discovery as sent")
+	}
 
 	// Home Assistant restarts and publishes its birth message.
 	mqttStub.deliver("homeassistant/status", []byte("online"))
 
-	deadline = time.Now().Add(7 * time.Second)
-	for time.Now().Before(deadline) && countConfigs() <= initial {
-		time.Sleep(50 * time.Millisecond)
+	// The birth must invalidate the batch, and the republisher must run
+	// and re-validate it. Sampling the flag rather than the wire is the
+	// whole change: the wire is silent when nothing moved.
+	sawCleared := false
+	deadline = time.Now().Add(9 * time.Second)
+	for time.Now().Before(deadline) {
+		if !c.discoverySent.Load() {
+			sawCleared = true
+		}
+		if sawCleared && c.discoverySent.Load() {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	cancel()
 	<-done
 
-	if got := countConfigs(); got <= initial {
-		t.Fatalf("discovery was not republished after HA birth: %d configs before, %d after",
-			initial, got)
+	if !sawCleared {
+		t.Fatal("the birth message did not clear discoverySent")
+	}
+	if !c.discoverySent.Load() {
+		t.Fatal("discovery was never republished after the HA birth: discoverySent stayed false")
+	}
+	if got := countConfigs(); got != initial {
+		t.Errorf("the republish wrote %d configs where %d had already been accepted; "+
+			"an unchanged fleet must cost nothing", got-initial, initial)
+	}
+}
+
+// TestChangedDiscoveryPayloadIsRepublished is the dedup gate's other
+// direction, and the one that would make a wrong gate catastrophic rather
+// than merely wasteful: a config whose payload actually changed must go
+// out. A gate that suppressed it would leave Home Assistant on the
+// previous build's entity definition forever, with nothing on the wire
+// and nothing in the log to say so.
+func TestChangedDiscoveryPayloadIsRepublished(t *testing.T) {
+	c, _, mqttStub, _ := buildDeps(t, true)
+	c.deps.HASS.Initialize("MTEC-TEST-001", "V1", "model")
+	c.publishDiscovery(context.Background())
+
+	mqttStub.mu.Lock()
+	mqttStub.publishes = nil
+	mqttStub.mu.Unlock()
+
+	// A new firmware version rewrites the `device` block of every config,
+	// exactly as a real daemon upgrade does.
+	c.deps.HASS.Initialize("MTEC-TEST-001", "V2", "model")
+	entries := c.deps.HASS.Entries()
+	c.publishDiscovery(context.Background())
+
+	if got := len(mqttStub.snapshotPublishes()); got != len(entries) {
+		t.Fatalf("republished %d of %d changed configs", got, len(entries))
 	}
 }
 
@@ -1056,50 +1138,6 @@ func TestInstallInboundHandlerStopsOnCancelledContext(t *testing.T) {
 	err := c.installInboundHandler(ctx)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
-	}
-}
-
-// --- reconcile unsubscribe -------------------------------------------------
-
-func TestUnsubscribeWithRetrySucceedsAfterFailures(t *testing.T) {
-	c, _, mqttStub, _ := buildDeps(t, true)
-	c.deps.Logger = slog.New(slog.DiscardHandler)
-	oldDelay := reconcileUnsubscribeDelay
-	reconcileUnsubscribeDelay = time.Millisecond
-	t.Cleanup(func() { reconcileUnsubscribeDelay = oldDelay })
-
-	const filter = "homeassistant/+/+/config"
-	mqttStub.mu.Lock()
-	mqttStub.unsubscribeFailures = 2
-	mqttStub.mu.Unlock()
-
-	c.unsubscribeWithRetry(context.Background(), filter)
-	if got := mqttStub.countUnsubscribes(filter); got != 3 {
-		t.Fatalf("unsubscribe attempts = %d, want 3", got)
-	}
-	mqttStub.mu.Lock()
-	_, still := mqttStub.handlers[filter]
-	mqttStub.mu.Unlock()
-	if still {
-		t.Error("collector subscription survived; it would replay on every reconnect")
-	}
-}
-
-func TestUnsubscribeWithRetryGivesUpBounded(t *testing.T) {
-	c, _, mqttStub, _ := buildDeps(t, true)
-	c.deps.Logger = slog.New(slog.DiscardHandler)
-	oldDelay := reconcileUnsubscribeDelay
-	reconcileUnsubscribeDelay = time.Millisecond
-	t.Cleanup(func() { reconcileUnsubscribeDelay = oldDelay })
-
-	const filter = "homeassistant/+/+/config"
-	mqttStub.mu.Lock()
-	mqttStub.unsubscribeFailures = 100
-	mqttStub.mu.Unlock()
-
-	c.unsubscribeWithRetry(context.Background(), filter)
-	if got := mqttStub.countUnsubscribes(filter); got != reconcileUnsubscribeTries {
-		t.Fatalf("unsubscribe attempts = %d, want %d", got, reconcileUnsubscribeTries)
 	}
 }
 

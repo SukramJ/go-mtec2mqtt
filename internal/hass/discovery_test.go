@@ -454,13 +454,6 @@ func TestVirtualSwitchEntities(t *testing.T) {
 
 // --- orphan-cleanup guards -------------------------------------------------
 
-func TestConfigFilter(t *testing.T) {
-	d := New("homeassistant", "MTEC", loadCatalog(t), "en", nil, "")
-	if got, want := d.ConfigFilter(), "homeassistant/+/+/config"; got != want {
-		t.Errorf("ConfigFilter = %q, want %q", got, want)
-	}
-}
-
 func TestIsOwnConfig(t *testing.T) {
 	d := New("homeassistant", "MTEC", loadCatalog(t), "en", nil, "")
 	cases := []struct {
