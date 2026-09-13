@@ -101,6 +101,11 @@ func (l Layout) Command(s hamodel.Slot) string {
 // because an entity that acquired LevelDevice by accident would otherwise
 // render an empty topic — which Home Assistant greys out forever with
 // nothing in the log to say why.
+//
+// "Never resolves" is checked rather than asserted in prose: both render
+// entry points run [discovery.CheckAvailability] against
+// [PublishesAvailabilityTopic], so an entity that reaches LevelDevice fails
+// the render naming itself and this topic.
 func (l Layout) Availability(s hamodel.Slot) string {
 	return topic.Join(l.Root, s.Address, "availability")
 }
@@ -304,6 +309,7 @@ func Render(d *Discovery) (map[string][]byte, error) {
 	ctx := NewRenderContext(d)
 	dev := NewDevice(d)
 	out := make(map[string][]byte, len(d.entries))
+	comps := make([]discovery.Component, 0, len(d.entries))
 	for _, e := range NewEntities(d) {
 		comp, err := discovery.RenderComponent(ctx, dev, e, discovery.Origin{})
 		if err != nil {
@@ -318,8 +324,53 @@ func Render(d *Discovery) (map[string][]byte, error) {
 			return nil, fmt.Errorf("hass: duplicate config topic %q", cfgTopic)
 		}
 		out[cfgTopic] = body
+		comps = append(comps, comp)
+	}
+	if err := discovery.CheckAvailability(PublishesAvailabilityTopic(d.mqttTopic), comps...); err != nil {
+		return nil, fmt.Errorf("hass: %w", err)
 	}
 	return out, nil
+}
+
+// PublishesAvailabilityTopic is this daemon's answer to
+// [discovery.CheckAvailability]: the set of availability topics it actually
+// writes, which is the one string [BridgeStatusTopic] renders.
+//
+// # Why this exists
+//
+// The zero [hamodel.Availability] resolves to {LevelBridge, LevelDevice}
+// under mode `all`, and LevelDevice resolves through [Layout.Availability]
+// to "<root>/<serial>/availability" — a topic nothing in this daemon ever
+// publishes. Under mode `all` Home Assistant requires EVERY listed source
+// to say `online`, and a source nobody writes is not neutral: one entity
+// that reached the default would be permanently unavailable, and all 100
+// of them if the default reached the shared [hamodel.Description] builder.
+// There would be nothing on the wire and nothing in any log to say why.
+//
+// That invariant is spelled [hamodel.BridgeOnly] at six independent call
+// sites (sensor, binary sensor, number, select, switch, virtual switch).
+// Six spellings need one guard, and until now they had none of their own:
+// the property was held only by the equality tests that compare this path
+// against the shipped builder byte for byte — which is exactly the scaffold
+// ADR 0070 phase 6 exists to delete — and by three regenerable golden
+// files. TestAvailabilityTopicIsOutsideTheDiscoveryTree reads
+// [Discovery.Entries], the shipped builder, so it never saw this path at
+// all; dropping BridgeOnly from a builder here left it green.
+//
+// # Why it can fail
+//
+// The predicate is not the function the payload was rendered from. A
+// bridge-level source is rendered by [Layout.Bridge] and a device-level one
+// by [Layout.Availability] — two different renderers producing two
+// different strings — so the check crosses the rendering side against
+// [BridgeStatusTopic], which is the PUBLISHING side's function (main.go's
+// LWT and the coordinator's online publish both call it). Losing
+// BridgeOnly at any of the six sites appends a second entry from the
+// renderer this predicate does not consult, and the render fails naming the
+// entity and the topic instead of greying out the fleet.
+func PublishesAvailabilityTopic(mqttTopic string) func(topic string) bool {
+	bridge := BridgeStatusTopic(mqttTopic)
+	return func(t string) bool { return t == bridge }
 }
 
 // RenderBundle renders the same entities as one device bundle — the shape
@@ -327,7 +378,18 @@ func Render(d *Discovery) (map[string][]byte, error) {
 // discovery.Validate has a bundle to check and so the duplicate-unique_id
 // question can be asked of the library in code.
 func RenderBundle(d *Discovery, origin discovery.Origin) (*discovery.Bundle, error) {
-	return discovery.Render(NewRenderContext(d), NewDevice(d), NewEntities(d), origin)
+	b, err := discovery.Render(NewRenderContext(d), NewDevice(d), NewEntities(d), origin)
+	if err != nil {
+		return nil, err
+	}
+	// The same guard [Render] applies, over the document shape. See
+	// [PublishesAvailabilityTopic]: the six hamodel.BridgeOnly sites are
+	// what keeps hamodel.LevelDevice from resolving to a topic nothing
+	// publishes, and this is where that is checked rather than assumed.
+	if err := discovery.CheckBundleAvailability(b, PublishesAvailabilityTopic(d.mqttTopic)); err != nil {
+		return nil, fmt.Errorf("hass: %w", err)
+	}
+	return b, nil
 }
 
 // --- per-platform entity builders -------------------------------------------

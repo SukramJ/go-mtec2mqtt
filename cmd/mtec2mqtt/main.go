@@ -247,8 +247,21 @@ func run(configPath, registersPath string, logger *slog.Logger) error {
 	// /set subscription would be echoed back into its own command handler.
 	// The filter is stated once, in hass.CommandFilter, and read by the
 	// router route and by this guard.
+	//
+	// PulseQoS is stated for the same reason and is NOT redundant with the
+	// line above it, even though both resolve to the same wire byte today.
+	// It is the one field in publisher whose default is QoS 0, so a plane
+	// that states StateConfig.QoS and leaves this one alone publishes its
+	// pulses at a level nobody chose — and the two only come apart when the
+	// state QoS is not 0, which a single-configuration bridge like this one
+	// never sees. The library warns about exactly this at construction
+	// (`publisher.state.pulse_qos_unstated`, new in go-hamqtt v0.34.0), and
+	// that warning is the ONLY thing that could have caught it here:
+	// nothing on the wire moves either way, so no golden, no pin and no
+	// byte comparison in this repo could ever have told the difference.
 	statePlane := publisher.StateFor(bootRuntime, publisher.StateConfig{
 		QoS:            coordinator.StateQoS,
+		PulseQoS:       coordinator.StateQoS,
 		Encoding:       discovery.RawEncoding,
 		CommandFilters: []string{hass.CommandFilter(cfg.MQTTTopic)},
 		Logger:         logger,
