@@ -193,8 +193,23 @@ MTEC/<serial>/config/<key>/state           writable settings (mirror)
 MTEC/<serial>/static/<key>/state           serial / firmware / equipment
 MTEC/<serial>/<group>/<key>/set            command topic for writables
 homeassistant/<platform>/MTEC_<key>/config retained HA discovery payloads
-<hass_base>/status/lwt = offline           LWT topic
+MTEC/bridge/status = online | offline      daemon availability (retained)
 ```
+
+State topics are **retained**, so a subscriber that connects between two
+polls gets the last known value immediately instead of `unknown`.
+
+`MTEC/bridge/status` is the daemon's own liveness marker: `online` on
+every (re)connect, `offline` on a clean shutdown, and `offline` via the
+broker-side last will when the process dies ungracefully. Every discovery
+payload references it, so the entities grey out in Home Assistant when the
+daemon goes away instead of showing stale readings forever.
+
+> **Upgrading from ≤ 1.9.0:** this marker used to live at
+> `<hass_base>/status/lwt` (`homeassistant/status/lwt` by default), inside
+> Home Assistant's own birth tree. It moved, and the daemon clears the old
+> retained copy itself on every connect — an automation or dashboard that
+> watched the old topic must be repointed at `MTEC/bridge/status`.
 
 ## Development
 

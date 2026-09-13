@@ -31,6 +31,37 @@ const (
 	uniqueIDPrefix = "MTEC_"
 )
 
+// Availability payloads. These are the two words the daemon writes to
+// [BridgeStatusTopic] and the two every entity is told to read there, so
+// they are spelled once.
+const (
+	PayloadAvailable    = "online"
+	PayloadNotAvailable = "offline"
+)
+
+// BridgeStatusTopic returns the daemon's own availability topic for a
+// given MQTT publish root: "<root>/bridge/status", e.g. "MTEC/bridge/status".
+//
+// It is deliberately NOT under the Home Assistant discovery prefix. Until
+// this release the daemon wrote its retained online/offline marker to
+// "<hass_base>/status/lwt" — by default homeassistant/status/lwt, one level
+// under the topic Home Assistant publishes its *own* birth message to and
+// which this daemon subscribes to. Nothing read it, which is exactly why
+// nothing had ever surfaced that it sat in another integration's tree. A
+// daemon's liveness belongs in the daemon's own tree.
+//
+// Both the process that publishes the marker (cmd/mtec2mqtt) and the
+// builder that tells Home Assistant to read it go through this function,
+// so the two cannot drift apart the way the state-topic builders once
+// could.
+//
+// The shape — root, "bridge", "status" — is the one the go-hamqtt topic
+// layout renders for a bridge-level availability source, so the ADR 0070
+// migration can reproduce this string rather than move it a second time.
+func BridgeStatusTopic(mqttTopic string) string {
+	return mqttTopic + "/bridge/status"
+}
+
 // Platform is the HA discovery platform — used as the second path
 // segment of the discovery topic and as a switch in the builder.
 type Platform string
@@ -517,12 +548,24 @@ func (d *Discovery) appendSwitch(r *registers.Register) {
 	d.appendEntry(PlatformSwitch, uid, payload, command)
 }
 
-// appendEntry marshals payload and pushes a new Entry. Marshal errors
-// would only happen for non-JSON-serialisable values that the static
-// catalog cannot produce — we surface them as a panic to flag a
-// programming mistake during development rather than silently
-// dropping the entity at runtime.
+// appendEntry attaches the availability source, marshals payload and
+// pushes a new Entry. Marshal errors would only happen for
+// non-JSON-serialisable values that the static catalog cannot produce —
+// we surface them as a panic to flag a programming mistake during
+// development rather than silently dropping the entity at runtime.
+//
+// Availability is attached here, in the one place every platform builder
+// funnels through, rather than in each of the six: an entity whose
+// availability was forgotten is indistinguishable from a healthy one
+// until the daemon dies, which is the failure mode this key exists to
+// close.
 func (d *Discovery) appendEntry(platform Platform, uid string, payload map[string]any, commandTopic string) {
+	payload["availability"] = d.availability()
+	// Only one source is declared, so `all` and `any` are the same
+	// function; it is written out because Home Assistant's default is
+	// `latest`, and because the go-hamqtt model this plane migrates onto
+	// emits the mode alongside the list.
+	payload["availability_mode"] = "all"
 	bs, err := json.Marshal(payload)
 	if err != nil {
 		panic(fmt.Sprintf("hass: marshal %s payload for %s: %v", platform, uid, err))
@@ -538,6 +581,24 @@ func (d *Discovery) appendEntry(platform Platform, uid string, payload map[strin
 // HA's auto-discovery topic.
 func (d *Discovery) configTopic(p Platform, uniqueID string) string {
 	return fmt.Sprintf("%s/%s/%s/config", d.hassBaseTopic, p, uniqueID)
+}
+
+// availability returns the entity's availability list: one bridge-level
+// source, the daemon's own retained status topic.
+//
+// Bridge level only, deliberately. A device-level source would be the more
+// precise answer — it would grey the entities out when the *inverter* goes
+// unreachable rather than when the daemon does — but nothing in this
+// bridge publishes one, and under `availability_mode: all` an availability
+// source that is never published is not neutral: the entity stays
+// unavailable forever, with nothing in the log to say why. Declaring only
+// what is actually published is the whole point of the key.
+func (d *Discovery) availability() []map[string]any {
+	return []map[string]any{{
+		"topic":                 BridgeStatusTopic(d.mqttTopic),
+		"payload_available":     PayloadAvailable,
+		"payload_not_available": PayloadNotAvailable,
+	}}
 }
 
 // stateTopic returns the topic the coordinator publishes the

@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/SukramJ/go-mqtt"
+
+	"github.com/SukramJ/go-mtec2mqtt/internal/hass"
 )
 
 func discardLogger() *slog.Logger {
@@ -139,4 +141,61 @@ func TestAnnounceAvailabilitySwallowsPublishError(t *testing.T) {
 	t.Parallel()
 
 	announceAvailability(&failingPublisher{}, "MTEC/status/lwt", "offline", discardLogger())(t.Context())
+}
+
+// TestBridgeStatusTopicIsNotInTheDiscoveryTree pins the string this daemon
+// wills, births and buries itself on. Until this release it was
+// "<hass_base>/status/lwt" — homeassistant/status/lwt by default, inside
+// Home Assistant's own birth tree, one level under the topic this same
+// daemon subscribes to. It is now the daemon's own tree, and it is read
+// from the same function the discovery builder points 100 entities at, so
+// the publisher and the declaration cannot drift.
+func TestBridgeStatusTopicIsNotInTheDiscoveryTree(t *testing.T) {
+	t.Parallel()
+
+	const mqttRoot, hassBase = "MTEC", "homeassistant"
+	got := hass.BridgeStatusTopic(mqttRoot)
+	if got != "MTEC/bridge/status" {
+		t.Fatalf("BridgeStatusTopic(%q) = %q, want MTEC/bridge/status", mqttRoot, got)
+	}
+	if got == hassBase+"/status/lwt" {
+		t.Fatal("the status topic is still in Home Assistant's own tree")
+	}
+	if len(got) <= len(mqttRoot) || got[:len(mqttRoot)+1] != mqttRoot+"/" {
+		t.Fatalf("%q is not under the daemon's own publish root", got)
+	}
+}
+
+// TestRetractLegacyAvailabilityClearsTheOldTopic proves the upgrade path:
+// the retained "online" this daemon wrote to the old topic in every
+// release up to 1.9.0 is cleared with an empty retained payload — MQTT's
+// retraction — instead of being left to claim forever that a daemon which
+// no longer publishes there is up.
+func TestRetractLegacyAvailabilityClearsTheOldTopic(t *testing.T) {
+	t.Parallel()
+
+	pub := &recordingPublisher{}
+	retractLegacyAvailability(pub, "homeassistant/status/lwt", discardLogger())(t.Context())
+
+	if pub.calls != 1 {
+		t.Fatalf("publisher saw %d calls, want 1", pub.calls)
+	}
+	if pub.topic != "homeassistant/status/lwt" {
+		t.Errorf("retracted %q, want homeassistant/status/lwt", pub.topic)
+	}
+	if pub.payload != "" {
+		t.Errorf("payload = %q, want empty — only an empty payload retracts", pub.payload)
+	}
+	if !pub.retain {
+		t.Error("retain = false — a non-retained empty payload leaves the stored message in place")
+	}
+}
+
+// TestRetractLegacyAvailabilitySwallowsPublishError: like the birth
+// publish, the retraction is best-effort and must never take the daemon
+// down or stall a reconnect hook.
+func TestRetractLegacyAvailabilitySwallowsPublishError(t *testing.T) {
+	t.Parallel()
+
+	retractLegacyAvailability(&failingPublisher{}, "homeassistant/status/lwt", discardLogger())(t.Context())
 }

@@ -4,6 +4,35 @@
 
 ### Fixed
 
+- **Every Home Assistant entity now has an availability source, and the
+  daemon's status topic left Home Assistant's tree** (ADR 0070 phase 6,
+  step 2b). These were two defects that hid each other. The daemon has
+  always maintained a retained `online`/`offline` marker — and **none of
+  the 100 discovery payloads referenced it**, so on a crash (SIGKILL, OOM,
+  power cut) every entity kept showing the last value it ever saw instead
+  of going unavailable. Because nothing read the topic, nothing had ever
+  surfaced the second problem: it was published to
+  `<hass_base>/status/lwt`, i.e. `homeassistant/status/lwt` by default —
+  inside Home Assistant's *own* birth tree, one level under the topic this
+  same daemon subscribes to.
+
+  The marker now lives at **`MTEC/bridge/status`**
+  (`<MQTT_TOPIC>/bridge/status`), the daemon's own tree, and every
+  discovery payload declares it as its single availability source
+  (`availability_mode: all`, payloads `online` / `offline`). Fixing either
+  half alone would have been wrong: moving the topic leaves it read by
+  nobody, and adding the reference alone points 100 entities into Home
+  Assistant's birth tree.
+
+  **What an operator does about the old topic: nothing.** The daemon
+  publishes an empty retained payload to `<hass_base>/status/lwt` on every
+  connect, which is MQTT's retraction, so the stale retained `online`
+  disappears from the broker by itself. The one thing to check is an
+  automation, dashboard card or second MQTT consumer that *watched* the
+  old topic — that must be repointed at `MTEC/bridge/status`. Entity IDs,
+  unique IDs, device identifiers, state topics and command topics are all
+  unchanged; nothing is re-keyed and no entity is orphaned.
+
 - **State is now published retained** (ADR 0070 phase 6, step 2a). Until
   now every value went out non-retained, so a subscriber that connected
   between two polls — Home Assistant after a restart, most of all — saw

@@ -2,6 +2,14 @@
   {
     "topic": "homeassistant/binary_sensor/MTEC_grid_inject_switch/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "binary_sensor.grid_injection_limit_switch",
       "device": {
         "identifiers": [
@@ -25,6 +33,14 @@
   {
     "topic": "homeassistant/binary_sensor/MTEC_off_grid_soc_switch/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "binary_sensor.off_grid_soc_limit_switch",
       "device": {
         "identifiers": [
@@ -48,6 +64,14 @@
   {
     "topic": "homeassistant/binary_sensor/MTEC_on_grid_soc_switch/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "binary_sensor.on_grid_soc_limit_switch",
       "device": {
         "identifiers": [
@@ -71,6 +95,14 @@
   {
     "topic": "homeassistant/number/MTEC_charge_limit/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "command_topic": "MTEC/MT1234567890/config/charge_limit/set",
       "default_entity_id": "number.charge_limit",
       "device": {
@@ -95,6 +127,14 @@
   {
     "topic": "homeassistant/number/MTEC_discharge_limit/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "command_topic": "MTEC/MT1234567890/config/discharge_limit/set",
       "default_entity_id": "number.discharge_limit",
       "device": {
@@ -119,6 +159,14 @@
   {
     "topic": "homeassistant/number/MTEC_grid_inject_limit/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "command_topic": "MTEC/MT1234567890/config/grid_inject_limit/set",
       "default_entity_id": "number.grid_injection_power_limit",
       "device": {
@@ -143,6 +191,14 @@
   {
     "topic": "homeassistant/number/MTEC_off_grid_soc_limit/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "command_topic": "MTEC/MT1234567890/config/off_grid_soc_limit/set",
       "default_entity_id": "number.off_grid_soc_limit",
       "device": {
@@ -167,6 +223,14 @@
   {
     "topic": "homeassistant/number/MTEC_on_grid_soc_limit/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "command_topic": "MTEC/MT1234567890/config/on_grid_soc_limit/set",
       "default_entity_id": "number.on_grid_soc_limit",
       "device": {
@@ -191,6 +255,14 @@
   {
     "topic": "homeassistant/select/MTEC_mode/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "command_topic": "MTEC/MT1234567890/now-base/mode/set",
       "default_entity_id": "select.inverter_operation_mode",
       "device": {
@@ -219,6 +291,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_ac_current_a/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.inverter_ac_current_phase_a",
       "device": {
         "identifiers": [
@@ -244,6 +324,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_ac_current_b/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.inverter_ac_current_phase_b",
       "device": {
         "identifiers": [
@@ -269,6 +357,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_ac_current_c/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.inverter_ac_current_phase_c",
       "device": {
         "identifiers": [
@@ -294,6 +390,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_ac_voltage_a/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.inverter_ac_voltage_phase_a",
       "device": {
         "identifiers": [
@@ -319,6 +423,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_ac_voltage_a_b/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.inverter_ac_voltage_lines_a_b",
       "device": {
         "identifiers": [
@@ -344,6 +456,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_ac_voltage_b/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.inverter_ac_voltage_phase_b",
       "device": {
         "identifiers": [
@@ -369,6 +489,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_ac_voltage_b_c/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.inverter_ac_voltage_lines_b_c",
       "device": {
         "identifiers": [
@@ -394,6 +522,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_ac_voltage_c/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.inverter_ac_voltage_phase_c",
       "device": {
         "identifiers": [
@@ -419,6 +555,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_ac_voltage_c_a/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.inverter_ac_voltage_lines_c_a",
       "device": {
         "identifiers": [
@@ -444,6 +588,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_autarky_rate_day/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.household_autarky_day",
       "device": {
         "identifiers": [
@@ -469,6 +621,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_autarky_rate_total/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.household_autarky_total",
       "device": {
         "identifiers": [
@@ -494,6 +654,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_backup/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.backup_power_total",
       "device": {
         "identifiers": [
@@ -519,6 +687,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_backup_a/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.backup_power_phase_a",
       "device": {
         "identifiers": [
@@ -544,6 +720,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_backup_b/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.backup_power_phase_b",
       "device": {
         "identifiers": [
@@ -569,6 +753,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_backup_c/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.backup_power_phase_c",
       "device": {
         "identifiers": [
@@ -594,6 +786,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_backup_current_a/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.backup_current_phase_a",
       "device": {
         "identifiers": [
@@ -619,6 +819,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_backup_current_b/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.backup_current_phase_b",
       "device": {
         "identifiers": [
@@ -644,6 +852,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_backup_current_c/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.backup_current_phase_c",
       "device": {
         "identifiers": [
@@ -669,6 +885,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_backup_day/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.backup_energy_day",
       "device": {
         "identifiers": [
@@ -694,6 +918,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_backup_frequency_a/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.backup_frequency_phase_a",
       "device": {
         "identifiers": [
@@ -719,6 +951,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_backup_frequency_b/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.backup_frequency_phase_b",
       "device": {
         "identifiers": [
@@ -744,6 +984,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_backup_frequency_c/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.backup_frequency_phase_c",
       "device": {
         "identifiers": [
@@ -769,6 +1017,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_backup_total/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.backup_energy_total",
       "device": {
         "identifiers": [
@@ -794,6 +1050,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_backup_voltage_a/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.backup_voltage_phase_a",
       "device": {
         "identifiers": [
@@ -819,6 +1083,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_backup_voltage_b/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.backup_voltage_phase_b",
       "device": {
         "identifiers": [
@@ -844,6 +1116,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_backup_voltage_c/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.backup_voltage_phase_c",
       "device": {
         "identifiers": [
@@ -869,6 +1149,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_battery/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.battery_power",
       "device": {
         "identifiers": [
@@ -894,6 +1182,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_battery_cell_t_max/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.battery_cell_temperature_max",
       "device": {
         "identifiers": [
@@ -919,6 +1215,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_battery_cell_t_min/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.battery_cell_temperature_min",
       "device": {
         "identifiers": [
@@ -944,6 +1248,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_battery_cell_v_max/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.battery_cell_voltage_max",
       "device": {
         "identifiers": [
@@ -969,6 +1281,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_battery_cell_v_min/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.battery_cell_voltage_min",
       "device": {
         "identifiers": [
@@ -994,6 +1314,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_battery_charge_day/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.battery_charge_energy_day",
       "device": {
         "identifiers": [
@@ -1019,6 +1347,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_battery_charge_total/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.battery_energy_charged_total",
       "device": {
         "identifiers": [
@@ -1044,6 +1380,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_battery_current/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.battery_current",
       "device": {
         "identifiers": [
@@ -1069,6 +1413,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_battery_discharge_day/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.battery_discharge_energy_day",
       "device": {
         "identifiers": [
@@ -1094,6 +1446,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_battery_discharge_total/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.battery_energy_discharged_total",
       "device": {
         "identifiers": [
@@ -1119,6 +1479,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_battery_mode/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.battery_mode",
       "device": {
         "identifiers": [
@@ -1146,6 +1514,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_battery_soc/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.battery_soc",
       "device": {
         "identifiers": [
@@ -1171,6 +1547,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_battery_soh/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.battery_soh",
       "device": {
         "identifiers": [
@@ -1196,6 +1580,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_battery_temp/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.battery_temperature",
       "device": {
         "identifiers": [
@@ -1221,6 +1613,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_battery_voltage/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.battery_voltage",
       "device": {
         "identifiers": [
@@ -1246,6 +1646,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_bms_alarm_code/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.bms_alarm_code",
       "device": {
         "identifiers": [
@@ -1268,6 +1676,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_bms_error_code/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.bms_error_code",
       "device": {
         "identifiers": [
@@ -1290,6 +1706,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_bms_protection_code/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.bms_protection_code",
       "device": {
         "identifiers": [
@@ -1312,6 +1736,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_bms_status/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.bms_status",
       "device": {
         "identifiers": [
@@ -1343,6 +1775,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_charge_limit/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.charge_limit",
       "device": {
         "identifiers": [
@@ -1367,6 +1807,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_consumption/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.household_consumption",
       "device": {
         "identifiers": [
@@ -1392,6 +1840,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_consumption_day/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.household_consumption_day",
       "device": {
         "identifiers": [
@@ -1417,6 +1873,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_consumption_total/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.household_consumption_total",
       "device": {
         "identifiers": [
@@ -1442,6 +1906,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_discharge_limit/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.discharge_limit",
       "device": {
         "identifiers": [
@@ -1466,6 +1938,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_fault_flag_1/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.fault_flag1",
       "device": {
         "identifiers": [
@@ -1488,6 +1968,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_fault_flag_2/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.fault_flag2",
       "device": {
         "identifiers": [
@@ -1510,6 +1998,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_grid_a/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.grid_power_phase_a",
       "device": {
         "identifiers": [
@@ -1535,6 +2031,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_grid_b/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.grid_power_phase_b",
       "device": {
         "identifiers": [
@@ -1560,6 +2064,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_grid_c/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.grid_power_phase_c",
       "device": {
         "identifiers": [
@@ -1585,6 +2097,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_grid_feed_day/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.grid_injection_energy_day",
       "device": {
         "identifiers": [
@@ -1610,6 +2130,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_grid_feed_total/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.grid_energy_injected_total",
       "device": {
         "identifiers": [
@@ -1635,6 +2163,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_grid_fequency/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.grid_frequency",
       "device": {
         "identifiers": [
@@ -1660,6 +2196,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_grid_inject_limit/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.grid_injection_power_limit",
       "device": {
         "identifiers": [
@@ -1684,6 +2228,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_grid_power/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.grid_power",
       "device": {
         "identifiers": [
@@ -1709,6 +2261,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_grid_purchase_day/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.grid_purchased_energy_day",
       "device": {
         "identifiers": [
@@ -1734,6 +2294,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_grid_purchase_total/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.grid_energy_purchased_total",
       "device": {
         "identifiers": [
@@ -1759,6 +2327,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_inverter/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.inverter_ac_power",
       "device": {
         "identifiers": [
@@ -1784,6 +2360,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_inverter_a/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.inverter_power_phase_a",
       "device": {
         "identifiers": [
@@ -1809,6 +2393,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_inverter_b/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.inverter_power_phase_b",
       "device": {
         "identifiers": [
@@ -1834,6 +2426,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_inverter_c/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.inverter_power_phase_c",
       "device": {
         "identifiers": [
@@ -1859,6 +2459,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_inverter_status/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.inverter_status",
       "device": {
         "identifiers": [
@@ -1890,6 +2498,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_inverter_temp1/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.inverter_temperature_sensor_1",
       "device": {
         "identifiers": [
@@ -1915,6 +2531,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_inverter_temp2/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.inverter_temperature_sensor_2",
       "device": {
         "identifiers": [
@@ -1940,6 +2564,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_inverter_temp3/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.inverter_temperature_sensor_3",
       "device": {
         "identifiers": [
@@ -1965,6 +2597,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_inverter_temp4/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.inverter_temperature_sensor_4",
       "device": {
         "identifiers": [
@@ -1990,6 +2630,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_mode/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.inverter_operation_mode",
       "device": {
         "identifiers": [
@@ -2019,6 +2667,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_off_grid_soc_limit/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.off_grid_soc_limit",
       "device": {
         "identifiers": [
@@ -2043,6 +2699,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_on_grid_soc_limit/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.on_grid_soc_limit",
       "device": {
         "identifiers": [
@@ -2067,6 +2731,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_own_consumption_day/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.own_consumption_rate_day",
       "device": {
         "identifiers": [
@@ -2092,6 +2764,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_own_consumption_total/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.own_consumption_rate_total",
       "device": {
         "identifiers": [
@@ -2117,6 +2797,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_pv/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.pv_power",
       "device": {
         "identifiers": [
@@ -2142,6 +2830,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_pv_1/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.pv1_power",
       "device": {
         "identifiers": [
@@ -2167,6 +2863,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_pv_2/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.pv2_power",
       "device": {
         "identifiers": [
@@ -2192,6 +2896,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_pv_current_1/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.pv1_current",
       "device": {
         "identifiers": [
@@ -2217,6 +2929,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_pv_current_2/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.pv2_current",
       "device": {
         "identifiers": [
@@ -2242,6 +2962,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_pv_day/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.pv_energy_generated_day",
       "device": {
         "identifiers": [
@@ -2267,6 +2995,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_pv_generation_duration/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.pv_generation_time_total",
       "device": {
         "identifiers": [
@@ -2292,6 +3028,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_pv_total/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.pv_energy_generated_total",
       "device": {
         "identifiers": [
@@ -2317,6 +3061,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_pv_voltage_1/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.pv1_voltage",
       "device": {
         "identifiers": [
@@ -2342,6 +3094,14 @@
   {
     "topic": "homeassistant/sensor/MTEC_pv_voltage_2/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "default_entity_id": "sensor.pv2_voltage",
       "device": {
         "identifiers": [
@@ -2367,6 +3127,14 @@
   {
     "topic": "homeassistant/switch/MTEC_charge_active/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "command_topic": "MTEC/MT1234567890/config/charge_active/set",
       "default_entity_id": "switch.charge_active",
       "device": {
@@ -2391,6 +3159,14 @@
   {
     "topic": "homeassistant/switch/MTEC_discharge_active/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "command_topic": "MTEC/MT1234567890/config/discharge_active/set",
       "default_entity_id": "switch.discharge_active",
       "device": {
@@ -2415,6 +3191,14 @@
   {
     "topic": "homeassistant/switch/MTEC_grid_inject_switch/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "command_topic": "MTEC/MT1234567890/config/grid_inject_switch/set",
       "default_entity_id": "switch.grid_injection_limit_switch",
       "device": {
@@ -2439,6 +3223,14 @@
   {
     "topic": "homeassistant/switch/MTEC_off_grid_soc_switch/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "command_topic": "MTEC/MT1234567890/config/off_grid_soc_switch/set",
       "default_entity_id": "switch.off_grid_soc_limit_switch",
       "device": {
@@ -2463,6 +3255,14 @@
   {
     "topic": "homeassistant/switch/MTEC_on_grid_soc_switch/config",
     "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "MTEC/bridge/status"
+        }
+      ],
+      "availability_mode": "all",
       "command_topic": "MTEC/MT1234567890/config/on_grid_soc_switch/set",
       "default_entity_id": "switch.on_grid_soc_limit_switch",
       "device": {

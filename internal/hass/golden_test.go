@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/SukramJ/go-mtec2mqtt/internal/registers"
@@ -37,18 +38,23 @@ import (
 // fix them produce a diff a reviewer can see. Naming them here so nobody
 // "fixes" the golden file instead of the code:
 //
-//   - F1 — no availability. Not one of the 100 payloads carries
-//     `availability`, `availability_topic`, `payload_available` or
-//     `payload_not_available`, so a dead daemon leaves every entity showing
-//     its last value forever. Pinned negatively by
-//     TestGoldenPinsTheAvailabilityDefect.
-//   - F3 — state is published non-retained. Pinned in the coordinator
-//     package (TestStatePublishQoSAndRetain), where the publish happens.
+//   - F1/F2 — fixed in step 2b, and the pins now assert the fix:
+//     TestEveryPayloadDeclaresBridgeAvailability (every payload declares
+//     the bridge status topic) and
+//     TestAvailabilityTopicIsOutsideTheDiscoveryTree (it is not in Home
+//     Assistant's own tree). The first of the two was
+//     TestGoldenPinsTheAvailabilityDefect, which asserted the absence.
+//   - F3/F8 — fixed in step 2a. Pinned in the coordinator package
+//     (TestPublishQoSAndRetain, TestNilValueIsNotPublished), where the
+//     publish happens.
 //   - F7 — the two synthetic switches are `enabled_by_default: true` while
-//     every real control is `false`. Pinned by
-//     TestGoldenPinsTheEnabledByDefaultInconsistency.
-//   - F10 — the state-topic tree is wider than the discovery tree. Pinned
-//     in the coordinator package's topic golden.
+//     every real control is `false`. Still pinned as an inconsistency by
+//     TestGoldenPinsTheEnabledByDefaultInconsistency, deliberately: it is
+//     not a defect, and changing a default toggles entities on in
+//     installed fleets.
+//   - F10 — the state-topic tree is wider than the discovery tree. Still
+//     pinned as a defect in the coordinator package's topic golden; the
+//     filter is a later step.
 //
 // # Deliberately unresolved
 //
@@ -327,16 +333,94 @@ func TestGoldenPinsTheDuplicateUniqueIDs(t *testing.T) {
 	}
 }
 
-// TestGoldenPinsTheAvailabilityDefect pins F1 negatively: no payload
-// carries any availability source today. When step 2b adds one, this test
-// fails, and that failure is the fix becoming visible.
-func TestGoldenPinsTheAvailabilityDefect(t *testing.T) {
-	keys := []string{"availability", "availability_topic", "availability_mode", "payload_available", "payload_not_available"}
-	for _, e := range goldenEntries(t, realDiscovery(t, "en")) {
-		for _, k := range keys {
-			if _, has := e.Payload[k]; has {
-				t.Errorf("%s carries %q — F1 is fixed; update this test and the goldens together", e.Topic, k)
+// TestEveryPayloadDeclaresBridgeAvailability is what F1's negative pin
+// became. It used to assert that not one of the 100 payloads carried any
+// availability source — the defect — and it now asserts the fixed
+// contract: every payload declares exactly one, the daemon's own status
+// topic, with the two payload words the daemon really writes.
+//
+// "Every" is the assertion, not "some": availability is attached in
+// appendEntry, the single funnel all six platform builders pass through,
+// precisely because an entity that forgot it is indistinguishable from a
+// healthy one until the daemon dies.
+func TestEveryPayloadDeclaresBridgeAvailability(t *testing.T) {
+	want := []any{map[string]any{
+		"topic":                 "MTEC/bridge/status",
+		"payload_available":     "online",
+		"payload_not_available": "offline",
+	}}
+	wantBytes := canonical(t, want)
+
+	for _, lang := range []string{"en", "de"} {
+		n := 0
+		for _, e := range goldenEntries(t, realDiscovery(t, lang)) {
+			n++
+			got, ok := e.Payload["availability"]
+			if !ok {
+				t.Errorf("%s (%s) declares no availability source — a dead daemon "+
+					"leaves this entity showing its last value forever (F1)", e.Topic, lang)
+				continue
 			}
+			if gb := canonical(t, got); !bytes.Equal(gb, wantBytes) {
+				t.Errorf("%s (%s) availability = %s, want %s", e.Topic, lang, gb, wantBytes)
+			}
+			if mode := e.Payload["availability_mode"]; mode != "all" {
+				t.Errorf("%s (%s) availability_mode = %v, want \"all\"", e.Topic, lang, mode)
+			}
+			// The flat pre-2024 form and the list form are both read by
+			// Home Assistant, and a payload carrying both is a
+			// contradiction it resolves silently.
+			for _, k := range []string{"availability_topic", "payload_available", "payload_not_available"} {
+				if _, has := e.Payload[k]; has {
+					t.Errorf("%s (%s) carries both the list and the flat %q form", e.Topic, lang, k)
+				}
+			}
+		}
+		if n != 100 {
+			t.Errorf("%s: checked %d payloads, want 100", lang, n)
+		}
+	}
+}
+
+// TestAvailabilityTopicIsOutsideTheDiscoveryTree is F2, which F1 hid and
+// which hid F1 in turn: the daemon's status topic used to be
+// "<hass_base>/status/lwt" — homeassistant/status/lwt by default, one
+// level under the topic Home Assistant publishes its own birth message to
+// and which this daemon subscribes to. Because nothing referenced it,
+// nothing ever surfaced that it was in another integration's tree.
+//
+// Now that 100 entities point at it, the tree it sits in is load-bearing,
+// so it is asserted rather than left to the golden diff: the topic must be
+// under this daemon's own publish root and must not be under the discovery
+// prefix, whatever either root is configured to.
+func TestAvailabilityTopicIsOutsideTheDiscoveryTree(t *testing.T) {
+	const hassBase, mqttRoot = "homeassistant", "MTEC"
+
+	if got := BridgeStatusTopic(mqttRoot); got != "MTEC/bridge/status" {
+		t.Fatalf("BridgeStatusTopic(%q) = %q, want MTEC/bridge/status", mqttRoot, got)
+	}
+	m, _, err := registers.Load("../../registers.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := New(hassBase, mqttRoot, m, "en", DefaultVirtualSwitches(50, 50), "")
+	d.Initialize(goldenSerial, goldenFirmware, goldenEquipment)
+
+	for _, e := range goldenEntries(t, d) {
+		list, _ := e.Payload["availability"].([]any)
+		if len(list) != 1 {
+			t.Fatalf("%s: availability has %d entries, want 1", e.Topic, len(list))
+		}
+		entry, _ := list[0].(map[string]any)
+		topic, _ := entry["topic"].(string)
+		if strings.HasPrefix(topic, hassBase+"/") {
+			t.Errorf("%s: availability topic %q is inside Home Assistant's own tree (F2)", e.Topic, topic)
+		}
+		if !strings.HasPrefix(topic, mqttRoot+"/") {
+			t.Errorf("%s: availability topic %q is not under this daemon's publish root", e.Topic, topic)
+		}
+		if topic != BridgeStatusTopic(mqttRoot) {
+			t.Errorf("%s: availability topic %q is not the one the daemon publishes", e.Topic, topic)
 		}
 	}
 }

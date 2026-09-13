@@ -126,8 +126,17 @@ func run(configPath, registersPath string, logger *slog.Logger) error {
 	// Retained availability topic: the broker-side will covers
 	// ungraceful death, the OnConnect hook below publishes the matching
 	// "online" birth, and the shutdown path re-publishes "offline"
-	// because a graceful DISCONNECT suppresses the will.
-	lwtTopic := cfg.HASSBaseTopic + "/status/lwt"
+	// because a graceful DISCONNECT suppresses the will. Every discovery
+	// payload points its `availability` at this same string, which is why
+	// both sides read it from one function.
+	statusTopic := hass.BridgeStatusTopic(cfg.MQTTTopic)
+	// Releases up to 1.9.0 wrote the marker to "<hass_base>/status/lwt"
+	// — homeassistant/status/lwt by default, inside Home Assistant's own
+	// birth tree. Nothing read it, so nothing ever surfaced that it was in
+	// the wrong place. It moved; the retained copy an upgrading broker
+	// still holds has to be cleared, or it sits there forever claiming a
+	// daemon that no longer publishes it is online.
+	legacyStatusTopic := cfg.HASSBaseTopic + "/status/lwt"
 	// TLS is opt-in via MQTT_SSL; NewClientTLSConfig always sets
 	// ServerName (tls.Client does not infer it from the dialed address)
 	// and only disables certificate verification when the operator has
@@ -144,8 +153,8 @@ func run(configPath, registersPath string, logger *slog.Logger) error {
 		KeepAlive:  60 * time.Second,
 		CleanStart: true,
 		Will: &mqtt.Will{
-			Topic:   lwtTopic,
-			Payload: []byte("offline"),
+			Topic:   statusTopic,
+			Payload: []byte(hass.PayloadNotAvailable),
 			Retain:  true,
 		},
 		TLSConfig: tlsConfig,
@@ -157,7 +166,10 @@ func run(configPath, registersPath string, logger *slog.Logger) error {
 	// availability topic stuck at "offline" for the rest of the
 	// daemon's uptime. Registered before Start so the first connect
 	// announces too.
-	mqttLifecycle.OnConnect(announceAvailability(mqttClient, lwtTopic, "online", logger))
+	mqttLifecycle.OnConnect(func(hookCtx context.Context) {
+		retractLegacyAvailability(mqttClient, legacyStatusTopic, logger)(hookCtx)
+		announceAvailability(mqttClient, statusTopic, hass.PayloadAvailable, logger)(hookCtx)
+	})
 	if err := startMQTT(ctx, mqttLifecycle, time.Second, 30*time.Second, logger); err != nil {
 		return fmt.Errorf("mtec2mqtt: mqtt start: %w", err)
 	}
@@ -182,7 +194,7 @@ func run(configPath, registersPath string, logger *slog.Logger) error {
 		// availability topic at "offline" ourselves first.
 		stopCtx, stopCancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer stopCancel()
-		announceAvailability(mqttClient, lwtTopic, "offline", logger)(stopCtx)
+		announceAvailability(mqttClient, statusTopic, hass.PayloadNotAvailable, logger)(stopCtx)
 		_ = mqttLifecycle.Stop(stopCtx)
 	}()
 
@@ -288,6 +300,30 @@ func announceAvailability(pub coordinator.MQTTPublisher, topic, payload string, 
 		if err := pub.Publish(ctx, topic, []byte(payload), mqtt.QoS0, true); err != nil {
 			logger.Warn("mtec2mqtt.lwt_publish_failed",
 				slog.String("payload", payload),
+				slog.String("err", err.Error()))
+		}
+	}
+}
+
+// retractLegacyAvailability clears the retained availability marker this
+// daemon wrote before the status topic moved out of Home Assistant's
+// discovery tree ("<hass_base>/status/lwt", by default
+// homeassistant/status/lwt). An empty retained payload is MQTT's
+// retraction: the broker drops the stored message, so a subscriber that
+// connects later finds nothing rather than a stale "online" for a topic
+// this daemon no longer maintains.
+//
+// It runs on every connect rather than once at first boot: the daemon
+// keeps no state across restarts, the publish is one empty message, and a
+// broker that lost its retained set in the meantime (a restart without
+// persistence) would otherwise keep a stale copy from some other source
+// forever. Failures are logged, never fatal — like the birth publish, it
+// is best-effort.
+func retractLegacyAvailability(pub coordinator.MQTTPublisher, topic string, logger *slog.Logger) func(context.Context) {
+	return func(ctx context.Context) {
+		if err := pub.Publish(ctx, topic, nil, mqtt.QoS0, true); err != nil {
+			logger.Warn("mtec2mqtt.legacy_lwt_retract_failed",
+				slog.String("topic", topic),
 				slog.String("err", err.Error()))
 		}
 	}
