@@ -48,6 +48,16 @@
   payload outright (logged as `coordinator.empty_payload_skipped`) rather
   than deleting the value. This is why retain was not flipped on its own.
 
+- **A `hass_component_type` this bridge cannot build is now reported
+  instead of silently producing nothing.** `button` was a declared
+  platform dispatched to an empty case: a register asking for one would
+  have been polled and had its state published while no entity ever
+  appeared in Home Assistant, with nothing in the log. No shipped register
+  declares it, so this was a trap for the next catalog edit rather than a
+  live defect — a `button` body without a `command_topic` is rejected by
+  Home Assistant outright. The platform declaration is gone and any
+  unsupported component type is logged as `coordinator.discovery_diag`.
+
 ### Changed
 
 - **`go-mqtt` v1.3.0 → v1.5.1**, and the hand-rolled MQTT session is gone.

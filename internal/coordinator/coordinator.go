@@ -263,6 +263,12 @@ func (c *Coordinator) Run(ctx context.Context) error {
 
 	if c.deps.HASS != nil {
 		c.deps.HASS.Initialize(c.serialNo, c.firmware, c.equipmentInfo)
+		// A register asking for a platform the builder cannot emit would
+		// otherwise be polled and published with no entity ever appearing
+		// and nothing in the log to say why.
+		for _, diag := range c.deps.HASS.Diagnostics() {
+			c.deps.Logger.Warn("coordinator.discovery_diag", slog.String("note", diag))
+		}
 		published := c.publishDiscovery(ctx)
 		// Clear any of our own retained discovery configs that we no longer
 		// publish (entities removed, renamed or re-platformed across catalog

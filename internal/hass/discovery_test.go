@@ -732,3 +732,99 @@ func TestIsOwnConfigSerialScoped(t *testing.T) {
 		}
 	}
 }
+
+// unsupportedPlatformYAML declares two registers whose
+// hass_component_type this builder cannot emit: `button`, which used to be
+// a declared Platform dispatched to an empty case, and a typo, which is
+// the same class of mistake spelled differently.
+const unsupportedPlatformYAML = `
+"52010":
+  name: Restart inverter
+  length: 1
+  type: U16
+  writable: true
+  mqtt: restart
+  group: config
+  hass_component_type: button
+
+"52011":
+  name: Typo platform
+  length: 1
+  type: U16
+  writable: true
+  mqtt: typo
+  group: config
+  hass_component_type: sensro
+
+"11000":
+  name: Grid power
+  length: 2
+  type: I32
+  unit: W
+  mqtt: grid_power
+  group: now-base
+  hass_device_class: power
+`
+
+// TestUnsupportedComponentTypeIsLoud closes F6. `button` was a declared
+// platform with an empty dispatch case: a register asking for one was
+// polled, had its state published, and produced no entity — and no
+// diagnostic. Zero catalog entries declare it, so it was a trap for the
+// next person editing registers.yaml rather than a live defect.
+//
+// The fixed contract is not "button works" but "a platform this builder
+// cannot emit says so". Silently producing nothing is the behaviour under
+// test, and a Home Assistant that rejects a `button` body with no
+// `command_topic` would have been the only other way to find out.
+func TestUnsupportedComponentTypeIsLoud(t *testing.T) {
+	m, _, err := registers.LoadFromString(unsupportedPlatformYAML)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := New("homeassistant", "MTEC", m, "en", nil, "")
+	d.Initialize("SER", "1.0", "EB")
+
+	// The supported register still builds; the two unsupported ones do not.
+	for _, e := range d.Entries() {
+		if strings.Contains(e.ConfigTopic, "restart") || strings.Contains(e.ConfigTopic, "typo") {
+			t.Errorf("%s was published for an unsupported hass_component_type", e.ConfigTopic)
+		}
+	}
+	if len(d.Entries()) != 1 {
+		t.Fatalf("built %d entries, want 1 (the plain sensor)", len(d.Entries()))
+	}
+
+	diags := d.Diagnostics()
+	if len(diags) != 2 {
+		t.Fatalf("diagnostics = %v, want one per unsupported register", diags)
+	}
+	joined := strings.Join(diags, "\n")
+	for _, want := range []string{"restart", `"button"`, "typo", `"sensro"`} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("diagnostics do not name %s:\n%s", want, joined)
+		}
+	}
+
+	// Re-Initialize must not accumulate: the coordinator calls it again on
+	// every reconnect, and a diagnostic list that grew each time would turn
+	// one catalog mistake into an unbounded log.
+	d.Initialize("SER", "1.0", "EB")
+	if got := len(d.Diagnostics()); got != 2 {
+		t.Errorf("after a second Initialize: %d diagnostics, want 2", got)
+	}
+}
+
+// TestSupportedCatalogProducesNoDiagnostics is the other half: the real
+// shipped catalog must be silent, or the warning above is noise an
+// operator learns to ignore.
+func TestSupportedCatalogProducesNoDiagnostics(t *testing.T) {
+	m, _, err := registers.Load("../../registers.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := New("homeassistant", "MTEC", m, "en", DefaultVirtualSwitches(50, 50), "")
+	d.Initialize("SER", "1.0", "EB")
+	if diags := d.Diagnostics(); len(diags) != 0 {
+		t.Errorf("the shipped catalog produced diagnostics: %v", diags)
+	}
+}

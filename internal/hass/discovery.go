@@ -73,7 +73,6 @@ const (
 	PlatformNumber       Platform = "number"
 	PlatformSelect       Platform = "select"
 	PlatformSwitch       Platform = "switch"
-	PlatformButton       Platform = "button"
 )
 
 // Entry is one discovery payload ready for MQTT publication. The
@@ -164,6 +163,7 @@ type Discovery struct {
 	equipmentInfo string
 	device        map[string]any
 	entries       []Entry
+	diagnostics   []string
 	initialized   bool
 
 	// serialInUniqueID scopes every unique_id (and thus every discovery
@@ -310,9 +310,19 @@ func (d *Discovery) Initialize(serialNo, firmware, equipmentInfo string) {
 		"sw_version":    firmware,
 	}
 	d.entries = d.entries[:0]
+	d.diagnostics = d.diagnostics[:0]
 	d.buildEntries()
 	d.initialized = true
 }
+
+// Diagnostics returns the catalog complaints [Initialize] collected while
+// building the entry list — today, registers whose hass_component_type
+// names a platform this builder cannot emit. They are returned rather than
+// logged because the package owns no I/O; the coordinator logs them, the
+// same way cmd/mtec2mqtt logs registers.Load's diagnostics.
+//
+// The slice is shared and is rebuilt by every Initialize call.
+func (d *Discovery) Diagnostics() []string { return d.diagnostics }
 
 // Entries returns the discovery payloads built by [Initialize]. The
 // slice is shared — callers should iterate, not mutate.
@@ -397,9 +407,19 @@ func (d *Discovery) buildEntries() {
 		case PlatformSwitch:
 			d.appendSwitch(r)
 			d.appendBinarySensor(r)
-		case PlatformButton:
-			// Button has no read path and no builder yet — registers
-			// declaring it are intentionally not published as entities.
+		default:
+			// An hass_component_type this builder cannot emit. "button"
+			// used to be declared as a Platform and dispatched to an empty
+			// case, so a register that asked for one was polled, had its
+			// state published, and produced no entity and no diagnostic —
+			// a trap for the next person editing registers.yaml rather
+			// than a live defect (no catalog entry declares it). The empty
+			// case is gone; an unsupported type is now loud.
+			d.diagnostics = append(d.diagnostics, fmt.Sprintf(
+				"skip %q: hass_component_type %q is not a platform this builder emits "+
+					"(supported: binary_sensor, number, select, sensor, switch)",
+				r.MQTT, r.HassComponentType,
+			))
 		}
 	}
 	// Synthetic switches come after the catalog so their output stays
