@@ -45,8 +45,16 @@ defaults; run the standalone binary / Docker image if you need to tune those.
 ## Home Assistant discovery
 
 Discovery is published as **one retained device document** at
-`homeassistant/device/<serial>/config`. **Home Assistant 2024.11 or newer is
+`homeassistant/device/<node-id>/config`. **Home Assistant 2024.11 or newer is
 required.**
+
+`<node-id>` is the inverter serial slugged: lower-cased, with every character
+outside `a-z`, `0-9` and `-` folded to `_`. For an ordinary serial such as
+`MT1234567890` that is `mt1234567890`. The add-on pins the discovery prefix to
+Home Assistant's default (`homeassistant`), so only the node id varies — and
+the add-on log prints the exact topic at start-up, as
+`coordinator.discovery_bundle_built topic=…`. Take it from there rather than
+composing it.
 
 Upgrading from 1.9.x or earlier moves the fleet off the previous
 one-message-per-entity form (`homeassistant/<platform>/MTEC_<key>/config`).
@@ -60,13 +68,34 @@ areas, icons, history and automations survive untouched.
 
 If the add-on is stopped between the two steps the entities are briefly
 *absent*; starting it again repairs that by itself. Rolling back to an
-older add-on version needs the document cleared first
-(`mosquitto_pub -t homeassistant/device/<serial>/config -r -n`), or the old
-version's per-entity configs are refused in the same silence.
+older add-on version needs the document cleared first, or the old version's
+per-entity configs are refused in the same silence:
+
+```bash
+mosquitto_pub -h core-mosquitto -u <user> -P <password> \
+  -t homeassistant/device/<node-id>/config -r -n
+```
+
+The Supervisor's Mosquitto broker is authenticated, so `-h` and `-u`/`-P` are
+not optional here — use the same credentials the add-on is configured with (or
+the Mosquitto add-on's own user). Copy the topic from the start-up log line
+above.
+
+Running **two add-on instances against two inverters**: upgrade both together.
+Before 1.10.0 the first one upgraded could retract the other's entire set of
+per-entity configs; 1.10.0 scopes that judgement to each instance's own
+inverter serial.
 
 ## TLS / secure MQTT
 
-The daemon speaks **plain TCP MQTT** only (no native TLS) — MQTT 5.0 by
-default, with 3.1.1 selectable via `TCPConfig.ProtocolVersion` for brokers
-that don't support 5.0 yet. Point it at a local broker with plain auth, or
-terminate TLS via a reverse proxy / bridge.
+The **daemon** does speak TLS: `MQTT_SSL: true` dials `tls://` (port 8883 by
+default) with full certificate verification, and `MQTT_SSL_INSECURE` disables
+that verification for a self-signed broker. The protocol is MQTT 5.0 by
+default.
+
+The **add-on** does not expose either setting — it is wired to the
+Supervisor's MQTT service on the internal network, where the traffic does not
+leave the host. If you need TLS, run the standalone binary or the Docker image
+and set `MTEC_MQTT_SSL=true`. (A previous revision of this page claimed the
+daemon had no native TLS at all. It does; only the add-on's option list
+omits it.)

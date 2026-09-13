@@ -8,7 +8,7 @@
   (ADR 0070 phase 6, step 6). Instead of 100 retained messages at
   `homeassistant/<platform>/MTEC_<key>/config`, each repeating the whole
   `device` block, the daemon publishes a single retained document at
-  **`homeassistant/device/<serial>/config`** carrying the device block
+  **`<hass_base>/device/<node-id>/config`** carrying the device block
   once, an `origin` block, and all 100 entities as components. **Home
   Assistant 2024.11 or newer is required from this release.**
 
@@ -46,10 +46,17 @@
   same symmetry, in the very same silence. Before rolling back, clear it:
 
   ```bash
-  mosquitto_pub -h <broker> -t homeassistant/device/<serial>/config -r -n
+  mosquitto_pub -h <broker> -u <user> -P <password> \
+    -t <hass_base>/device/<node-id>/config -r -n
   ```
 
-  (`<serial>` lower-cased.) The old release then re-adopts the same
+  Take the topic **verbatim from the daemon's own start-up log line**
+  `coordinator.discovery_bundle_built`: `<node-id>` is the inverter serial
+  slugged (lower-cased, every character outside `a-z0-9-` folded to `_`),
+  not the raw serial, and `<hass_base>` is `HASS_BASE_TOPIC`
+  (`homeassistant` unless you changed it). `-u`/`-P` are required on an
+  authenticated broker, which the Home Assistant Mosquitto add-on is.
+  The old release then re-adopts the same
   entities with their history, because nothing was re-keyed. The
   alternative — keeping the daemon able to unwind its own migration — was
   rejected: it would mean shipping a rollback path that only the *new*
@@ -66,14 +73,52 @@
   every `unique_id` and orphans the existing entities — a deliberate
   one-way change) before upgrading.
 
-  **Known limitation (F17):** when an entity leaves the catalogue in a
-  future release, the new document simply omits it — and Home Assistant
-  removes a component only when its entry is present carrying a platform
-  and nothing else. This daemon keeps no memory of the previous document,
-  so it cannot write that entry, and the withdrawn entity lingers as a
-  permanently unavailable phantom. The workaround is to delete the entity
-  in Home Assistant. Under the per-entity form the orphan sweep handled
-  this; that capability is lost by the move and is tracked as a follow-up.
+  **Known limitation (F17):** when an entity leaves the catalogue, the new
+  document simply omits it — and Home Assistant removes a component only
+  when its entry is *present* carrying a platform and nothing else. This
+  daemon keeps no memory of the previous document, so it cannot write that
+  entry, and the withdrawn entity lingers.
+
+  It lingers as **available**, not unavailable — which is worse and is
+  corrected here from the previous wording. Its `availability` list still
+  points at `MTEC/bridge/status`, which says `online`, so nothing about it
+  looks dead; it simply stops updating, or, if the register is still
+  polled, keeps updating while belonging to no entity the catalogue
+  declares (the poll loop is group-driven and reads no discovery hint).
+
+  It is reachable by ordinary operator action, because `registers.yaml`
+  ships next to the binary and is meant to be edited: deleting a register,
+  clearing its `group`, renaming its `mqtt:` key, changing
+  `hass_component_type` from `number` or `select` to `sensor` (strands one
+  entity) or from `switch` to `sensor` (strands two), or a one-character
+  typo that makes the entry fail validation. It does not depend on the
+  configured language — both language bundles carry identical component
+  keys.
+
+  **Workaround, both steps:** Home Assistant only offers the delete
+  affordance once the entity is no longer *provided*, so first restart
+  Home Assistant (or reload the MQTT integration), then delete the entity
+  from the device page. Under the per-entity form the orphan sweep handled
+  this without a manual step; that capability is lost by the move and is
+  tracked as a follow-up.
+
+  **Upgrade both instances together if you run two.** An upgraded
+  instance's orphan sweep used to judge a sibling's retained per-entity
+  configs by the MQTT root alone, which two default-configured instances
+  share — and once the upgraded one publishes a device document instead of
+  100 per-entity configs, every one of the sibling's configs becomes an
+  orphan by its own rule. A staggered upgrade would therefore have deleted
+  the not-yet-upgraded sibling's entire fleet, permanently. Fixed below.
+  The reverse direction was always safe: an old instance's sweep declines
+  a device document, because a bundle payload carries no top-level
+  `unique_id`.
+
+  **Two further residuals, small and stated:** replacing the inverter
+  yields a new serial and therefore a new document topic, and the old
+  document stays retained forever (the sweep declines bundle topics and
+  the retraction only reaches per-entity ones) — clear it by hand, as for
+  a downgrade. Changing `HASS_BASE_TOPIC` leaves the document behind in
+  the same way; that was already true of the per-entity form.
 
   The orphan sweep still runs and still clears per-entity configs left by
   earlier releases — including entities withdrawn *before* the upgrade,
@@ -84,6 +129,77 @@
   documents, so a sibling instance's fleet is never touched.
 
 ### Fixed
+
+- **The device document could be published while the per-entity configs it
+  replaces were still retained, leaving the device with no entities at
+  all.** The retract-then-publish ordering the migration depends on was
+  sound within one broker connection, but `publisher.Runtime` remembered
+  which configs it had retracted for the whole *process* while a QoS 0
+  success is only good for the *connection* it was written on. A
+  connection that dropped between the retractions and the document
+  therefore lost both — and the in-process retry skipped the retractions
+  the broker never applied and published the document anyway. Home
+  Assistant refuses that with one `WARNING [mqtt.entity] Received a
+  conflicting MQTT discovery message` in its own log: no entities, nothing
+  on the wire, nothing in this daemon's log. The Home Assistant plane is
+  now rebuilt on every (re)connect, so nothing it remembers can describe a
+  connection that is gone.
+
+- **After a broker lost its retained store, the device document was never
+  republished** — a regression against 1.9.x. Two gates held it shut and
+  no reconnect hook cleared either: the daemon's own "discovery sent" flag,
+  and the library's record of the document's bytes. Home Assistant showed
+  no entities for the device until the *daemon* was restarted. The
+  reconnect hook already reset the state plane for exactly this reason;
+  the discovery plane is now reset with it.
+
+- **A staggered upgrade of two instances could delete the
+  not-yet-upgraded one's entire fleet.** With the shipped defaults two
+  daemons against two inverters publish the same per-entity config topics,
+  and the ownership check accepted any retained config whose `state_topic`
+  sat under the shared MQTT root. Once the upgraded instance published a
+  device document instead of 100 per-entity configs, every one of the
+  sibling's became an orphan by its own rule, and the sweep cleared them
+  permanently. Ownership now requires the retained config's `state_topic`
+  to sit under *this* inverter's serial, unconditionally.
+
+- **The orphan sweep could run when no document had reached the broker.**
+  Its guard asked whether the document had been *built* while its log line
+  said "published". The two come apart exactly when it matters — a valid
+  document whose publish failed — and the sweep then deleted the working
+  entities of the release being upgraded from with nothing published to
+  replace them.
+
+- **A device document too large for the broker is now refused before the
+  retraction rather than after it.** go-mqtt enforces the broker's
+  advertised maximum packet size, but it did so once the 100 per-entity
+  configs had already been cleared. The size is checked up front and a
+  document that does not fit withholds the migration, leaving the
+  installed base working. (This fleet's document is ~50 KB; every common
+  broker default accommodates it, a hardened `max_packet_size 65535` does
+  not.)
+
+- **`HASS_BASE_TOPIC` written with a trailing slash broke the Home
+  Assistant birth subscription.** The daemon built `<base>/status` by
+  concatenation while the discovery library trims the slash, so a base of
+  `homeassistant/` had the daemon listening on `homeassistant//status`
+  while Home Assistant announces on `homeassistant/status` — an empty
+  topic level is legal and distinct, so the two never met. The visible
+  effect was that after every Home Assistant restart the entities stayed
+  gone until the daemon was restarted, silently in both logs. The value is
+  normalised at the config boundary and the topic now comes from the
+  library's own function.
+
+- **Documentation.** The rollback command's topic was wrong or
+  underspecified in every place it appeared (the node id is the inverter
+  serial *slugged*, not the raw or merely lower-cased serial;
+  `HASS_BASE_TOPIC` was never mentioned; the add-on copy omitted the
+  broker host and credentials every Supervisor user needs). `addon/DOCS.md`
+  claimed the daemon has no native TLS — it does, via `MQTT_SSL`; only the
+  add-on's option list omits it. The stranded-entity limitation above said
+  "unavailable, forever" when the stranded entity in fact reads
+  *available*. All corrected.
+
 
 - **Every Home Assistant entity now has an availability source, and the
   daemon's status topic left Home Assistant's tree** (ADR 0070 phase 6,

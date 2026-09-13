@@ -37,8 +37,23 @@ Neither pin was regenerated. The new tests have no `-update` flag.
 Two further inputs are covered that a golden cannot reach, because a
 golden is one fixture: a configured `DEVICE_NAME` (which folds a slug into
 all 100 entity-id seeds) and `HASS_UNIQUE_ID_INCLUDE_SERIAL` (which
-rewrites all 100 `unique_id`s). Six configurations in total, each compared
-byte for byte.
+rewrites all 100 `unique_id`s).
+
+> **Corrected 2026-09-13 (review of PRs #49–#53).** This paragraph, and the
+> PR #51 body, said "six configurations in total, each compared byte for
+> byte". Two corrections, in both directions:
+>
+> - **Overstated.** Only **two** of them — `en` and `de` — are compared
+>   against a frozen artefact, and by canonical re-encoding rather than raw
+>   bytes. The other variants compare the old builder against the new
+>   builder in the same process, which answers "do the two paths agree" and
+>   not "does either still produce what the fleet has". Both questions are
+>   worth asking; only the first is a pin.
+> - **Understated, and miscounted.** The variants table holds six cases,
+>   but every one of them is `lang: "en"` — `de` is never combined with any
+>   variant — so what is actually covered is **seven distinct
+>   configurations** (`en` × six variants, plus `de` at the defaults), not
+>   six.
 
 ### What it took
 
@@ -119,8 +134,13 @@ failing test rather than a surprise.
 One incidental number: the rendered bundle is **50 122 bytes**, not the
 ~33 KB the measurement projected. The difference is #50's availability
 plane — 100 copies of a three-key `availability` list and an
-`availability_mode`. Still far under `go-mqtt`'s 1 MiB default
-`MaximumPacketSize`, and still the largest bundle in the programme.
+`availability_mode`. Still the largest bundle in the programme.
+
+> **Corrected 2026-09-13 (review of PRs #49–#53).** "Far under `go-mqtt`'s
+> 1 MiB default `MaximumPacketSize`" compares against the wrong limit:
+> that field is what this client will ACCEPT inbound. An outbound PUBLISH
+> is bounded by the BROKER's advertised Maximum Packet Size. See the
+> correction in `adr0070-phase6-step6-results.md` §1.
 
 ## 4. The legacy topic form: `publisher.LegacyTopicByUniqueID`
 

@@ -49,8 +49,21 @@ reach the per-entity one.
 The new pin is `internal/hass/testdata/bundle_{en,de}.json`: topic and
 payload **together**, payload stored decoded, compared on a canonical
 re-encoding of both sides, driven by the real builder over the real
-`registers.yaml`. 71 KB per language; `go-mqtt`'s default maximum packet
-size is 1 MiB.
+`registers.yaml`. The pinned artefact is 71 KB per language because it is
+stored pretty-printed; **the document on the wire is ~50 KB**.
+
+> **Corrected 2026-09-13 (review of PRs #49–#53).** This paragraph used to
+> read "71 KB per language; `go-mqtt`'s default maximum packet size is
+> 1 MiB", and it conflated two different limits. `TCPConfig.MaximumPacketSize`
+> (1 MiB) is what this CLIENT will ACCEPT inbound; what bounds an outbound
+> PUBLISH is the **broker's** CONNACK Maximum Packet Size property, which
+> go-mqtt enforces with `ErrPacketTooLarge` — and it did so *after*
+> `supersede` had already cleared all 100 per-entity configs, leaving the
+> device with no discovery config at all. Surveyed defaults accommodate
+> ~50 KB (mosquitto unlimited, EMQX 1 MB, AWS IoT 128 KB); a hardened
+> `max_packet_size 65535` does not. `Coordinator.bundleFitsBroker` now
+> checks the size against the broker's advertised maximum **before** the
+> irreversible retraction and withholds the migration if it does not fit.
 
 ---
 
@@ -371,9 +384,27 @@ refuses them with the same single `WARNING`.
 **This is accepted.** The reasoning, stated so it is not implicit:
 
 - The manual step is *one command* and it is documented in three places
-  (`README.md`, `changelog.md`, `addon/DOCS.md`) with the exact topic
-  spelled out:
-  `mosquitto_pub -t homeassistant/device/<serial>/config -r -n`.
+  (`README.md`, `changelog.md`, `addon/DOCS.md`):
+
+  ```bash
+  mosquitto_pub -h <broker> -u <user> -P <password> \
+    -t <hass_base>/device/<node-id>/config -r -n
+  ```
+
+  > **Corrected 2026-09-13 (review of PRs #49–#53).** This bullet, the
+  > `addon/DOCS.md` copy and the PR #53 body all spelled the topic
+  > `homeassistant/device/<serial>/config` with `<serial>` meaning the RAW
+  > serial, while `README.md` and `changelog.md` said "lower-cased". Both
+  > are wrong: the node id is `topic.Slug(serial)`, which lower-cases AND
+  > folds every character outside `a-z0-9-` to `_`, so `MT 1234` becomes
+  > `mt_1234` — and `isTopicSafe` admits spaces, `.` and `_` in a serial.
+  > `<hass_base>` is `HASS_BASE_TOPIC`, which is configurable and appeared
+  > in none of the operator-facing documents at all, and `-u`/`-P` were
+  > missing from the add-on copy although `script/run.sh` puts every add-on
+  > user on an authenticated Supervisor broker. All five places now agree
+  > and all of them tell the operator to copy the topic out of the daemon's
+  > own `coordinator.discovery_bundle_built` log line rather than compose
+  > it.
 - Because nothing was re-keyed, the old release then re-adopts the **same
   entities with their history**. The rollback is lossless once the topic
   is cleared.

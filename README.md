@@ -196,9 +196,21 @@ MTEC/<serial>/total/<key>/state            lifetime energy totals
 MTEC/<serial>/config/<key>/state           writable settings (mirror)
 MTEC/<serial>/static/<key>/state           serial / firmware / equipment
 MTEC/<serial>/<group>/<key>/set            command topic for writables
-homeassistant/device/<serial>/config       ONE retained HA discovery document
+<hass_base>/device/<node-id>/config        ONE retained HA discovery document
 MTEC/bridge/status = online | offline      daemon availability (retained)
 ```
+
+`<serial>` above is the inverter serial **as the inverter reports it**.
+`<node-id>` is not: it is that serial put through go-hamqtt's `topic.Slug`
+— lower-cased, with every character outside `a-z`, `0-9` and `-` folded to
+`_`. For an ordinary alphanumeric serial such as `MT1234567890` that is
+just the lower-cased form, `mt1234567890`; a serial containing a space,
+`.` or `_` differs further. **Do not compute it: the daemon logs the exact
+topic at start-up**, as
+`coordinator.discovery_bundle_built topic=<hass_base>/device/<node-id>/config`.
+
+`<hass_base>` is `HASS_BASE_TOPIC`, `homeassistant` unless you changed it;
+a trailing slash is trimmed.
 
 State topics are **retained**, so a subscriber that connects between two
 polls gets the last known value immediately instead of `unknown`. They are
@@ -227,7 +239,7 @@ daemon goes away instead of showing stale readings forever.
 ### Home Assistant discovery: one document per device
 
 Discovery is published as a **single retained device document** at
-`homeassistant/device/<serial>/config`, carrying the `device` block once,
+`<hass_base>/device/<node-id>/config`, carrying the `device` block once,
 an `origin` block, and all 100 entities as components. Home Assistant
 **2024.11 or newer** is required.
 
@@ -254,17 +266,33 @@ namespaces nothing in a `unique_id`, but it does key every state topic.
 > Clear it first:
 >
 > ```bash
-> mosquitto_pub -h <broker> -t homeassistant/device/<serial>/config -r -n
+> mosquitto_pub -h <broker> -u <user> -P <password> \
+>   -t <hass_base>/device/<node-id>/config -r -n
 > ```
 >
-> `<serial>` is the inverter serial, lower-cased. The old release then
-> re-adopts the same entities with their history intact.
+> Take `<hass_base>/device/<node-id>/config` **verbatim from the daemon's
+> own start-up log line** `coordinator.discovery_bundle_built` — the node
+> id is the serial slugged (lower-cased, anything outside `a-z0-9-` folded
+> to `_`), not the raw serial, and `<hass_base>` is `HASS_BASE_TOPIC`.
+> `-u`/`-P` are required on an authenticated broker, which the Home
+> Assistant Mosquitto add-on is. The old release then re-adopts the same
+> entities with their history intact.
 
 > **If the daemon dies between the two steps** — retractions out, document
 > not — the device has no discovery config at all and its entities are
 > *absent* rather than unavailable. Restarting repairs it: a fresh process
 > re-sends the retractions (a no-op against topics the broker has already
 > cleared) and then publishes the document. No manual step is needed.
+
+> **Upgrade both instances together, or accept a gap.** Until 1.10.0 an
+> upgraded instance's orphan sweep judged a not-yet-upgraded sibling's
+> retained per-entity configs by the MQTT root alone, which two instances
+> share by default — so a staggered upgrade could retract the sibling's
+> entire fleet, permanently. Fixed in 1.10.0: ownership now requires the
+> retained config's `state_topic` to sit under *this* inverter's serial,
+> so an instance never retracts another's entities. The reverse direction
+> was always safe — an old instance's sweep declines a device document,
+> because a bundle payload carries no top-level `unique_id`.
 
 > **Two daemons against two inverters** now own two different documents,
 > because the topic is keyed on the serial where the per-entity topics were

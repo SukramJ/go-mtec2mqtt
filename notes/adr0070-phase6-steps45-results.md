@@ -350,7 +350,18 @@ rather than left behind naming a filter nothing subscribes to.
 
 Every new assertion was verified to fail under a mutation of the production
 code it covers: the code was perturbed, the suite run, the change reverted.
-**Twenty-seven mutations, twenty-six caught and one surviving deliberately.**
+**Thirty-two mutations, thirty-one caught and one surviving deliberately** —
+the 31 rows of the table below plus the survivor named after it.
+
+> **Corrected 2026-09-13 (review of PRs #49–#53).** This line said
+> "twenty-seven mutations, twenty-six caught" over a table that already had
+> thirty-one caught rows, and the PR #52 body said "28 mutations, 27
+> caught" over a 27-row table. The count was UNDERSTATED here and
+> mis-stated there; the table was always the record, and it is the table
+> the number now comes from. Corrected in both directions, because a
+> summary that undersells is as wrong as one that oversells — it is the
+> agreement between the prose and the artefact that makes either
+> checkable.
 
 | Mutation | Caught by |
 | --- | --- |
