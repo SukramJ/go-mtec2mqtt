@@ -60,6 +60,18 @@
 
 ### Changed
 
+- **Added `github.com/SukramJ/go-hamqtt` v0.31.0 (MIT) as a dependency**,
+  for a parallel Home Assistant discovery rendering path that is not yet
+  wired to anything (ADR 0070 phase 6, step 3). The shipped builder still
+  produces every published byte; the new path exists so the migration's
+  later steps are switch-overs with a test behind them. Measured result:
+  the shared library reproduces **all 200** discovery payloads (100
+  entities x `en`/`de`) byte for byte against the pinned goldens, and all
+  200 pass Home Assistant's discovery schemas — which this bridge's output
+  had never been checked against before. No user-visible effect: nothing
+  new reaches a broker, the publish path is untouched, and no topic,
+  payload, QoS or retain flag moves. See
+  [notes/adr0070-phase6-step3-results.md](./notes/adr0070-phase6-step3-results.md).
 - **`go-mqtt` v1.3.0 → v1.5.1**, and the hand-rolled MQTT session is gone.
   v1.4.0 added `mqtt.SplitClient`, which is what this daemon's private
   `mqttSession` struct did — breaker on the publish path, raw client on
