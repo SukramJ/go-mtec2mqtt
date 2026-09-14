@@ -1,3 +1,385 @@
+# Version 1.10.0 (2026-09-14)
+
+## What's Changed
+
+### Changed
+
+- **Home Assistant discovery is now ONE retained device document**
+  (ADR 0070 phase 6, step 6). Instead of 100 retained messages at
+  `homeassistant/<platform>/MTEC_<key>/config`, each repeating the whole
+  `device` block, the daemon publishes a single retained document at
+  **`<hass_base>/device/<node-id>/config`** carrying the device block
+  once, an `origin` block, and all 100 entities as components. **Home
+  Assistant 2024.11 or newer is required from this release.**
+
+  **Nothing is re-keyed.** Every `unique_id` is byte-identical to the one
+  the previous release published, and `unique_id` is what Home Assistant's
+  entity registry is keyed on — so entity ids, renames, icons, area
+  assignments, hidden flags, history and automation references all survive
+  the move untouched. The only payload differences are the ones the form
+  requires: `platform` moves from the topic into each component, the
+  `device` block is hoisted out of all 100 entities to the top of the
+  document, and an `origin` block is added. Everything else is
+  byte-identical, checked field by field against the frozen pre-upgrade
+  payloads.
+
+  **What a migrating user sees: nothing, if it goes as intended.** The
+  first start after upgrading retracts the 100 per-entity configs and then
+  publishes the document, in that order. It must be that order: Home
+  Assistant refuses a device document while a per-entity config for the
+  same `unique_id` is still retained, and refuses the per-entity config
+  while the document is retained. The refusal is symmetric, produces
+  nothing on the wire, and shows up as exactly one line —
+  `WARNING [mqtt.entity] Received a conflicting MQTT discovery message` —
+  with the entities simply not appearing.
+
+  **If the daemon dies between the two steps**, the broker holds no
+  discovery config for the device at all and its entities are *absent*
+  rather than unavailable. This is self-healing: restart the daemon. A
+  fresh process starts with no memory of the retraction, so it re-sends it
+  (a no-op against topics the broker has already cleared) and then
+  publishes the document. No manual step, no broker surgery.
+
+  **Downgrading to 1.9.x or earlier needs one manual step, and this is a
+  deliberate trade.** The document stays retained on the broker, and the
+  older release republishing per-entity configs is refused by the very
+  same symmetry, in the very same silence. Before rolling back, clear it:
+
+  ```bash
+  mosquitto_pub -h <broker> -u <user> -P <password> \
+    -t <hass_base>/device/<node-id>/config -r -n
+  ```
+
+  Take the topic **verbatim from the daemon's own start-up log line**
+  `coordinator.discovery_bundle_built`: `<node-id>` is the inverter serial
+  slugged (lower-cased, every character outside `a-z0-9-` folded to `_`),
+  not the raw serial, and `<hass_base>` is `HASS_BASE_TOPIC`
+  (`homeassistant` unless you changed it). `-u`/`-P` are required on an
+  authenticated broker, which the Home Assistant Mosquitto add-on is.
+  The old release then re-adopts the same
+  entities with their history, because nothing was re-keyed. The
+  alternative — keeping the daemon able to unwind its own migration — was
+  rejected: it would mean shipping a rollback path that only the *new*
+  binary can run, which is exactly the binary a rolling-back user has
+  stopped using.
+
+  **Running two daemons against two inverters changes shape.** The
+  document topic is keyed on the inverter serial, where the per-entity
+  topics were not, so the two instances no longer publish to the same
+  topics and cannot retract or overwrite each other. Their entity
+  `unique_id`s are still identical by default, though, and Home Assistant
+  binds each identity to whichever device declared it first. Set
+  `HASS_UNIQUE_ID_INCLUDE_SERIAL: true` on **both** instances (it rewrites
+  every `unique_id` and orphans the existing entities — a deliberate
+  one-way change) before upgrading.
+
+  **Known limitation (F17):** when an entity leaves the catalogue, the new
+  document simply omits it — and Home Assistant removes a component only
+  when its entry is *present* carrying a platform and nothing else. This
+  daemon keeps no memory of the previous document, so it cannot write that
+  entry, and the withdrawn entity lingers.
+
+  It lingers as **available**, not unavailable — which is worse and is
+  corrected here from the previous wording. Its `availability` list still
+  points at `MTEC/bridge/status`, which says `online`, so nothing about it
+  looks dead; it simply stops updating, or, if the register is still
+  polled, keeps updating while belonging to no entity the catalogue
+  declares (the poll loop is group-driven and reads no discovery hint).
+
+  It is reachable by ordinary operator action, because `registers.yaml`
+  ships next to the binary and is meant to be edited: deleting a register,
+  clearing its `group`, renaming its `mqtt:` key, changing
+  `hass_component_type` from `number` or `select` to `sensor` (strands one
+  entity) or from `switch` to `sensor` (strands two), or a one-character
+  typo that makes the entry fail validation. It does not depend on the
+  configured language — both language bundles carry identical component
+  keys.
+
+  **Workaround, both steps:** Home Assistant only offers the delete
+  affordance once the entity is no longer *provided*, so first restart
+  Home Assistant (or reload the MQTT integration), then delete the entity
+  from the device page. Under the per-entity form the orphan sweep handled
+  this without a manual step; that capability is lost by the move and is
+  tracked as a follow-up.
+
+  **Upgrade both instances together if you run two.** An upgraded
+  instance's orphan sweep used to judge a sibling's retained per-entity
+  configs by the MQTT root alone, which two default-configured instances
+  share — and once the upgraded one publishes a device document instead of
+  100 per-entity configs, every one of the sibling's configs becomes an
+  orphan by its own rule. A staggered upgrade would therefore have deleted
+  the not-yet-upgraded sibling's entire fleet, permanently. Fixed below.
+  The reverse direction was always safe: an old instance's sweep declines
+  a device document, because a bundle payload carries no top-level
+  `unique_id`.
+
+  **Two further residuals, small and stated:** replacing the inverter
+  yields a new serial and therefore a new document topic, and the old
+  document stays retained forever (the sweep declines bundle topics and
+  the retraction only reaches per-entity ones) — clear it by hand, as for
+  a downgrade. Changing `HASS_BASE_TOPIC` leaves the document behind in
+  the same way; that was already true of the per-entity form.
+
+  The orphan sweep still runs and still clears per-entity configs left by
+  earlier releases — including entities withdrawn *before* the upgrade,
+  which the retraction cannot reach because they are in no document. It
+  remains as narrow as ever: four-segment topics only, the five platforms
+  this daemon emits, the `MTEC_` unique-id namespace, and a second check
+  on the retained payload. It explicitly does **not** claim device
+  documents, so a sibling instance's fleet is never touched.
+
+### Fixed
+
+- **The device document could be published while the per-entity configs it
+  replaces were still retained, leaving the device with no entities at
+  all.** The retract-then-publish ordering the migration depends on was
+  sound within one broker connection, but `publisher.Runtime` remembered
+  which configs it had retracted for the whole *process* while a QoS 0
+  success is only good for the *connection* it was written on. A
+  connection that dropped between the retractions and the document
+  therefore lost both — and the in-process retry skipped the retractions
+  the broker never applied and published the document anyway. Home
+  Assistant refuses that with one `WARNING [mqtt.entity] Received a
+  conflicting MQTT discovery message` in its own log: no entities, nothing
+  on the wire, nothing in this daemon's log. The Home Assistant plane is
+  now rebuilt on every (re)connect, so nothing it remembers can describe a
+  connection that is gone.
+
+- **After a broker lost its retained store, the device document was never
+  republished** — a regression against 1.9.x. Two gates held it shut and
+  no reconnect hook cleared either: the daemon's own "discovery sent" flag,
+  and the library's record of the document's bytes. Home Assistant showed
+  no entities for the device until the *daemon* was restarted. The
+  reconnect hook already reset the state plane for exactly this reason;
+  the discovery plane is now reset with it.
+
+- **A staggered upgrade of two instances could delete the
+  not-yet-upgraded one's entire fleet.** With the shipped defaults two
+  daemons against two inverters publish the same per-entity config topics,
+  and the ownership check accepted any retained config whose `state_topic`
+  sat under the shared MQTT root. Once the upgraded instance published a
+  device document instead of 100 per-entity configs, every one of the
+  sibling's became an orphan by its own rule, and the sweep cleared them
+  permanently. Ownership now requires the retained config's `state_topic`
+  to sit under *this* inverter's serial, unconditionally.
+
+- **The orphan sweep could run when no document had reached the broker.**
+  Its guard asked whether the document had been *built* while its log line
+  said "published". The two come apart exactly when it matters — a valid
+  document whose publish failed — and the sweep then deleted the working
+  entities of the release being upgraded from with nothing published to
+  replace them.
+
+- **A device document too large for the broker is now refused before the
+  retraction rather than after it.** go-mqtt enforces the broker's
+  advertised maximum packet size, but it did so once the 100 per-entity
+  configs had already been cleared. The size is checked up front and a
+  document that does not fit withholds the migration, leaving the
+  installed base working. (This fleet's document is ~50 KB; every common
+  broker default accommodates it, a hardened `max_packet_size 65535` does
+  not.)
+
+- **`HASS_BASE_TOPIC` written with a trailing slash broke the Home
+  Assistant birth subscription.** The daemon built `<base>/status` by
+  concatenation while the discovery library trims the slash, so a base of
+  `homeassistant/` had the daemon listening on `homeassistant//status`
+  while Home Assistant announces on `homeassistant/status` — an empty
+  topic level is legal and distinct, so the two never met. The visible
+  effect was that after every Home Assistant restart the entities stayed
+  gone until the daemon was restarted, silently in both logs. The value is
+  normalised at the config boundary and the topic now comes from the
+  library's own function.
+
+- **Documentation.** The rollback command's topic was wrong or
+  underspecified in every place it appeared (the node id is the inverter
+  serial *slugged*, not the raw or merely lower-cased serial;
+  `HASS_BASE_TOPIC` was never mentioned; the add-on copy omitted the
+  broker host and credentials every Supervisor user needs). `addon/DOCS.md`
+  claimed the daemon has no native TLS — it does, via `MQTT_SSL`; only the
+  add-on's option list omits it. The stranded-entity limitation above said
+  "unavailable, forever" when the stranded entity in fact reads
+  *available*. All corrected.
+
+
+- **Every Home Assistant entity now has an availability source, and the
+  daemon's status topic left Home Assistant's tree** (ADR 0070 phase 6,
+  step 2b). These were two defects that hid each other. The daemon has
+  always maintained a retained `online`/`offline` marker — and **none of
+  the 100 discovery payloads referenced it**, so on a crash (SIGKILL, OOM,
+  power cut) every entity kept showing the last value it ever saw instead
+  of going unavailable. Because nothing read the topic, nothing had ever
+  surfaced the second problem: it was published to
+  `<hass_base>/status/lwt`, i.e. `homeassistant/status/lwt` by default —
+  inside Home Assistant's *own* birth tree, one level under the topic this
+  same daemon subscribes to.
+
+  The marker now lives at **`MTEC/bridge/status`**
+  (`<MQTT_TOPIC>/bridge/status`), the daemon's own tree, and every
+  discovery payload declares it as its single availability source
+  (`availability_mode: all`, payloads `online` / `offline`). Fixing either
+  half alone would have been wrong: moving the topic leaves it read by
+  nobody, and adding the reference alone points 100 entities into Home
+  Assistant's birth tree.
+
+  **What an operator does about the old topic: nothing.** The daemon
+  publishes an empty retained payload to `<hass_base>/status/lwt` on every
+  connect, which is MQTT's retraction, so the stale retained `online`
+  disappears from the broker by itself. The one thing to check is an
+  automation, dashboard card or second MQTT consumer that *watched* the
+  old topic — that must be repointed at `MTEC/bridge/status`. Entity IDs,
+  unique IDs, device identifiers, state topics and command topics are all
+  unchanged; nothing is re-keyed and no entity is orphaned.
+
+- **State is now published retained** (ADR 0070 phase 6, step 2a). Until
+  now every value went out non-retained, so a subscriber that connected
+  between two polls — Home Assistant after a restart, most of all — saw
+  `unknown` until the next cycle: up to five minutes for the `day` and
+  `total` groups and **up to an hour** for `static`. Discovery was already
+  retained, so the entities existed; they just had no value. They now show
+  their last known reading immediately. QoS is unchanged at 0.
+- **A nil reading can no longer retract an entity's value.** An empty
+  payload on a retained topic is MQTT's retraction — the broker deletes the
+  stored message instead of replacing it — and `formatValue(nil)` renders
+  exactly that. No decode path produces a nil today, which is why this was
+  inert while state was non-retained; the publish path now refuses an empty
+  payload outright (logged as `coordinator.empty_payload_skipped`) rather
+  than deleting the value. This is why retain was not flipped on its own.
+
+- **A `hass_component_type` this bridge cannot build is now reported
+  instead of silently producing nothing.** `button` was a declared
+  platform dispatched to an empty case: a register asking for one would
+  have been polled and had its state published while no entity ever
+  appeared in Home Assistant, with nothing in the log. No shipped register
+  declares it, so this was a trap for the next catalog edit rather than a
+  live defect — a `button` body without a `command_topic` is rejected by
+  Home Assistant outright. The platform declaration is gone and any
+  unsupported component type is logged as `coordinator.discovery_diag`.
+
+### Changed
+
+- **The runtime now publishes through `go-hamqtt` — state, birth/LWT, the
+  command router and the orphan sweep** (ADR 0070 phase 6, steps 4 and 5).
+  Step 3 proved the shared library reproduces every published byte while
+  publishing nothing; this is where that path takes over. Discovery stays
+  in the per-entity form — no device bundle is published yet — and no
+  topic, payload, QoS or retain flag moves. The two behaviour changes an
+  operator could notice are both below.
+
+  - **State and discovery are now de-duplicated.** A value byte-identical
+    to the one the broker already retains is not written again. This
+    daemon previously re-published every value of a group on every poll
+    cycle: roughly **11 136 messages an hour** on the shipped cadences,
+    nearly all of them unchanged. Groups like `config`, `day`, `total` and
+    most of `static` are near-constant and will now publish once per
+    process or once per change. Anything downstream that counted
+    *messages* rather than reading the retained value — a second MQTT
+    consumer, a Node-RED flow triggered on message rather than on change —
+    will see far fewer of them. The same gate applies to the 100 retained
+    discovery configs on a Home Assistant birth: an unchanged fleet now
+    costs zero writes instead of 100.
+  - **A reconnect rewrites the whole fleet once.** If the broker came back
+    without its retained store, every entity would otherwise stay blank
+    until its value happened to change — which for `static` and `total` is
+    effectively never. The (re)connect hook reopens the de-duplication
+    gate, so the next poll writes everything once and is de-duplicated
+    again afterwards.
+
+  **QoS is unchanged at 0**, deliberately and now explicitly. The library's
+  default is QoS 1 and its `QoS` zero value means *unset* rather than
+  *QoS 0*, so the wiring states `publisher.QoSAtMostOnce` for state and for
+  discovery, and `QoSAtLeastOnce` (1, likewise unchanged) for the command
+  subscription. Said here because a reader who knows the library's default
+  will assume it moved.
+
+  Two smaller things that are new rather than preserved: the boot now
+  **fails** if anything this daemon publishes would fall inside its own
+  `/set` subscription and be echoed back into its own command handler
+  (there was no such guard, and it was checked by hand), and the command
+  subscription carries MQTT 5.0's *No Local* so the broker will not return
+  this client's own publishes to it. Retained messages on a command topic
+  are still dropped, the bounded drop-oldest write queue is still what
+  serialises writes, and the Home Assistant birth handling — including its
+  5-second retry of a failed discovery batch — is unchanged.
+
+  **The one wire-visible change**: the orphan sweep's snapshot
+  subscription is now `homeassistant/#` for the ~2 seconds it is open,
+  where it was `homeassistant/+/+/config`, because the library parses all
+  three discovery topic forms through one window. It still retracts only
+  configs whose topic *and* retained payload are both this daemon's, and
+  the pass itself is report-only — this daemon chooses the list. Measured
+  over the real catalogue against a broker holding a mixed discovery tree:
+  108 retained configs offered, 100 claimed, **1** retracted. See
+  [notes/adr0070-phase6-steps45-results.md](./notes/adr0070-phase6-steps45-results.md).
+
+- **`go-hamqtt` v0.31.0 → v0.32.0.** v0.32.0 narrows
+  `discovery.Validate`'s duplicate-`unique_id` check to key on
+  `(platform, unique_id)`, mirroring Home Assistant's own
+  `(domain, platform, unique_id)` registry index. This bridge publishes
+  nine `unique_id`s twice, under two platforms each (a writable register
+  also gets a read-only sensor view), and a test added in the previous
+  release pinned the library's refusal of that inside a device bundle. It
+  is now accepted, in both shipped languages — which means the later
+  bundle migration needs no catalogue change and neither of the two
+  fallbacks that had been planned for it. No user-visible effect in this
+  release: nothing publishes a bundle yet.
+
+- **The state and command topic were built in five places; now they are
+  built in one.** The config payload's `state_topic`, the poll loop's
+  publish, the command topic, and the two synthetic charge/discharge
+  switches each composed the string themselves, and nothing compared them.
+  A divergence would have left entities pointing at topics nobody
+  publishes to — permanently `unknown`, with nothing in the log. All five
+  now render through one function, and the pinned payloads and topic tree
+  are byte-identical across the change.
+
+- **Added `github.com/SukramJ/go-hamqtt` v0.31.0 (MIT) as a dependency**,
+  for a parallel Home Assistant discovery rendering path that is not yet
+  wired to anything (ADR 0070 phase 6, step 3). The shipped builder still
+  produces every published byte; the new path exists so the migration's
+  later steps are switch-overs with a test behind them. Measured result:
+  the shared library reproduces **all 200** discovery payloads (100
+  entities x `en`/`de`) byte for byte against the pinned goldens, and all
+  200 pass Home Assistant's discovery schemas — which this bridge's output
+  had never been checked against before. No user-visible effect: nothing
+  new reaches a broker, the publish path is untouched, and no topic,
+  payload, QoS or retain flag moves. See
+  [notes/adr0070-phase6-step3-results.md](./notes/adr0070-phase6-step3-results.md).
+- **`go-mqtt` v1.3.0 → v1.5.1**, and the hand-rolled MQTT session is gone.
+  v1.4.0 added `mqtt.SplitClient`, which is what this daemon's private
+  `mqttSession` struct did — breaker on the publish path, raw client on
+  the subscribe path — so the struct and its two tests were deleted in
+  favour of the library's. v1.5.0/v1.5.1 added MQTT 5.0 Subscription
+  Identifiers and made dispatch of an identifier-less PUBLISH fail closed;
+  this daemon never asks for an identifier, so every one of its
+  subscriptions stays unstamped and dispatch is unchanged. No user-visible
+  effect: same topics, same payloads, same QoS.
+- **Dropped the dead `object_id` discovery key.** Home Assistant's MQTT
+  discovery schemas are `extra=REMOVE_EXTRA`: an undeclared key is
+  discarded on arrival, silently and without a log line. Measured against
+  the schemas of HA 2026.9, `object_id` is accepted by **0 of the 32 MQTT
+  platforms**; its replacement `default_entity_id` by 28. Every discovery
+  payload this bridge emits already carried `default_entity_id` with the
+  same seed, so the key was pure dead weight in every retained config —
+  and misleading to anyone reading those payloads. No user-visible effect:
+  Home Assistant was already dropping it.
+- **The program is now MIT-licensed.** This repository distributes two
+  separately authored works, and until now both carried LGPL-3.0-or-later
+  because the whole of it was described as a derivative of
+  `croedel/MTECmqtt`. That is accurate for the register catalogue and not
+  for the program: measured against the Python original, the Go source
+  shares 5 function names out of 177 (all generic — `connect`,
+  `initialize`, `readRegister`, `appendSensor`, `appendBinarySensor`), has
+  no corresponding architecture, and carries over no source. It is an
+  independent implementation by its own author and is licensed accordingly.
+- **`registers.yaml` stays LGPL-3.0-or-later**, with Christian Rödel's
+  copyright intact, in its own [LICENSE.registers](./LICENSE.registers). The
+  catalogue is his reverse-engineering work: 86 of 86 register keys and
+  display names are his, in his ordering. It is read from the filesystem at
+  run time and is not compiled into the binary, so the two works stay
+  separable.
+- **[NOTICE.md](./NOTICE.md)** records the provenance of each part and the
+  measurements the split rests on.
+
 # Version 1.9.0 (2026-08-16)
 
 ## What's Changed

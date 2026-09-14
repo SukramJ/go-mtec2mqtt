@@ -58,12 +58,48 @@ if [ -n "$prev_header" ]; then
 	prev_version=$(printf '%s\n' "$prev_header" | sed -E 's/^# Version ([^ ]+).*$/\1/')
 fi
 
-# Emit the body, then optionally the compare link. The first release
-# has no predecessor — that's fine, just skip the link.
-printf '%s\n' "$body"
+repo="${GITHUB_REPOSITORY:-SukramJ/go-mtec2mqtt}"
+
+# Assemble the body, then optionally the compare link. The first
+# release has no predecessor — that's fine, just skip the link. The
+# refs are v-prefixed because that is what the tags are actually
+# named (v1.9.0, not 1.9.0), while the changelog headers are bare.
+notes=$(mktemp)
+trap 'rm -f "$notes"' EXIT
+
+printf '%s\n' "$body" > "$notes"
 
 if [ -n "$prev_version" ]; then
-	repo="${GITHUB_REPOSITORY:-SukramJ/go-mtec2mqtt}"
-	printf '\n**Full Changelog**: https://github.com/%s/compare/%s...%s\n' \
-		"$repo" "$prev_version" "$VERSION"
+	printf '\n**Full Changelog**: https://github.com/%s/compare/v%s...v%s\n' \
+		"$repo" "$prev_version" "$VERSION" >> "$notes"
+fi
+
+# GitHub caps a release body at 125,000 characters and answers 422
+# when it is exceeded. That failure lands *after* the tag is already
+# on the remote, so it cannot be undone by re-running the job — hence
+# a hard budget here rather than a check at the call site. The budget
+# is in bytes (LC_ALL=C makes awk's length() count bytes), which for
+# UTF-8 is always >= the character count GitHub measures, so this
+# errs on the safe side. Truncation happens on a line boundary, never
+# mid-multi-byte-sequence.
+MAX_BYTES="${RELEASE_NOTES_MAX_BYTES:-120000}"
+
+size=$(wc -c < "$notes" | tr -d ' ')
+
+if [ "$size" -le "$MAX_BYTES" ]; then
+	cat "$notes"
+else
+	echo "warning: release notes for $VERSION are $size bytes, over the" \
+		"$MAX_BYTES budget — truncating to stay under GitHub's" \
+		"125,000-character release-body limit" >&2
+	LC_ALL=C awk -v budget="$MAX_BYTES" '
+		{
+			n = length($0) + 1
+			if (total + n > budget) exit
+			total += n
+			print
+		}
+	' "$notes"
+	printf '\n---\n\nThese release notes were truncated to fit GitHub'"'"'s release-body limit. The complete section is in [changelog.md](https://github.com/%s/blob/v%s/changelog.md).\n' \
+		"$repo" "$VERSION"
 fi
