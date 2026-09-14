@@ -25,6 +25,25 @@ concurrency:
 env:
   CGO_ENABLED: "0"
   GO_VERSION: "1.26.6"
+  # The tools below are pinned, not @latest. Dependabot tracks go.mod
+  # requires, not go-install lines in a workflow, so these are bumped by
+  # hand — deliberately: raise the version, run `make check`, and fix or
+  # justify whatever the new release finds in the same change. Floating on
+  # @latest makes these gates report on the calendar rather than on the
+  # diff, and turns an unrelated upstream release into a red CI on someone
+  # else's PR. gofumpt is the sharpest case: it is a formatter, so a new
+  # release rewraps untouched code and reds main overnight. Keep these in
+  # step with the versions `make setup` installs.
+  GOFUMPT_VERSION: "v0.12.0"
+  # Pinning govulncheck and go-licenses does not freeze the answer they
+  # give: govulncheck resolves the vulnerability database at run time and
+  # go-licenses classifies whatever a dependency actually ships, so a newly
+  # published advisory or a relicensed dependency still turns the audit job
+  # red without a commit here — which is the point. The pin only removes
+  # the other source of red: a tool release changing its own reachability
+  # analysis or license classifier under an unrelated PR.
+  GOVULNCHECK_VERSION: "v1.8.0"
+  GOLICENSES_VERSION: "v1.6.0"
 
 jobs:
   lint:
@@ -40,7 +59,7 @@ jobs:
         run: go vet ./...
       - name: gofumpt
         run: |
-          go install mvdan.cc/gofumpt@latest
+          go install mvdan.cc/gofumpt@${{ env.GOFUMPT_VERSION }}
           diff=$(gofumpt -l .)
           if [ -n "$diff" ]; then
             echo "::error::gofumpt would rewrite:"
@@ -92,8 +111,8 @@ jobs:
           cache: true
       - name: install govulncheck + go-licenses
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
-          go install github.com/google/go-licenses@latest
+          go install golang.org/x/vuln/cmd/govulncheck@${{ env.GOVULNCHECK_VERSION }}
+          go install github.com/google/go-licenses@${{ env.GOLICENSES_VERSION }}
       - name: govulncheck
         run: make vuln
       - name: license check
