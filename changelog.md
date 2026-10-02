@@ -4,6 +4,9 @@
 
 - **Built with Go 1.27.1.** Nothing changes for add-on, Docker and
   binary users. Building from source now requires Go 1.27 or newer.
+- **Library updates.** `go-mqtt` 1.5.1 → 1.6.0, `go-ha-catalog` 0.2.1 →
+  0.3.0 and `go-hamqtt` 0.34.1 → 0.35.0, the releases built with Go 1.27.
+  No configuration or behaviour change is intended.
 
 # Version 1.10.0 (2026-09-14)
 
