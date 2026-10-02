@@ -210,14 +210,12 @@ func (c RenderContext) ObjectID(_ *hamodel.Device, e hamodel.Entity) string {
 // inputs as the shipped builder.
 func NewRenderContext(d *Discovery) RenderContext {
 	return RenderContext{
-		StdContext: discovery.StdContext{
-			Layout: Layout{Root: d.mqttTopic},
-			Lang:   d.lang,
-			// This bridge publishes a bare scalar, not an envelope, so a
-			// value template is whatever the catalog states and nothing
-			// more.
-			Enc: discovery.RawEncoding,
-		},
+		Layout: Layout{Root: d.mqttTopic},
+		Lang:   d.lang,
+		// This bridge publishes a bare scalar, not an envelope, so a
+		// value template is whatever the catalog states and nothing
+		// more.
+		Enc:              discovery.RawEncoding,
 		DeviceSlug:       d.deviceSlug,
 		SerialNo:         d.serialNo,
 		SerialInUniqueID: d.serialInUniqueID,
@@ -450,7 +448,7 @@ func sensorEntity(serial string, r *registers.Register) *Entity {
 		DeviceClass:  hamodel.DeviceClass(r.HassDeviceClass),
 		StateClass:   hacatalog.StateClass(r.HassStateClass),
 		Unit:         hamodel.Unit(r.Unit),
-		Enabled:      hamodel.Ptr(true),
+		Enabled:      new(true),
 		Availability: hamodel.BridgeOnly(),
 	}
 	if r.HassValueTemplate != "" {
@@ -473,30 +471,26 @@ func sensorEntity(serial string, r *registers.Register) *Entity {
 		desc.Extra = map[string]any{"unit_of_measurement": ""}
 	}
 	return &Entity{
-		Basic: hamodel.Basic{
-			EntityKey:      string(PlatformSensor) + "." + r.MQTT,
-			EntityPlatform: hacatalog.Platform(PlatformSensor),
-			Description:    desc,
-			Binds:          readBinds(slot(serial, r)),
-		},
-		UniqueIDSeed: r.MQTT,
-		EntityIDSeed: r.Name,
+		EntityKey:      string(PlatformSensor) + "." + r.MQTT,
+		EntityPlatform: hacatalog.Platform(PlatformSensor),
+		Description:    desc,
+		Binds:          readBinds(slot(serial, r)),
+		UniqueIDSeed:   r.MQTT,
+		EntityIDSeed:   r.Name,
 	}
 }
 
 func binarySensorEntity(serial string, r *registers.Register) *Entity {
 	return &Entity{
-		Basic: hamodel.Basic{
-			EntityKey:      string(PlatformBinarySensor) + "." + r.MQTT,
-			EntityPlatform: hacatalog.Platform(PlatformBinarySensor),
-			Description: hamodel.Description{
-				Name:         localized(r.Name, r.NameDE),
-				DeviceClass:  hamodel.DeviceClass(r.HassDeviceClass),
-				Enabled:      hamodel.Ptr(true),
-				Availability: hamodel.BridgeOnly(),
-			},
-			Binds: readBinds(slot(serial, r)),
+		EntityKey:      string(PlatformBinarySensor) + "." + r.MQTT,
+		EntityPlatform: hacatalog.Platform(PlatformBinarySensor),
+		Description: hamodel.Description{
+			Name:         localized(r.Name, r.NameDE),
+			DeviceClass:  hamodel.DeviceClass(r.HassDeviceClass),
+			Enabled:      new(true),
+			Availability: hamodel.BridgeOnly(),
 		},
+		Binds:        readBinds(slot(serial, r)),
 		UniqueIDSeed: r.MQTT,
 		EntityIDSeed: r.Name,
 		PlatformFields: discovery.BinarySensorFields{
@@ -508,18 +502,16 @@ func binarySensorEntity(serial string, r *registers.Register) *Entity {
 
 func numberEntity(serial string, r *registers.Register) *Entity {
 	return &Entity{
-		Basic: hamodel.Basic{
-			EntityKey:      string(PlatformNumber) + "." + r.MQTT,
-			EntityPlatform: hacatalog.Platform(PlatformNumber),
-			Description: hamodel.Description{
-				Name:         localized(r.Name, r.NameDE),
-				DeviceClass:  hamodel.DeviceClass(r.HassDeviceClass),
-				Unit:         hamodel.Unit(r.Unit),
-				Enabled:      hamodel.Ptr(false),
-				Availability: hamodel.BridgeOnly(),
-			},
-			Binds: readWriteBinds(slot(serial, r)),
+		EntityKey:      string(PlatformNumber) + "." + r.MQTT,
+		EntityPlatform: hacatalog.Platform(PlatformNumber),
+		Description: hamodel.Description{
+			Name:         localized(r.Name, r.NameDE),
+			DeviceClass:  hamodel.DeviceClass(r.HassDeviceClass),
+			Unit:         hamodel.Unit(r.Unit),
+			Enabled:      new(false),
+			Availability: hamodel.BridgeOnly(),
 		},
+		Binds:          readWriteBinds(slot(serial, r)),
 		UniqueIDSeed:   r.MQTT,
 		EntityIDSeed:   r.Name,
 		PlatformFields: discovery.NumberFields{Mode: "box"},
@@ -528,17 +520,15 @@ func numberEntity(serial string, r *registers.Register) *Entity {
 
 func selectEntity(serial string, r *registers.Register) *Entity {
 	return &Entity{
-		Basic: hamodel.Basic{
-			EntityKey:      string(PlatformSelect) + "." + r.MQTT,
-			EntityPlatform: hacatalog.Platform(PlatformSelect),
-			Description: hamodel.Description{
-				Name:         localized(r.Name, r.NameDE),
-				Options:      valueItemsEnum(r),
-				Enabled:      hamodel.Ptr(false),
-				Availability: hamodel.BridgeOnly(),
-			},
-			Binds: readWriteBinds(slot(serial, r)),
+		EntityKey:      string(PlatformSelect) + "." + r.MQTT,
+		EntityPlatform: hacatalog.Platform(PlatformSelect),
+		Description: hamodel.Description{
+			Name:         localized(r.Name, r.NameDE),
+			Options:      valueItemsEnum(r),
+			Enabled:      new(false),
+			Availability: hamodel.BridgeOnly(),
 		},
+		Binds:        readWriteBinds(slot(serial, r)),
 		UniqueIDSeed: r.MQTT,
 		EntityIDSeed: r.Name,
 	}
@@ -546,17 +536,15 @@ func selectEntity(serial string, r *registers.Register) *Entity {
 
 func switchEntity(serial string, r *registers.Register) *Entity {
 	return &Entity{
-		Basic: hamodel.Basic{
-			EntityKey:      string(PlatformSwitch) + "." + r.MQTT,
-			EntityPlatform: hacatalog.Platform(PlatformSwitch),
-			Description: hamodel.Description{
-				Name:         localized(r.Name, r.NameDE),
-				DeviceClass:  hamodel.DeviceClass(r.HassDeviceClass),
-				Enabled:      hamodel.Ptr(false),
-				Availability: hamodel.BridgeOnly(),
-			},
-			Binds: readWriteBinds(slot(serial, r)),
+		EntityKey:      string(PlatformSwitch) + "." + r.MQTT,
+		EntityPlatform: hacatalog.Platform(PlatformSwitch),
+		Description: hamodel.Description{
+			Name:         localized(r.Name, r.NameDE),
+			DeviceClass:  hamodel.DeviceClass(r.HassDeviceClass),
+			Enabled:      new(false),
+			Availability: hamodel.BridgeOnly(),
 		},
+		Binds:        readWriteBinds(slot(serial, r)),
 		UniqueIDSeed: r.MQTT,
 		EntityIDSeed: r.Name,
 		PlatformFields: discovery.SwitchFields{
@@ -569,20 +557,18 @@ func switchEntity(serial string, r *registers.Register) *Entity {
 func virtualSwitchEntity(serial string, v VirtualSwitch) *Entity {
 	s := hamodel.Slot{Address: serial, Path: []string{v.Group, v.Key}}
 	return &Entity{
-		Basic: hamodel.Basic{
-			EntityKey:      string(PlatformSwitch) + "." + v.Key,
-			EntityPlatform: hacatalog.Platform(PlatformSwitch),
-			Description: hamodel.Description{
-				Name: localized(v.Name, v.NameDE),
-				// F7: the synthetic switches ship enabled while every real
-				// control ships disabled. Reproduced, not fixed — it is
-				// pinned as current behaviour and must not move inside a
-				// migration step.
-				Enabled:      hamodel.Ptr(true),
-				Availability: hamodel.BridgeOnly(),
-			},
-			Binds: readWriteBinds(s),
+		EntityKey:      string(PlatformSwitch) + "." + v.Key,
+		EntityPlatform: hacatalog.Platform(PlatformSwitch),
+		Description: hamodel.Description{
+			Name: localized(v.Name, v.NameDE),
+			// F7: the synthetic switches ship enabled while every real
+			// control ships disabled. Reproduced, not fixed — it is
+			// pinned as current behaviour and must not move inside a
+			// migration step.
+			Enabled:      new(true),
+			Availability: hamodel.BridgeOnly(),
 		},
+		Binds:          readWriteBinds(s),
 		UniqueIDSeed:   v.Key,
 		EntityIDSeed:   v.Name,
 		PlatformFields: discovery.SwitchFields{PayloadOn: "1", PayloadOff: "0"},

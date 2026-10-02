@@ -328,8 +328,7 @@ func TestRenderedBundleAcceptsTheDuplicatedUniqueIDs(t *testing.T) {
 			}
 
 			if err := discovery.Validate(bundle); err != nil {
-				var verr *discovery.ValidationError
-				if errors.As(err, &verr) {
+				if verr, ok := errors.AsType[*discovery.ValidationError](err); ok {
 					t.Fatalf("discovery.Validate refuses the bundle with %d issues (blocking=%v): %v",
 						len(verr.Issues), verr.Blocking(), verr.Issues)
 				}

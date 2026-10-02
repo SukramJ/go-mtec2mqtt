@@ -1,3 +1,27 @@
+# Version 1.11.0 (2026-10-02)
+
+## What's Changed
+
+### Changed
+
+- **Built with Go 1.27.1.** The add-on, Docker image and binaries are now
+  built with Go 1.27.1. Nothing changes in configuration or behaviour for
+  add-on, Docker and binary users. Building from source now requires Go
+  1.27 or newer.
+- **Library updates.** `go-mqtt` 1.5.1 → 1.6.0, `go-ha-catalog` 0.2.1 →
+  0.3.0 and `go-hamqtt` 0.34.1 → 0.35.0, the releases built with Go 1.27.
+  No configuration or behaviour change is intended.
+- **Internal only: code modernised to Go 1.27 idioms** (the `go fix`
+  modernizers: `reflect.TypeFor`, `errors.AsType`, `strings.Cut`,
+  `maps.Copy`, `new(expr)` and flattened embedded-struct literals in the
+  discovery builder). No feature or behaviour change; the existing
+  tests, including the frozen Home Assistant discovery payload golden
+  tests, pass against the modernised code.
+- **Internal only: the slow coordinator timer tests now run on
+  `testing/synctest`** (virtual time) instead of real sleeps, and several
+  tests were adjusted accordingly. This changes the test suite only, not
+  the shipped binary.
+
 # Version 1.10.0 (2026-09-14)
 
 ## What's Changed

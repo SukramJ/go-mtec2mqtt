@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"maps"
 	"slices"
 	"sort"
 	"testing"
@@ -581,9 +582,7 @@ func TestReportOnlySweepOverTheRealFleet(t *testing.T) {
 		// unique_id namespace, different publish root. Declined on the body.
 		"homeassistant/sensor/MTEC_solar_power/config": []byte(`{"unique_id":"MTEC_solar_power","state_topic":"SOLAR/OTHERSERIAL/now-base/solar_power/state"}`),
 	}
-	for k, v := range extras {
-		retained[k] = v
-	}
+	maps.Copy(retained, extras)
 
 	mqttStub.mu.Lock()
 	mqttStub.publishes = nil

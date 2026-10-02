@@ -144,9 +144,8 @@ func Locate(env Env) (string, bool) {
 // change the topic layout.
 var stringYAMLKeys = sync.OnceValue(func() map[string]struct{} {
 	keys := make(map[string]struct{})
-	t := reflect.TypeOf(Config{})
-	for i := range t.NumField() {
-		f := t.Field(i)
+	t := reflect.TypeFor[Config]()
+	for f := range t.Fields() {
 		tag, _, _ := strings.Cut(f.Tag.Get("yaml"), ",")
 		if tag == "" || tag == "-" || f.Type.Kind() != reflect.String {
 			continue
@@ -174,11 +173,11 @@ var stringYAMLKeys = sync.OnceValue(func() map[string]struct{} {
 func applyEnvOverrides(raw map[string]any, env Env) []string {
 	var applied []string
 	for _, kv := range env.Environ() {
-		eq := strings.IndexByte(kv, '=')
-		if eq < 0 {
+		before, after, ok := strings.Cut(kv, "=")
+		if !ok {
 			continue
 		}
-		key, val := kv[:eq], kv[eq+1:]
+		key, val := before, after
 		if !strings.HasPrefix(key, EnvPrefix) {
 			continue
 		}
