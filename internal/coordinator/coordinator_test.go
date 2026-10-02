@@ -15,6 +15,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/SukramJ/go-hamqtt/discovery"
@@ -721,69 +722,67 @@ func TestTryInitFromStaticRejectsTopicUnsafeSerial(t *testing.T) {
 // writes everything when something DID change is the same gate's other
 // direction, asserted here by mutating one entry's payload.
 func TestHASSBirthTriggersDiscoveryRepublish(t *testing.T) {
-	c, _, mqttStub, _ := buildDeps(t, true)
-	// The config loader maps 0 to the 15s default; skip the birth wait
-	// entirely so the initial discovery burst happens immediately.
-	c.deps.Cfg.HASSBirthGracetime = 0
+	synctest.Test(t, func(t *testing.T) {
+		c, _, mqttStub, _ := buildDeps(t, true)
+		// The config loader maps 0 to the 15s default; skip the birth wait
+		// entirely so the initial discovery burst happens immediately.
+		c.deps.Cfg.HASSBirthGracetime = 0
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	done := make(chan error, 1)
-	go func() { done <- c.Run(ctx) }()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		done := make(chan error, 1)
+		go func() { done <- c.Run(ctx) }()
 
-	countConfigs := func() int {
-		n := 0
-		for _, p := range mqttStub.snapshotPublishes() {
-			if p.retain && startsWith(p.topic, "homeassistant/") && endsWith(p.topic, "/config") {
-				n++
+		countConfigs := func() int {
+			n := 0
+			for _, p := range mqttStub.snapshotPublishes() {
+				if p.retain && startsWith(p.topic, "homeassistant/") && endsWith(p.topic, "/config") {
+					n++
+				}
 			}
+			return n
 		}
-		return n
-	}
 
-	// Wait for the initial discovery burst.
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) && countConfigs() == 0 {
-		time.Sleep(10 * time.Millisecond)
-	}
-	initial := countConfigs()
-	if initial == 0 {
-		t.Fatal("no initial discovery publishes")
-	}
-	if !c.discoverySent.Load() {
-		t.Fatal("the initial batch did not mark discovery as sent")
-	}
-
-	// Home Assistant restarts and publishes its birth message.
-	mqttStub.deliver("homeassistant/status", []byte("online"))
-
-	// The birth must invalidate the batch, and the republisher must run
-	// and re-validate it. Sampling the flag rather than the wire is the
-	// whole change: the wire is silent when nothing moved.
-	sawCleared := false
-	deadline = time.Now().Add(9 * time.Second)
-	for time.Now().Before(deadline) {
+		// The initial discovery burst.
+		synctest.Wait()
+		initial := countConfigs()
+		if initial == 0 {
+			t.Fatal("no initial discovery publishes")
+		}
 		if !c.discoverySent.Load() {
-			sawCleared = true
+			t.Fatal("the initial batch did not mark discovery as sent")
 		}
-		if sawCleared && c.discoverySent.Load() {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	cancel()
-	<-done
 
-	if !sawCleared {
-		t.Fatal("the birth message did not clear discoverySent")
-	}
-	if !c.discoverySent.Load() {
-		t.Fatal("discovery was never republished after the HA birth: discoverySent stayed false")
-	}
-	if got := countConfigs(); got != initial {
-		t.Errorf("the republish wrote %d configs where %d had already been accepted; "+
-			"an unchanged fleet must cost nothing", got-initial, initial)
-	}
+		// Home Assistant restarts and publishes its birth message.
+		mqttStub.deliver("homeassistant/status", []byte("online"))
+		synctest.Wait()
+
+		// The birth must invalidate the batch, and the republisher must run
+		// and re-validate it. Sampling the flag rather than the wire is the
+		// whole change: the wire is silent when nothing moved. The
+		// republisher ticks every 5 s: the flag stays cleared a nanosecond
+		// before the tick and is raised again at it.
+		if c.discoverySent.Load() {
+			t.Fatal("the birth message did not clear discoverySent")
+		}
+		time.Sleep(5*time.Second - time.Nanosecond)
+		synctest.Wait()
+		if c.discoverySent.Load() {
+			t.Fatal("discovery was republished before the republisher's tick")
+		}
+		time.Sleep(time.Nanosecond)
+		synctest.Wait()
+		cancel()
+		<-done
+
+		if !c.discoverySent.Load() {
+			t.Fatal("discovery was never republished after the HA birth: discoverySent stayed false")
+		}
+		if got := countConfigs(); got != initial {
+			t.Errorf("the republish wrote %d configs where %d had already been accepted; "+
+				"an unchanged fleet must cost nothing", got-initial, initial)
+		}
+	})
 }
 
 // TestChangedDiscoveryPayloadIsRepublished is the dedup gate's other
@@ -830,42 +829,40 @@ func TestChangedDiscoveryPayloadIsRepublished(t *testing.T) {
 }
 
 func TestModbusWatchdogReconnects(t *testing.T) {
-	c, _, _, modbusStub := buildDeps(t, false)
+	synctest.Test(t, func(t *testing.T) {
+		c, _, _, modbusStub := buildDeps(t, false)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	done := make(chan error, 1)
-	go func() { done <- c.Run(ctx) }()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		done := make(chan error, 1)
+		go func() { done <- c.Run(ctx) }()
 
-	// Wait for first connect, then simulate the transport poisoning
-	// itself by toggling IsConnected → false.
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		if modbusStub.connectCalls.Load() >= 1 {
-			break
+		// Run has connected and every goroutine is parked on its timer.
+		synctest.Wait()
+		first := modbusStub.connectCalls.Load()
+		if first < 1 {
+			t.Fatal("Modbus Connect was never called")
 		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	first := modbusStub.connectCalls.Load()
-	modbusStub.connected.Store(false)
+		// Simulate the transport poisoning itself.
+		modbusStub.connected.Store(false)
 
-	// Watchdog ticks every 5 s in production; for tests we just wait
-	// long enough that it has at least one shot. We tolerate the
-	// timing by polling rather than asserting an exact count.
-	deadline = time.Now().Add(6 * time.Second)
-	for time.Now().Before(deadline) {
-		if modbusStub.connectCalls.Load() > first {
-			break
+		// The watchdog ticks every 5 s: nothing happens a nanosecond
+		// before the tick, the reconnect happens at it.
+		time.Sleep(5*time.Second - time.Nanosecond)
+		synctest.Wait()
+		if got := modbusStub.connectCalls.Load(); got != first {
+			t.Fatalf("watchdog reconnected before its tick; connect calls = %d (start %d)", got, first)
 		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	cancel()
-	<-done
+		time.Sleep(time.Nanosecond)
+		synctest.Wait()
+		cancel()
+		<-done
 
-	if modbusStub.connectCalls.Load() <= first {
-		t.Fatalf("watchdog did not reconnect; connect calls = %d (start %d)",
-			modbusStub.connectCalls.Load(), first)
-	}
+		if modbusStub.connectCalls.Load() <= first {
+			t.Fatalf("watchdog did not reconnect; connect calls = %d (start %d)",
+				modbusStub.connectCalls.Load(), first)
+		}
+	})
 }
 
 // TestRunRetriesInitialModbusConnect proves the boot-time connect is
@@ -874,27 +871,37 @@ func TestModbusWatchdogReconnects(t *testing.T) {
 // until ctx is cancelled, and cancellation surfaces as
 // context.Canceled — a normal stop, not a hard failure.
 func TestRunRetriesInitialModbusConnect(t *testing.T) {
-	c, _, _, modbusStub := buildDeps(t, false)
-	modbusStub.connectErr = errInjected{}
+	synctest.Test(t, func(t *testing.T) {
+		c, _, _, modbusStub := buildDeps(t, false)
+		modbusStub.connectErr = errInjected{}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	done := make(chan error, 1)
-	go func() { done <- c.Run(ctx) }()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		done := make(chan error, 1)
+		go func() { done <- c.Run(ctx) }()
 
-	deadline := time.Now().Add(10 * time.Second)
-	for modbusStub.connectCalls.Load() < 2 {
-		if time.Now().After(deadline) {
-			t.Fatalf("Run did not retry the initial connect; calls = %d",
-				modbusStub.connectCalls.Load())
+		// The first attempt fails at once; the retry waits out the
+		// one-second startup backoff, neither earlier nor later.
+		synctest.Wait()
+		if got := modbusStub.connectCalls.Load(); got != 1 {
+			t.Fatalf("connect calls before the backoff = %d, want 1", got)
 		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	cancel()
-	err := <-done
-	if err != nil && !errors.Is(err, context.Canceled) {
-		t.Fatalf("cancelled startup returned %v, want nil or context.Canceled", err)
-	}
+		time.Sleep(time.Second - time.Nanosecond)
+		synctest.Wait()
+		if got := modbusStub.connectCalls.Load(); got != 1 {
+			t.Fatalf("Run retried before the one-second backoff elapsed; calls = %d", got)
+		}
+		time.Sleep(time.Nanosecond)
+		synctest.Wait()
+		if got := modbusStub.connectCalls.Load(); got != 2 {
+			t.Fatalf("Run did not retry the initial connect; calls = %d", got)
+		}
+		cancel()
+		err := <-done
+		if err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancelled startup returned %v, want nil or context.Canceled", err)
+		}
+	})
 }
 
 // --- discovery completeness ------------------------------------------------
