@@ -17,7 +17,7 @@ the Python daemon.
 
 ## Key Characteristics
 
-- **Language**: Go 1.26+ (see `go.mod` / CI `GO_VERSION`).
+- **Language**: Go 1.27+ (see `go.mod` / CI `GO_VERSION`).
 - **Module path**: `github.com/SukramJ/go-mtec2mqtt`.
 - **License: LGPL-3.0-or-later** (not MIT — this is a derivative of
   Christian Rödel's LGPL-3.0 `MTECmqtt`). Every Go source file starts

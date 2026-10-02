@@ -1,5 +1,10 @@
 # Unreleased
 
+### Changed
+
+- **Built with Go 1.27.1.** Nothing changes for add-on, Docker and
+  binary users. Building from source now requires Go 1.27 or newer.
+
 # Version 1.10.0 (2026-09-14)
 
 ## What's Changed
