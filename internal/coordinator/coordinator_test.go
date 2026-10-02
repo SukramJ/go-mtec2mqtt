@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"math"
 	"strconv"
 	"strings"
@@ -65,9 +66,7 @@ func (s *stubReader) ReadGroup(_ context.Context, g registers.Group) (map[string
 	// Return a fresh copy so the coordinator doesn't accidentally
 	// alias our test data.
 	out := make(map[string]any, len(s.groupData[g]))
-	for k, v := range s.groupData[g] {
-		out[k] = v
-	}
+	maps.Copy(out, s.groupData[g])
 	return out, nil
 }
 

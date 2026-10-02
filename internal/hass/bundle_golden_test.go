@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"flag"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -231,18 +232,14 @@ func TestTheMoveChangesOnlyTheTopicTheDeviceBlockAndTheOrigin(t *testing.T) {
 					t.Errorf("%s: the component still repeats the `device` block", e.Topic)
 				}
 				was := map[string]any{}
-				for k, v := range e.Payload {
-					was[k] = v
-				}
+				maps.Copy(was, e.Payload)
 				if wb, gb := canonical(t, was["device"]), canonical(t, deviceBlock); !bytes.Equal(wb, gb) {
 					t.Errorf("%s: the device block moved rather than being hoisted:\n"+
 						" frozen: %s\n    now: %s", e.Topic, wb, gb)
 				}
 				delete(was, "device")
 				now := map[string]any{}
-				for k, v := range comp {
-					now[k] = v
-				}
+				maps.Copy(now, comp)
 				delete(now, "platform")
 
 				if wb, gb := canonical(t, was), canonical(t, now); !bytes.Equal(wb, gb) {
@@ -632,9 +629,7 @@ func TestOmittingAComponentDoesNotRemoveIt(t *testing.T) {
 		NodeID: b.NodeID, Device: b.Device, Origin: b.Origin,
 		Components: map[string]discovery.Component{},
 	}
-	for k, c := range shrunk.Components {
-		removed.Components[k] = c
-	}
+	maps.Copy(removed.Components, shrunk.Components)
 	removed.RemoveComponents(b.Components, key)
 
 	entry, ok := removed.Components[key]

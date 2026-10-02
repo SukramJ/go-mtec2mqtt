@@ -81,10 +81,10 @@ const mergeKey = "<<"
 var knownRegisterFields = buildKnownRegisterFields()
 
 func buildKnownRegisterFields() map[string]bool {
-	t := reflect.TypeOf(Register{})
+	t := reflect.TypeFor[Register]()
 	fields := make(map[string]bool, t.NumField())
-	for i := range t.NumField() {
-		name, _, _ := strings.Cut(t.Field(i).Tag.Get("yaml"), ",")
+	for field := range t.Fields() {
+		name, _, _ := strings.Cut(field.Tag.Get("yaml"), ",")
 		if name == "" || name == "-" {
 			continue
 		}

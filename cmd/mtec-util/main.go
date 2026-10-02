@@ -491,8 +491,7 @@ func (s *session) ensureConnected(ctx context.Context) error {
 	s.printf("connecting to %s:%d (timeout %ds)...\n",
 		s.modbusCfg.Host, s.modbusCfg.Port, int(s.modbusCfg.Timeout.Seconds()))
 	if err := s.client.Connect(ctx); err != nil {
-		var exc *protocol.ExceptionError
-		if errors.As(err, &exc) {
+		if _, ok := errors.AsType[*protocol.ExceptionError](err); ok {
 			s.println("  (inverter responded with an exception — connection up, request rejected)")
 		}
 		return fmt.Errorf("modbus connect %s:%d: %w", s.modbusCfg.Host, s.modbusCfg.Port, err)

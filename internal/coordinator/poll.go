@@ -6,6 +6,7 @@ package coordinator
 import (
 	"context"
 	"log/slog"
+	"maps"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -125,9 +126,7 @@ func (c *Coordinator) publishGroupOnce(ctx context.Context, log *slog.Logger, gr
 	}
 	processed := processValues(c.deps.Catalog, raw, c.deps.Cfg.Language)
 	pseudo, skipped := PseudoRegisters(string(group), processed, c.deps.Now())
-	for k, v := range pseudo {
-		processed[k] = v
-	}
+	maps.Copy(processed, pseudo)
 	if len(skipped) > 0 {
 		// A partial read (cluster timeout / reconnect window) leaves one of
 		// the formula inputs out; publishing the derived value anyway would

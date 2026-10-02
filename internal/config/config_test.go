@@ -108,8 +108,7 @@ func TestLoadExplicitZeroRefreshNowIsValidationError(t *testing.T) {
 	t.Run("uppercase key", func(t *testing.T) {
 		yaml := minimumYAML + "REFRESH_NOW: 0\n"
 		_, err := Load(strings.NewReader(yaml), nil)
-		var v *ValidationError
-		if !errors.As(err, &v) {
+		if _, ok := errors.AsType[*ValidationError](err); !ok {
 			t.Fatalf("expected *ValidationError, got %T (%v)", err, err)
 		}
 		if !strings.Contains(err.Error(), "REFRESH_NOW") {
@@ -125,8 +124,7 @@ func TestLoadExplicitZeroRefreshNowIsValidationError(t *testing.T) {
 		// absent and silently resets it to the default.
 		yaml := minimumYAML + "refresh_now: 0\n"
 		_, err := Load(strings.NewReader(yaml), nil)
-		var v *ValidationError
-		if !errors.As(err, &v) {
+		if _, ok := errors.AsType[*ValidationError](err); !ok {
 			t.Fatalf("expected *ValidationError, got %T (%v)", err, err)
 		}
 		if !strings.Contains(err.Error(), "REFRESH_NOW") {
@@ -159,8 +157,7 @@ func TestLoadLowercaseModbusRetriesZeroSurvives(t *testing.T) {
 func TestLoadExplicitZeroChargeActiveValueIsValidationError(t *testing.T) {
 	yaml := minimumYAML + "CHARGE_ACTIVE_VALUE: 0\nDISCHARGE_ACTIVE_VALUE: 0\n"
 	_, err := Load(strings.NewReader(yaml), nil)
-	var v *ValidationError
-	if !errors.As(err, &v) {
+	if _, ok := errors.AsType[*ValidationError](err); !ok {
 		t.Fatalf("expected *ValidationError, got %T (%v)", err, err)
 	}
 	if !strings.Contains(err.Error(), "CHARGE_ACTIVE_VALUE") || !strings.Contains(err.Error(), "DISCHARGE_ACTIVE_VALUE") {
