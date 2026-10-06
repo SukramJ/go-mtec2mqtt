@@ -21,7 +21,7 @@ func newRegister(addr uint16, mqtt string, opts ...func(*registers.Register)) *r
 		Length:  1,
 		Scale:   1,
 		Type:    registers.DataU16,
-		Group:   "now-base",
+		Group:   "now_base",
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -255,28 +255,57 @@ func TestProcessOnePassesThroughWhenNoTransform(t *testing.T) {
 	}
 }
 
-// --- formatValue -----------------------------------------------------------
+// --- wireValue -------------------------------------------------------------
 
-func TestFormatValue(t *testing.T) {
+// The `val` of every status object: JSON numbers, booleans and stable
+// tokens, never a formatted or localised string (mqtt-smarthome 2.0 §5,
+// openccu-loom ADR 0083).
+func TestWireValue(t *testing.T) {
+	round2 := func(f float64) float64 { return math.Round(f*100) / 100 }
+	enum := newRegister(10105, "inverter_status", func(r *registers.Register) {
+		r.HassDeviceClass = "enum"
+		r.HassValueItems = map[int]string{2: "on-grid"}
+		r.HassValueItemsDE = map[int]string{2: "Netzbetrieb"}
+	})
+	bits := newRegister(10112, "fault_flag_1", func(r *registers.Register) {
+		r.Type = registers.DataBIT
+		r.HassValueItems = map[int]string{1: "Mains Lost", 8: "DCI Fault"}
+		r.HassValueItemsDE = map[int]string{1: "Netzausfall", 8: "DCI-Fehler"}
+	})
+	sw := newRegister(25100, "grid_inject_switch", func(r *registers.Register) {
+		r.HassComponentType = "switch"
+		r.HassPayloadOn, r.HassPayloadOff = "1", "0"
+	})
+	bareSwitch := newRegister(25101, "bare_switch", func(r *registers.Register) {
+		r.HassComponentType = "binary_sensor"
+	})
+	plain := newRegister(11000, "grid_power")
 	cases := []struct {
-		in   any
-		want string
+		name           string
+		reg            *registers.Register
+		raw, processed any
+		want           any
 	}{
-		{1.5, "1.50"},
-		{-500, "-500"},
-		// U32/S32 registers decode to int64 so a wide counter cannot
-		// overflow on a 32-bit build; the payload must be the plain
-		// number, not an exponent or a truncated value.
-		{int64(4294967295), "4294967295"},
-		{int64(-2147483648), "-2147483648"},
-		{true, "1"},
-		{false, "0"},
-		{"hello", "hello"},
-		{nil, ""},
+		// The token is the ENGLISH label whatever LANGUAGE says; the web
+		// UI's processed value is the localised one and is not published.
+		{"enum token", enum, 2, "Netzbetrieb", "on-grid"},
+		{"enum unmapped", enum, 9, "Unknown", "Unknown"},
+		{"bit field ok", bits, "0000000000000000", "OK", "OK"},
+		{"bit field set", bits, "0000000000001001", "Netzausfall, DCI-Fehler", "Mains Lost, DCI Fault"},
+		{"switch on", sw, 1, 1, true},
+		{"switch off", sw, 0, 0, false},
+		{"switch odd value", sw, 2, 2, false},
+		{"switch without payloads", bareSwitch, 3, 3, true},
+		{"float rounded, still a number", plain, 1.005, 1.005, 1.0},
+		{"float", nil, nil, 230.126, 230.13},
+		{"int64", plain, int64(4294967295), int64(4294967295), int64(4294967295)},
+		{"go bool (synthetic switch)", nil, nil, true, true},
+		{"string", nil, nil, "2026-05-25 14:30:45", "2026-05-25 14:30:45"},
+		{"nil", nil, nil, nil, nil},
 	}
 	for _, tc := range cases {
-		if got := formatValue(tc.in, "%.2f"); got != tc.want {
-			t.Errorf("formatValue(%v): got %q, want %q", tc.in, got, tc.want)
+		if got := wireValue(tc.reg, tc.raw, tc.processed, round2); got != tc.want {
+			t.Errorf("%s: wireValue = %#v, want %#v", tc.name, got, tc.want)
 		}
 	}
 }
@@ -289,7 +318,7 @@ func TestPseudoBase(t *testing.T) {
 		keyInverterAC: 3000, // W from inverter
 		keyGridPower:  -500, // negative = exporting to grid
 	}
-	got, skipped := PseudoRegisters("now-base", data, now)
+	got, skipped := PseudoRegisters("now_base", data, now)
 	if got[keyConsumption] != 3500.0 {
 		t.Fatalf("consumption: %v", got[keyConsumption])
 	}
@@ -309,7 +338,7 @@ func TestPseudoBaseAcceptsWideIntegers(t *testing.T) {
 		keyInverterAC: int64(3000),
 		keyGridPower:  int64(-500),
 	}
-	got, skipped := PseudoRegisters("now-base", data, time.Now())
+	got, skipped := PseudoRegisters("now_base", data, time.Now())
 	if got[keyConsumption] != 3500.0 || len(skipped) != 0 {
 		t.Fatalf("int64 inputs: consumption=%v skipped=%v", got[keyConsumption], skipped)
 	}
@@ -319,7 +348,7 @@ func TestPseudoBaseConsumptionClampedToZero(t *testing.T) {
 	// Inverter idle, grid feeding loads — inverter < grid → negative
 	// raw consumption must clamp to 0 (matches Python max(0, ...)).
 	data := map[string]any{keyInverterAC: 0, keyGridPower: 100}
-	got, _ := PseudoRegisters("now-base", data, time.Now())
+	got, _ := PseudoRegisters("now_base", data, time.Now())
 	if got[keyConsumption] != 0.0 {
 		t.Fatalf("clamp: %v", got[keyConsumption])
 	}
@@ -337,7 +366,7 @@ func TestPseudoBaseSkipsConsumptionOnPartialRead(t *testing.T) {
 		"both missing":       {},
 	} {
 		t.Run(name, func(t *testing.T) {
-			got, skipped := PseudoRegisters("now-base", data, time.Now())
+			got, skipped := PseudoRegisters("now_base", data, time.Now())
 			if _, ok := got[keyConsumption]; ok {
 				t.Errorf("consumption published from an incomplete read: %v", got[keyConsumption])
 			}
@@ -466,7 +495,7 @@ func TestProcessValuesBatch(t *testing.T) {
   type: I32
   unit: W
   mqtt: grid_power
-  group: now-base
+  group: now_base
 `
 	m, _, err := registers.LoadFromString(yaml)
 	if err != nil {

@@ -57,6 +57,8 @@ options:
   mqtt_login: ""
   mqtt_password: ""
   mqtt_topic: MTEC
+  mqtt_maintenance: true
+  mqtt_stats_interval: 60
   hass_enable: true
   hass_unique_id_include_serial: false
   device_name: ""
@@ -78,6 +80,8 @@ schema:
   mqtt_login: "str?"
   mqtt_password: "password?"
   mqtt_topic: str
+  mqtt_maintenance: bool
+  mqtt_stats_interval: int(0,86400)
   hass_enable: bool
   hass_unique_id_include_serial: "bool?"
   device_name: "str?"

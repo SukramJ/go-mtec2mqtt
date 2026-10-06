@@ -16,12 +16,12 @@
 // under "group.<key>"; groups not listed here still render under
 // "System" with a prettified name.
 const GROUPS = {
-  "now-base": "live",
-  "now-grid": "live",
-  "now-inverter": "live",
-  "now-backup": "live",
-  "now-battery": "live",
-  "now-pv": "live",
+  now_base: "live",
+  now_grid: "live",
+  now_inverter: "live",
+  now_backup: "live",
+  now_battery: "live",
+  now_pv: "live",
   day: "energy",
   total: "energy",
   config: "system",

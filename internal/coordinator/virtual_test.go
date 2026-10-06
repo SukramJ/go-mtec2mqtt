@@ -68,7 +68,7 @@ func TestApplyVirtualSwitchesIgnoresMissingTarget(t *testing.T) {
 func TestApplyVirtualSwitchesWrongGroupSkipped(t *testing.T) {
 	c, _ := newVirtualCoord(t)
 	processed := map[string]any{"charge_limit": 50.0}
-	c.applyVirtualSwitches("now-base", processed) // switches live in "config"
+	c.applyVirtualSwitches("now_base", processed) // switches live in "config"
 	if _, ok := processed["charge_active"]; ok {
 		t.Error("switch state must only be derived for its own group")
 	}

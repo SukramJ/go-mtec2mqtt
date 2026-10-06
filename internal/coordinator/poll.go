@@ -11,6 +11,8 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/SukramJ/go-hamqtt/publisher"
+
 	"github.com/SukramJ/go-mtec2mqtt/internal/hass"
 	"github.com/SukramJ/go-mtec2mqtt/internal/registers"
 )
@@ -121,11 +123,15 @@ func (c *Coordinator) publishGroupOnce(ctx context.Context, log *slog.Logger, gr
 	if readErr != nil {
 		log.Warn("coordinator.read_failed", slog.String("err", readErr.Error()))
 	}
+	// A read is the one place the inverter's reachability is observed, so
+	// `<name>/connected` and the device's `online` item follow it here.
+	c.updateUpstream(ctx)
 	if len(raw) == 0 {
 		return
 	}
+	now := c.deps.Now()
 	processed := processValues(c.deps.Catalog, raw, c.deps.Cfg.Language)
-	pseudo, skipped := PseudoRegisters(string(group), processed, c.deps.Now())
+	pseudo, skipped := PseudoRegisters(string(group), processed, now)
 	maps.Copy(processed, pseudo)
 	if len(skipped) > 0 {
 		// A partial read (cluster timeout / reconnect window) leaves one of
@@ -139,51 +145,36 @@ func (c *Coordinator) publishGroupOnce(ctx context.Context, log *slog.Logger, gr
 	c.applyVirtualSwitches(string(group), processed)
 	// Mirror the processed values into the web cache (if enabled) before
 	// publishing — same data the UI and MQTT see, decoupled from broker
-	// availability.
+	// availability. The UI keeps the labels of the configured language;
+	// the wire carries tokens (see wireValue).
 	if c.deps.Store != nil {
-		c.deps.Store.UpdateGroup(string(group), processed, c.deps.Now())
+		c.deps.Store.UpdateGroup(string(group), processed, now)
 	}
 	published, written := 0, 0
 	for key, val := range processed {
 		// One function, not a second fmt.Sprintf: hass.StateTopic is the
 		// same call internal/hass makes for the config's `state_topic`.
-		// Until this release the two sides were independent expressions
-		// (F5 of the phase-6 measurement) and nothing compared them; a
-		// divergence points every entity at a topic nobody writes to,
-		// permanently `unknown`, with nothing in the log.
+		// Two independent expressions for it once drifted (F5 of the
+		// phase-6 measurement); a divergence points every entity at a topic
+		// nobody writes to, permanently `unknown`, with nothing in the log.
 		topic := hass.StateTopic(topicBase.root, topicBase.serial, string(group), key)
-		payload := formatValue(val, c.deps.Cfg.GoFloatVerb())
-		// An empty payload on a *retained* topic is MQTT's retraction: the
-		// broker drops the stored message instead of replacing it, so the
-		// entity's last value would be deleted rather than refreshed. That
-		// is why this guard and the retain flag below are one change and
-		// not two — with retain=false an empty payload was merely inert.
-		// formatValue only yields "" for a nil value, which no current
-		// decode path produces; the guard is what keeps that true by
-		// construction rather than by accident. The library refuses it too
-		// (publisher.ErrEmptyStatePayload), but refusing it here keeps the
+		wire := wireValue(findRegisterByOutputKey(c.deps.Catalog, key), raw[key], val, c.deps.Cfg.RoundFloat)
+		// An empty payload on a *retained* topic is MQTT's retraction, so a
+		// value that is not there is skipped rather than published; the
+		// library refuses a nil status value too
+		// (publisher.ErrNilStatusValue), but refusing it here keeps the
 		// warning that names the topic.
-		if payload == "" {
+		if wire == nil {
 			log.Warn("coordinator.empty_payload_skipped", slog.String("topic", topic))
 			continue
 		}
-		// Through the state plane rather than straight to the client.
-		// Retained and QoS 0 exactly as before (coordinator.StateQoS states
-		// the 0 rather than defaulting to it — publisher.QoS's zero value
-		// means *unset* and resolves to QoS 1, which would have tripled
-		// this bridge's broker traffic silently). What is new is the dedup
-		// gate: a value byte-identical to the one the broker already
-		// retains is not written again. This loop re-published every value
-		// of a group on every cycle — roughly 11 136 messages an hour,
-		// nearly all of them unchanged — and that collapses to the changes
-		// only.
-		//
-		// The payload is still formatValue's bytes rather than
-		// publisher.RenderRawValue's: the float verb is operator-
-		// configurable here (GoFloatVerb) and the library renders a Go
-		// float with %v, so routing the rendering through it would move
-		// bytes the goldens pin.
-		ok, err := c.deps.StatePlane.Publish(ctx, topic, []byte(payload))
+		// A {"val","ts","lc"} status object (mqtt-smarthome §5.2), retained,
+		// at coordinator.StateQoS. The gate compares `val` only: a value
+		// equal to the one the broker already retains is not written again,
+		// whatever its timestamp — the spec's "publish on change", which
+		// collapses roughly 11 136 messages an hour to the changes. `ts` is
+		// this read, `lc` the read that last changed the value.
+		ok, err := c.deps.StatePlane.PublishStatus(ctx, topic, publisher.Observation{Value: wire, At: now})
 		if err != nil {
 			log.Warn("coordinator.publish_failed",
 				slog.String("topic", topic),

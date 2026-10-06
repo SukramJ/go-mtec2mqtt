@@ -6,7 +6,6 @@ package hass
 import (
 	"fmt"
 	"sort"
-	"strconv"
 	"strings"
 
 	hacatalog "github.com/SukramJ/go-ha-catalog"
@@ -38,13 +37,19 @@ import (
 //   - device.identifiers — model.Identifier{Namespace: "", Value: serial},
 //     the bare serial with no namespace at all
 //
-// and the topics by an own [Layout] rather than topic.Default: the latter
-// renders a model.Bucket segment whose vocabulary is paramset names
-// (values/master/calculated/custom) while this bridge's level is a poll
-// group (now-base/day/config/…). The two do not mean the same thing, so
-// the group rides in Slot.Path and Bucket stays unset. This is the second
-// consumer to record that Bucket does not fit; see
-// notes/adr0070-phase6-measurement.md §5.2.
+// and the topics by an own [Layout] over go-hamqtt's topic.SmartHome — the
+// mqtt-smarthome 2.0 grammar `<name>/<function>/<item…>` this bridge
+// follows since 2.0.0 (openccu-loom ADR 0083). The poll group is not a
+// model.Bucket — that vocabulary is paramset names
+// (values/master/calculated/custom) — so the group rides in Slot.Path and
+// Bucket stays unset, which topic.SmartHome renders as no level at all;
+// see notes/adr0070-phase6-measurement.md §5.2.
+//
+// What 2.0.0 changed here is the topics and the payload encoding, never an
+// identity: unique_id, default_entity_id, the device identifiers, the node
+// id and the discovery topic are what they were, and
+// TestSmartHomeMoveKeepsEveryHomeAssistantIdentity proves it against the
+// frozen pre-2.0 document.
 
 // LegacyConfigTopicForm names the [publisher.LegacyTopicFunc] that
 // reproduces this bridge's retained per-entity config topics, and is
@@ -71,53 +76,41 @@ import (
 // nothing publishes a bundle yet; step 6 is what consumes it.
 const LegacyConfigTopicForm = "publisher.LegacyTopicByUniqueID"
 
-// Layout renders this bridge's topic schema for the go-hamqtt hamodel.
+// Layout renders this bridge's topic schema for the go-hamqtt hamodel:
+// mqtt-smarthome 2.0 under the instance name (config.MQTTTopic, "mtec" by
+// default), which is never the Home Assistant discovery prefix — the two
+// are separate roots in this bridge and the identity namespace is a third,
+// constant one.
 //
-// Root is the MQTT publish root (config.MQTTTopic, "MTEC" by default),
-// never the Home Assistant discovery prefix — the two are separate roots
-// in this bridge and the identity namespace is a third, constant one.
+//	<name>/status/<serial>/<group>/<key>   State, a {"val","ts","lc"} object
+//	<name>/set/<serial>/<group>/<key>      Command, the same item path
+//	<name>/status/<serial>/online          Availability, the inverter's reachability
+//	<name>/connected                       Bridge, 0/1/2 — the Last Will writes 0
+//
+// It is topic.SmartHome unchanged: the slot's address is the serial and its
+// path is group and key, which is exactly the item order the library
+// renders. It is a type of its own so the one constructor below is where
+// the name is read.
 type Layout struct {
-	Root string
+	topic.SmartHome
 }
 
-var _ topic.Layout = Layout{}
+var _ topic.SmartHomeLayout = Layout{}
 
-// State implements [topic.Layout]: "<root>/<serial>/<group>/<key>/state".
-func (l Layout) State(s hamodel.Slot) string {
-	return topic.Join(append(l.base(s), "state")...)
-}
-
-// Command implements [topic.Layout]: "<root>/<serial>/<group>/<key>/set".
-func (l Layout) Command(s hamodel.Slot) string {
-	return topic.Join(append(l.base(s), "set")...)
-}
-
-// Availability implements [topic.Layout], the device-level reachability
-// topic: "<root>/<serial>/availability".
+// NewLayout returns the layout for an instance name.
 //
-// Nothing publishes it and nothing references it: every entity this bridge
-// renders declares hamodel.BridgeOnly(), so hamodel.LevelDevice never
-// resolves. It is spelled out anyway because the interface requires it and
-// because an entity that acquired LevelDevice by accident would otherwise
-// render an empty topic — which Home Assistant greys out forever with
-// nothing in the log to say why.
-//
-// "Never resolves" is checked rather than asserted in prose: both render
-// entry points run [discovery.CheckAvailability] against
-// [PublishesAvailabilityTopic], so an entity that reaches LevelDevice fails
-// the render naming itself and this topic.
-func (l Layout) Availability(s hamodel.Slot) string {
-	return topic.Join(l.Root, s.Address, "availability")
-}
-
-// Bridge implements [topic.Layout]: the daemon's own status topic, the
-// same string [BridgeStatusTopic] produces for the publishing side.
-func (l Layout) Bridge() string { return BridgeStatusTopic(l.Root) }
-
-func (l Layout) base(s hamodel.Slot) []string {
-	parts := make([]string, 0, len(s.Path)+2)
-	parts = append(parts, l.Root, s.Address)
-	return append(parts, s.Path...)
+// The name was validated by config.Validate with the same constructor, so
+// the error is unreachable for a loaded config; a name that fails anyway
+// yields the zero layout, which renders no topic at all rather than a
+// wrong one. A multi-level name ("home/mtec") is kept verbatim, as the
+// configured root always was; topic.SmartHome.Conformant reports that it
+// runs outside spec §3.
+func NewLayout(name string) Layout {
+	sh, err := topic.NewSmartHomeMultiLevel(name)
+	if err != nil {
+		return Layout{}
+	}
+	return Layout{SmartHome: sh}
 }
 
 // Entity is one rendered entity: a [hamodel.Basic] plus the two seeds this
@@ -210,12 +203,13 @@ func (c RenderContext) ObjectID(_ *hamodel.Device, e hamodel.Entity) string {
 // inputs as the shipped builder.
 func NewRenderContext(d *Discovery) RenderContext {
 	return RenderContext{
-		Layout: Layout{Root: d.mqttTopic},
+		Layout: NewLayout(d.mqttTopic),
 		Lang:   d.lang,
-		// This bridge publishes a bare scalar, not an envelope, so a
-		// value template is whatever the catalog states and nothing
-		// more.
-		Enc:              discovery.RawEncoding,
+		// mqtt-smarthome 2.0's status object: entities read
+		// `value_json.val`, booleans through `| lower`, and an enum whose
+		// labels differ from its tokens through the library's mapping
+		// pair — tokens on the wire, labels in Home Assistant.
+		Enc:              discovery.StatusObjectEncoding,
 		DeviceSlug:       d.deviceSlug,
 		SerialNo:         d.serialNo,
 		SerialInUniqueID: d.serialInUniqueID,
@@ -276,13 +270,13 @@ func NewEntities(d *Discovery) []hamodel.Entity {
 		}
 		switch platform {
 		case PlatformSensor:
-			out = append(out, sensorEntity(d.serialNo, r))
+			out = append(out, sensorEntity(d.serialNo, r, d.lang))
 		case PlatformBinarySensor:
 			out = append(out, binarySensorEntity(d.serialNo, r))
 		case PlatformNumber:
-			out = append(out, numberEntity(d.serialNo, r), sensorEntity(d.serialNo, r))
+			out = append(out, numberEntity(d.serialNo, r), sensorEntity(d.serialNo, r, d.lang))
 		case PlatformSelect:
-			out = append(out, selectEntity(d.serialNo, r), sensorEntity(d.serialNo, r))
+			out = append(out, selectEntity(d.serialNo, r), sensorEntity(d.serialNo, r, d.lang))
 		case PlatformSwitch:
 			out = append(out, switchEntity(d.serialNo, r), binarySensorEntity(d.serialNo, r))
 		default:
@@ -324,7 +318,7 @@ func Render(d *Discovery) (map[string][]byte, error) {
 		out[cfgTopic] = body
 		comps = append(comps, comp)
 	}
-	if err := discovery.CheckAvailability(PublishesAvailabilityTopic(d.mqttTopic), comps...); err != nil {
+	if err := discovery.CheckAvailability(PublishesAvailabilityTopic(d.mqttTopic, d.serialNo), comps...); err != nil {
 		return nil, fmt.Errorf("hass: %w", err)
 	}
 	return out, nil
@@ -332,43 +326,36 @@ func Render(d *Discovery) (map[string][]byte, error) {
 
 // PublishesAvailabilityTopic is this daemon's answer to
 // [discovery.CheckAvailability]: the set of availability topics it actually
-// writes, which is the one string [BridgeStatusTopic] renders.
+// writes — `<name>/connected` ([ConnectedTopic], the Last Will and the
+// coordinator's 1/2 transitions) and the inverter's own
+// `<name>/status/<serial>/online` ([OnlineTopic]).
 //
 // # Why this exists
 //
-// The zero [hamodel.Availability] resolves to {LevelBridge, LevelDevice}
-// under mode `all`, and LevelDevice resolves through [Layout.Availability]
-// to "<root>/<serial>/availability" — a topic nothing in this daemon ever
-// publishes. Under mode `all` Home Assistant requires EVERY listed source
-// to say `online`, and a source nobody writes is not neutral: one entity
-// that reached the default would be permanently unavailable, and all 100
-// of them if the default reached the shared [hamodel.Description] builder.
-// There would be nothing on the wire and nothing in any log to say why.
-//
-// That invariant is spelled [hamodel.BridgeOnly] at six independent call
-// sites (sensor, binary sensor, number, select, switch, virtual switch).
-// Six spellings need one guard, and until now they had none of their own:
-// the property was held only by the equality tests that compare this path
-// against the shipped builder byte for byte — which is exactly the scaffold
-// ADR 0070 phase 6 exists to delete — and by three regenerable golden
-// files. TestAvailabilityTopicIsOutsideTheDiscoveryTree reads
-// [Discovery.Entries], the shipped builder, so it never saw this path at
-// all; dropping BridgeOnly from a builder here left it green.
+// Under `availability_mode: all` Home Assistant requires EVERY listed
+// source to report available, and a source nobody writes is not neutral:
+// an entity that lists one is permanently unavailable, with nothing on the
+// wire and nothing in any log to say why. Every entity here declares both
+// levels ([bridgeAndDevice]), so the device level now resolves to a topic
+// that must exist — which is what this predicate states, once, for both
+// render entry points to check against.
 //
 // # Why it can fail
 //
-// The predicate is not the function the payload was rendered from. A
-// bridge-level source is rendered by [Layout.Bridge] and a device-level one
-// by [Layout.Availability] — two different renderers producing two
-// different strings — so the check crosses the rendering side against
-// [BridgeStatusTopic], which is the PUBLISHING side's function (main.go's
-// LWT and the coordinator's online publish both call it). Losing
-// BridgeOnly at any of the six sites appends a second entry from the
-// renderer this predicate does not consult, and the render fails naming the
-// entity and the topic instead of greying out the fleet.
-func PublishesAvailabilityTopic(mqttTopic string) func(topic string) bool {
-	bridge := BridgeStatusTopic(mqttTopic)
-	return func(t string) bool { return t == bridge }
+// The predicate is not the function the payload was rendered from. The
+// rendering side goes through [Layout.Bridge] and [Layout.Availability];
+// this goes through [ConnectedTopic] and [OnlineTopic], the PUBLISHING
+// side's functions (the runtime's will and the coordinator's online item).
+// A renderer that drifted from what is published fails the render naming
+// the entity and the topic instead of greying out the fleet. Before the
+// STATIC read the serial is unknown and no online topic is claimed.
+func PublishesAvailabilityTopic(mqttTopic, serial string) func(topic string) bool {
+	connected := ConnectedTopic(mqttTopic)
+	online := ""
+	if serial != "" {
+		online = OnlineTopic(mqttTopic, serial)
+	}
+	return func(t string) bool { return t == connected || (online != "" && t == online) }
 }
 
 // RenderBundle renders the same entities as one device bundle — the shape
@@ -380,11 +367,9 @@ func RenderBundle(d *Discovery, origin discovery.Origin) (*discovery.Bundle, err
 	if err != nil {
 		return nil, err
 	}
-	// The same guard [Render] applies, over the document shape. See
-	// [PublishesAvailabilityTopic]: the six hamodel.BridgeOnly sites are
-	// what keeps hamodel.LevelDevice from resolving to a topic nothing
-	// publishes, and this is where that is checked rather than assumed.
-	if err := discovery.CheckBundleAvailability(b, PublishesAvailabilityTopic(d.mqttTopic)); err != nil {
+	// The same guard [Render] applies, over the document shape: every
+	// availability source an entity names is one this daemon publishes.
+	if err := discovery.CheckBundleAvailability(b, PublishesAvailabilityTopic(d.mqttTopic, d.serialNo)); err != nil {
 		return nil, fmt.Errorf("hass: %w", err)
 	}
 	return b, nil
@@ -421,11 +406,23 @@ func localized(en, de string) hamodel.Localized {
 	return l
 }
 
-// valueItemsEnum turns a register's value items into a hamodel.Enum whose
+// ValueItemsEnum turns a register's value items into a hamodel.Enum whose
 // codes are ordered the way the shipped builder orders them: by numeric
 // code, ascending. extra is appended verbatim (the literal "Unknown" an
 // enum sensor's option list ends with, in every language).
-func valueItemsEnum(r *registers.Register, extra ...string) *hamodel.Enum {
+//
+// Each code is the register's ENGLISH label — the stable token this bridge
+// publishes as `val` since 2.0.0 and accepts on `set` — and carries its
+// German label as the translation. Under the status-object encoding the
+// library therefore lists the labels of the configured language in
+// `options` and maps token to label and back in the value and command
+// templates; for English the token is the label and no mapping is needed.
+// The Modbus integer stays out of the topic tree: it is the device's
+// encoding, not a word a consumer should have to look up.
+//
+// Exported because the coordinator's `set` path resolves a token, a label
+// in either language, or a code against the same enum.
+func ValueItemsEnum(r *registers.Register, extra ...string) *hamodel.Enum {
 	codes := make([]int, 0, len(r.HassValueItems))
 	for c := range r.HassValueItems {
 		codes = append(codes, c)
@@ -434,28 +431,114 @@ func valueItemsEnum(r *registers.Register, extra ...string) *hamodel.Enum {
 	enum := &hamodel.Enum{Labels: map[string]hamodel.Localized{}}
 	de := r.LocalizedValueItems("de")
 	for _, c := range codes {
-		key := strconv.Itoa(c)
-		enum.Codes = append(enum.Codes, key)
-		enum.Labels[key] = localized(r.HassValueItems[c], de[c])
+		token := r.HassValueItems[c]
+		enum.Codes = append(enum.Codes, token)
+		enum.Labels[token] = localized(token, de[c])
 	}
 	enum.Codes = append(enum.Codes, extra...)
 	return enum
 }
 
-func sensorEntity(serial string, r *registers.Register) *Entity {
+// bridgeAndDevice is the availability every entity declares: the daemon's
+// `<name>/connected` (available at 2, the inverter reachable) AND the
+// inverter's own `<name>/status/<serial>/online`, under mode `all`.
+//
+// It is the library's default, spelled out rather than inherited, because
+// the default is only right for a consumer that publishes both topics —
+// which this one does since 2.0.0, and [PublishesAvailabilityTopic] checks.
+func bridgeAndDevice() hamodel.Availability {
+	return hamodel.Availability{
+		Levels: []hamodel.AvailabilityLevel{hamodel.LevelBridge, hamodel.LevelDevice},
+		Mode:   hamodel.AvailabilityAll,
+	}
+}
+
+// boolFields are the on/off payloads of every switch and binary sensor:
+// the plain booleans of mqtt-smarthome §5.1, which is what `val` carries
+// and what discovery.StatusBoolValueTemplate renders it as. The catalog's
+// hass_payload_on/off ("1"/"0") are the REGISTER's raw on and off values,
+// which the coordinator reads and writes; they no longer reach Home
+// Assistant.
+var (
+	boolSensorFields = discovery.BinarySensorFields{PayloadOn: discovery.PayloadTrue, PayloadOff: discovery.PayloadFalse}
+	boolSwitchFields = discovery.SwitchFields{PayloadOn: discovery.PayloadTrue, PayloadOff: discovery.PayloadFalse}
+)
+
+// StatusTemplate adapts a catalog value template to the status object.
+//
+// registers.yaml writes its templates against the plain value — `{{ value
+// | round(1) }}` — because that is what a reader of the catalog thinks in,
+// and an operator's own catalog from an earlier release is written that
+// way too. Since 2.0.0 the payload is `{"val": …}`, so every bare `value`
+// identifier is read as `value_json.val`; an identifier that already says
+// `value_json` is left alone.
+func StatusTemplate(t string) string {
+	const ident = "value"
+	isWord := func(b byte) bool {
+		return b == '_' || b == '.' || (b >= '0' && b <= '9') || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
+	}
+	var b strings.Builder
+	for i := 0; i < len(t); {
+		if strings.HasPrefix(t[i:], ident) &&
+			(i == 0 || !isWord(t[i-1])) &&
+			(i+len(ident) == len(t) || !isWord(t[i+len(ident)])) {
+			b.WriteString("value_json.val")
+			i += len(ident)
+			continue
+		}
+		b.WriteByte(t[i])
+		i++
+	}
+	return b.String()
+}
+
+// bitFieldTemplate maps the published English fault names of a BIT
+// register — "OK", or a comma-separated list of active flags — onto the
+// labels of lang, so a German Home Assistant keeps showing German fault
+// names while the wire carries the language-independent tokens. Empty when
+// no label differs from its token (English), and then the library's plain
+// `{{ value_json.val }}` applies.
+func bitFieldTemplate(r *registers.Register, lang string) string {
+	if r.Type != registers.DataBIT || len(r.HassValueItems) == 0 {
+		return ""
+	}
+	enum := ValueItemsEnum(r)
+	var m strings.Builder
+	differs := false
+	for i, token := range enum.Codes {
+		label := enum.Label(token, lang)
+		differs = differs || label != token
+		if i > 0 {
+			m.WriteString(", ")
+		}
+		m.WriteString(discovery.JinjaQuote(token) + ": " + discovery.JinjaQuote(label))
+	}
+	if !differs {
+		return ""
+	}
+	return `{% set m = {` + m.String() + `} %}` +
+		`{% if value_json is defined and value_json.val is string %}` +
+		`{% set ns = namespace(out=[]) %}` +
+		`{% for t in value_json.val.split(', ') %}{% set ns.out = ns.out + [m.get(t, t)] %}{% endfor %}` +
+		`{{ ns.out | join(', ') }}{% endif %}`
+}
+
+func sensorEntity(serial string, r *registers.Register, lang string) *Entity {
 	desc := hamodel.Description{
 		Name:         localized(r.Name, r.NameDE),
 		DeviceClass:  hamodel.DeviceClass(r.HassDeviceClass),
 		StateClass:   hacatalog.StateClass(r.HassStateClass),
 		Unit:         hamodel.Unit(r.Unit),
 		Enabled:      new(true),
-		Availability: hamodel.BridgeOnly(),
+		Availability: bridgeAndDevice(),
 	}
 	if r.HassValueTemplate != "" {
-		desc.ValueTemplate = r.HassValueTemplate
+		desc.ValueTemplate = StatusTemplate(r.HassValueTemplate)
+	} else if t := bitFieldTemplate(r, lang); t != "" {
+		desc.ValueTemplate = t
 	}
 	if r.HassDeviceClass == "enum" && len(r.HassValueItems) > 0 {
-		desc.Options = valueItemsEnum(r, "Unknown")
+		desc.Options = ValueItemsEnum(r, "Unknown")
 		if r.Unit == "" {
 			desc.Unit = ""
 		}
@@ -488,15 +571,12 @@ func binarySensorEntity(serial string, r *registers.Register) *Entity {
 			Name:         localized(r.Name, r.NameDE),
 			DeviceClass:  hamodel.DeviceClass(r.HassDeviceClass),
 			Enabled:      new(true),
-			Availability: hamodel.BridgeOnly(),
+			Availability: bridgeAndDevice(),
 		},
-		Binds:        readBinds(slot(serial, r)),
-		UniqueIDSeed: r.MQTT,
-		EntityIDSeed: r.Name,
-		PlatformFields: discovery.BinarySensorFields{
-			PayloadOn:  r.HassPayloadOn,
-			PayloadOff: r.HassPayloadOff,
-		},
+		Binds:          readBinds(slot(serial, r)),
+		UniqueIDSeed:   r.MQTT,
+		EntityIDSeed:   r.Name,
+		PlatformFields: boolSensorFields,
 	}
 }
 
@@ -509,7 +589,7 @@ func numberEntity(serial string, r *registers.Register) *Entity {
 			DeviceClass:  hamodel.DeviceClass(r.HassDeviceClass),
 			Unit:         hamodel.Unit(r.Unit),
 			Enabled:      new(false),
-			Availability: hamodel.BridgeOnly(),
+			Availability: bridgeAndDevice(),
 		},
 		Binds:          readWriteBinds(slot(serial, r)),
 		UniqueIDSeed:   r.MQTT,
@@ -524,9 +604,9 @@ func selectEntity(serial string, r *registers.Register) *Entity {
 		EntityPlatform: hacatalog.Platform(PlatformSelect),
 		Description: hamodel.Description{
 			Name:         localized(r.Name, r.NameDE),
-			Options:      valueItemsEnum(r),
+			Options:      ValueItemsEnum(r),
 			Enabled:      new(false),
-			Availability: hamodel.BridgeOnly(),
+			Availability: bridgeAndDevice(),
 		},
 		Binds:        readWriteBinds(slot(serial, r)),
 		UniqueIDSeed: r.MQTT,
@@ -542,15 +622,12 @@ func switchEntity(serial string, r *registers.Register) *Entity {
 			Name:         localized(r.Name, r.NameDE),
 			DeviceClass:  hamodel.DeviceClass(r.HassDeviceClass),
 			Enabled:      new(false),
-			Availability: hamodel.BridgeOnly(),
+			Availability: bridgeAndDevice(),
 		},
-		Binds:        readWriteBinds(slot(serial, r)),
-		UniqueIDSeed: r.MQTT,
-		EntityIDSeed: r.Name,
-		PlatformFields: discovery.SwitchFields{
-			PayloadOn:  r.HassPayloadOn,
-			PayloadOff: r.HassPayloadOff,
-		},
+		Binds:          readWriteBinds(slot(serial, r)),
+		UniqueIDSeed:   r.MQTT,
+		EntityIDSeed:   r.Name,
+		PlatformFields: boolSwitchFields,
 	}
 }
 
@@ -566,12 +643,12 @@ func virtualSwitchEntity(serial string, v VirtualSwitch) *Entity {
 			// pinned as current behaviour and must not move inside a
 			// migration step.
 			Enabled:      new(true),
-			Availability: hamodel.BridgeOnly(),
+			Availability: bridgeAndDevice(),
 		},
 		Binds:          readWriteBinds(s),
 		UniqueIDSeed:   v.Key,
 		EntityIDSeed:   v.Name,
-		PlatformFields: discovery.SwitchFields{PayloadOn: "1", PayloadOff: "0"},
+		PlatformFields: boolSwitchFields,
 	}
 }
 
@@ -651,38 +728,54 @@ func LegacyConfigTopicForms() []publisher.LegacyTopicFunc {
 }
 
 // StateTopic is the topic a register's current value is published to:
-// "<root>/<serial>/<group>/<key>/state".
+// "<name>/status/<serial>/<group>/<key>".
 //
 // One function, three callers — the config builder's `state_topic`, the
-// poll loop's publish, and the topic golden — because until this release
-// there were two independent expressions for it (an fmt.Sprintf in
-// internal/hass and another in internal/coordinator) and nothing compared
-// them. That is F5 of the phase-6 measurement, and the failure mode is
-// silent in both directions: every entity points at a topic nobody
-// publishes to, permanently `unknown`, with nothing in the log.
+// poll loop's publish, and the topic golden — because there used to be two
+// independent expressions for it (an fmt.Sprintf in internal/hass and
+// another in internal/coordinator) and nothing compared them. That is F5
+// of the phase-6 measurement, and the failure mode is silent in both
+// directions: every entity points at a topic nobody publishes to,
+// permanently `unknown`, with nothing in the log.
 //
 // It renders through [Layout] rather than by concatenation so the shipped
 // builder and the go-hamqtt path cannot disagree either.
 func StateTopic(root, serial, group, key string) string {
-	return Layout{Root: root}.State(stateSlot(serial, group, key))
+	return NewLayout(root).State(stateSlot(serial, group, key))
 }
 
 // CommandTopic is the topic Home Assistant writes a writable entity's new
-// value to: "<root>/<serial>/<group>/<key>/set". The inbound twin of
-// [StateTopic], and one function for the same reason.
+// value to: "<name>/set/<serial>/<group>/<key>", the same item path as
+// [StateTopic]. The inbound twin of it, and one function for the same
+// reason.
 func CommandTopic(root, serial, group, key string) string {
-	return Layout{Root: root}.Command(stateSlot(serial, group, key))
+	return NewLayout(root).Command(stateSlot(serial, group, key))
 }
 
 // CommandFilter is the MQTT topic filter this daemon subscribes for
-// inbound commands: "<root>/+/+/+/set".
+// inbound register commands: "<name>/set/+/+/+" (serial, group, key).
 //
 // Exported because three readers need the same string and used to hold
 // three literals: the subscription itself, the command router's route,
 // and publisher.StateConfig.CommandFilters — the guard that refuses a
 // state publish which would land inside this process's own command
 // subscription and be echoed straight back into its own handler.
-func CommandFilter(root string) string { return root + "/+/+/+/set" }
+func CommandFilter(root string) string {
+	return NewLayout(root).Name() + "/" + topic.FunctionSet + "/+/+/+"
+}
+
+// ConnectedTopic is `<name>/connected`, the daemon's own 0/1/2 marker:
+// 0 from the Last Will and on a graceful stop, 1 while the broker is
+// reachable and the inverter is not, 2 while both are. Every entity's
+// bridge-level availability reads it.
+func ConnectedTopic(root string) string { return NewLayout(root).Connected() }
+
+// OnlineTopic is `<name>/status/<serial>/online`, the inverter's own
+// reachability as a boolean status item. Every entity's device-level
+// availability reads it.
+func OnlineTopic(root, serial string) string {
+	return NewLayout(root).Availability(hamodel.Slot{Address: serial})
+}
 
 func stateSlot(serial, group, key string) hamodel.Slot {
 	return hamodel.Slot{Address: serial, Path: []string{group, key}}

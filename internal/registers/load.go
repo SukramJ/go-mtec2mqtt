@@ -305,6 +305,18 @@ func parse(r io.Reader, source string) (*Map, []string, error) {
 			seenAddr[uint16(addr)] = key
 		}
 
+		// A catalog written for a release before 2.0.0 names the six live
+		// groups with a hyphen. The poll loops ask for the snake_case
+		// constants, so such a group would be polled by nobody and its
+		// registers would silently stop publishing; accept the old
+		// spelling and say so instead.
+		if g, ok := groupFromLegacy(reg.Group); ok {
+			diagnostics = append(diagnostics,
+				fmt.Sprintf("keep %q: group %q is the pre-2.0.0 spelling of %q; "+
+					"update registers.yaml", key, reg.Group, g))
+			reg.Group = g
+		}
+
 		// The mqtt suffix (or, when it is empty, the register name) and
 		// the group become MQTT topic segments verbatim. Wildcards make
 		// every publish fail client-side; a '/' adds topic levels that

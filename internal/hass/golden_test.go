@@ -409,8 +409,8 @@ func TestEveryPayloadDeclaresBridgeAvailability(t *testing.T) {
 func TestAvailabilityTopicIsOutsideTheDiscoveryTree(t *testing.T) {
 	const hassBase, mqttRoot = "homeassistant", "MTEC"
 
-	if got := BridgeStatusTopic(mqttRoot); got != "MTEC/bridge/status" {
-		t.Fatalf("BridgeStatusTopic(%q) = %q, want MTEC/bridge/status", mqttRoot, got)
+	if got := LegacyBridgeStatusTopic(mqttRoot); got != "MTEC/bridge/status" {
+		t.Fatalf("LegacyBridgeStatusTopic(%q) = %q, want MTEC/bridge/status", mqttRoot, got)
 	}
 	m, _, err := registers.Load("../../registers.yaml")
 	if err != nil {
@@ -432,7 +432,7 @@ func TestAvailabilityTopicIsOutsideTheDiscoveryTree(t *testing.T) {
 		if !strings.HasPrefix(topic, mqttRoot+"/") {
 			t.Errorf("%s: availability topic %q is not under this daemon's publish root", e.Topic, topic)
 		}
-		if topic != BridgeStatusTopic(mqttRoot) {
+		if topic != LegacyBridgeStatusTopic(mqttRoot) {
 			t.Errorf("%s: availability topic %q is not the one the daemon publishes", e.Topic, topic)
 		}
 	}

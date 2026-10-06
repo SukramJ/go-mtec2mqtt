@@ -172,6 +172,10 @@ func diffBundleBodies(t *testing.T, want, got map[string]any) {
 //   - `device` is REMOVED from every entity and appears ONCE at the top of
 //     the document, byte-identical to the block all 100 repeated.
 //
+// Since 2.0.0 the keys mqtt-smarthome 2.0 moved — topics, availability,
+// templates, on/off payloads — differ too, and are checked to their 2.0
+// values by assertTheMoveChangesOnlyTheSmartHomeKeys.
+//
 // `unique_id` above all must not move: it is what Home Assistant keys its
 // entity registry on, and every rename, area assignment, icon override and
 // automation reference a user has made is keyed on it. Nothing is re-keyed
@@ -242,10 +246,9 @@ func TestTheMoveChangesOnlyTheTopicTheDeviceBlockAndTheOrigin(t *testing.T) {
 				maps.Copy(now, comp)
 				delete(now, "platform")
 
-				if wb, gb := canonical(t, was), canonical(t, now); !bytes.Equal(wb, gb) {
-					t.Errorf("%s: the body changed beyond `platform` and `device`:\n"+
-						" frozen: %s\n    now: %s", e.Topic, wb, gb)
-				}
+				// Beyond `platform` and `device`, only the keys 2.0.0 moved
+				// (mqtt-smarthome 2.0), and those to exactly their 2.0 values.
+				assertTheMoveChangesOnlyTheSmartHomeKeys(t, e.Topic, was, now)
 				if got, _ := now["unique_id"].(string); got != uniqueID {
 					t.Errorf("%s: unique_id = %q, want %q — re-keying orphans every "+
 						"rename, area and automation a user has made", e.Topic, got, uniqueID)

@@ -7,9 +7,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
+	"strings"
 	"testing"
 
 	hacatalog "github.com/SukramJ/go-ha-catalog"
@@ -20,12 +23,16 @@ import (
 	"github.com/SukramJ/go-mtec2mqtt/internal/registers"
 )
 
-// This file is the experiment ADR 0070 phase 6 step 3 exists to run: does
-// github.com/SukramJ/go-hamqtt reproduce, byte for byte, the discovery
-// payloads this bridge publishes today — while publishing nothing?
+// This file began as the experiment ADR 0070 phase 6 step 3 existed to run:
+// does github.com/SukramJ/go-hamqtt reproduce, byte for byte, the discovery
+// payloads this bridge published — while publishing nothing? Since 2.0.0
+// (mqtt-smarthome 2.0) the library renders the new topics and the status
+// object's templates, so the question it asks now is narrower and just as
+// strict: does the library change ONLY those keys?
 //
-// The answer is asserted against internal/hass/testdata/*.json, the pins
-// steps 0-2 established, and never against the parallel path's own output.
+// The answer is asserted against internal/hass/testdata/*.json, the
+// pre-2.0 pins steps 0-2 established, and never against the parallel
+// path's own output.
 // A test that compared the library against itself would pass every
 // mutation. The goldens are NEVER regenerated from here: this file has no
 // -update flag and calls nothing that writes.
@@ -45,14 +52,91 @@ func libraryBodies(t *testing.T, d *Discovery) map[string][]byte {
 	return got
 }
 
-// TestLibraryReproducesThePinnedPayloads is the experiment's headline: all
-// 100 payloads in both shipped languages, compared against the pinned
-// goldens rather than against the live builder.
-//
-// 200 comparisons. Each is a canonical re-encoding of both sides, so
-// formatting cannot hide a value change and a value change cannot hide
-// behind formatting.
-func TestLibraryReproducesThePinnedPayloads(t *testing.T) {
+// smartHomeKeys are the payload keys 2.0.0 moved (mqtt-smarthome 2.0,
+// openccu-loom ADR 0083): the topics, the availability list, the value and
+// command templates that read the status object, and the on/off payloads
+// that became plain booleans. Everything else in a payload — every
+// identity, name, unit, class, option list and the device block — is
+// unchanged, and the tests below hold it to the pinned bytes.
+var smartHomeKeys = []string{
+	"state_topic", "command_topic", "availability", "availability_mode",
+	"value_template", "command_template", "payload_on", "payload_off",
+}
+
+// withoutSmartHomeKeys returns a copy of payload without [smartHomeKeys].
+func withoutSmartHomeKeys(payload map[string]any) map[string]any {
+	out := make(map[string]any, len(payload))
+	for k, v := range payload {
+		out[k] = v
+	}
+	for _, k := range smartHomeKeys {
+		delete(out, k)
+	}
+	return out
+}
+
+// assertTheMoveChangesOnlyTheSmartHomeKeys compares one pre-2.0 payload
+// (pinned, or the frozen builder's) with the library's 2.0 rendering of the
+// same entity: identical outside [smartHomeKeys], and inside them exactly
+// the 2.0 values — topics re-pointed from `<root>/<serial>/<group>/<key>/state`
+// to `<root>/status/<serial>/<group>/<key>` (the group in its snake_case
+// spelling), both availability sources, templates reading `value_json.val`,
+// and booleans as true/false.
+func assertTheMoveChangesOnlyTheSmartHomeKeys(t *testing.T, cfgTopic string, old, got map[string]any) {
+	t.Helper()
+	if wb, gb := canonical(t, withoutSmartHomeKeys(old)), canonical(t, withoutSmartHomeKeys(got)); !bytes.Equal(wb, gb) {
+		t.Errorf("%s: a key outside the 2.0 move changed\n pre-2.0: %s\n     2.0: %s", cfgTopic, wb, gb)
+		return
+	}
+	newTopic := func(oldTopic, suffix string) string {
+		parts := splitTopic(oldTopic) // <root>/<serial>/<group>/<key>/<suffix>
+		if len(parts) != 5 || parts[4] != suffix {
+			t.Fatalf("%s: %q is not a pre-2.0 %s topic", cfgTopic, oldTopic, suffix)
+		}
+		group := strings.ReplaceAll(parts[2], "-", "_")
+		if suffix == "set" {
+			return CommandTopic(parts[0], parts[1], group, parts[3])
+		}
+		return StateTopic(parts[0], parts[1], group, parts[3])
+	}
+	if st, ok := old["state_topic"].(string); ok {
+		if want := newTopic(st, "state"); got["state_topic"] != want {
+			t.Errorf("%s: state_topic %v, want %q", cfgTopic, got["state_topic"], want)
+		}
+		if vt, _ := got["value_template"].(string); !strings.Contains(vt, "value_json.val") {
+			t.Errorf("%s: value_template %q does not read the status object's val", cfgTopic, vt)
+		}
+	}
+	if ct, ok := old["command_topic"].(string); ok {
+		if want := newTopic(ct, "set"); got["command_topic"] != want {
+			t.Errorf("%s: command_topic %v, want %q", cfgTopic, got["command_topic"], want)
+		}
+	}
+	if _, ok := old["payload_on"]; ok {
+		if got["payload_on"] != "true" || got["payload_off"] != "false" {
+			t.Errorf("%s: payload_on/off %v/%v, want true/false", cfgTopic, got["payload_on"], got["payload_off"])
+		}
+	}
+	avail, _ := got["availability"].([]any)
+	var topics []string
+	for _, a := range avail {
+		entry, _ := a.(map[string]any)
+		topics = append(topics, fmt.Sprint(entry["topic"]))
+	}
+	root, serial := splitTopic(fmt.Sprint(old["state_topic"]))[0], splitTopic(fmt.Sprint(old["state_topic"]))[1]
+	if want := []string{ConnectedTopic(root), OnlineTopic(root, serial)}; !slices.Equal(topics, want) {
+		t.Errorf("%s: availability topics %v, want %v", cfgTopic, topics, want)
+	}
+	if got["availability_mode"] != "all" {
+		t.Errorf("%s: availability_mode %v, want all", cfgTopic, got["availability_mode"])
+	}
+}
+
+// TestLibraryChangesOnlyTheSmartHomeKeysOfThePinnedPayloads holds the
+// library's rendering of all 100 entities in both shipped languages to the
+// pinned pre-2.0 goldens: byte-equal (canonically re-encoded) outside the
+// keys 2.0.0 moved, and exactly the 2.0 values inside them.
+func TestLibraryChangesOnlyTheSmartHomeKeysOfThePinnedPayloads(t *testing.T) {
 	for _, lang := range []string{"en", "de"} {
 		t.Run(lang, func(t *testing.T) {
 			pinned := readPinnedEntries(t, "discovery_"+lang+".json")
@@ -61,7 +145,6 @@ func TestLibraryReproducesThePinnedPayloads(t *testing.T) {
 			if len(got) != len(pinned) {
 				t.Errorf("rendered %d payloads, pinned %d", len(got), len(pinned))
 			}
-			matched := 0
 			for _, want := range pinned {
 				raw, ok := got[want.Topic]
 				if !ok {
@@ -73,55 +156,12 @@ func TestLibraryReproducesThePinnedPayloads(t *testing.T) {
 					t.Errorf("%s: library payload is not valid json: %v", want.Topic, err)
 					continue
 				}
-				wb, gb := canonical(t, want.Payload), canonical(t, payload)
-				if !bytes.Equal(wb, gb) {
-					t.Errorf("%s: the library does not reproduce the pinned payload\n pinned: %s\nlibrary: %s",
-						want.Topic, wb, gb)
-					continue
-				}
-				matched++
+				assertTheMoveChangesOnlyTheSmartHomeKeys(t, want.Topic, want.Payload, payload)
 			}
 			for cfgTopic := range got {
 				if !pinnedHasTopic(pinned, cfgTopic) {
 					t.Errorf("%s: the library renders a config topic that is not pinned", cfgTopic)
 				}
-			}
-			if matched != 100 {
-				t.Errorf("byte-equal payloads: %d of 100", matched)
-			}
-		})
-	}
-}
-
-// TestLibraryReproducesTheShippedBytesExactly is the stricter half of the
-// same question, and it is not redundant.
-//
-// The test above compares decoded documents, which is the right question
-// for "does Home Assistant receive the same configuration". This one
-// compares the raw bytes the two paths hand to the MQTT client. Both
-// encode a map with encoding/json, so key order is sorted on both sides
-// and the bytes are comparable — which makes "byte-for-byte" a literal
-// claim rather than a figure of speech.
-func TestLibraryReproducesTheShippedBytesExactly(t *testing.T) {
-	for _, lang := range []string{"en", "de"} {
-		t.Run(lang, func(t *testing.T) {
-			d := realDiscovery(t, lang)
-			got := libraryBodies(t, d)
-			n := 0
-			for _, e := range d.Entries() {
-				raw, ok := got[e.ConfigTopic]
-				if !ok {
-					t.Errorf("%s: not rendered by the library", e.ConfigTopic)
-					continue
-				}
-				if !bytes.Equal(raw, e.Payload) {
-					t.Errorf("%s: bytes differ\n shipped: %s\n library: %s", e.ConfigTopic, e.Payload, raw)
-					continue
-				}
-				n++
-			}
-			if n != 100 {
-				t.Errorf("byte-identical payloads: %d of 100", n)
 			}
 		})
 	}
@@ -171,7 +211,8 @@ func TestLibraryReproducesThePinnedIdentity(t *testing.T) {
 // which is the blind spot this programme keeps finding the expensive way.
 // The umlaut rows are deliberate: they are where this package's slugify
 // and the library's topic.Slug disagree, and the parallel path must use
-// the former.
+// the former. The reference is the frozen pre-2.0 builder, and only the
+// keys 2.0.0 moved may differ from it.
 func TestLibraryReproducesTheDeviceNameVariants(t *testing.T) {
 	m, _, err := registers.Load("../../registers.yaml")
 	if err != nil {
@@ -196,16 +237,23 @@ func TestLibraryReproducesTheDeviceNameVariants(t *testing.T) {
 			d.Initialize(goldenSerial, goldenFirmware, goldenEquipment)
 
 			got := libraryBodies(t, d)
-			n := 0
+			if len(got) != len(d.Entries()) {
+				t.Errorf("rendered %d payloads, the frozen builder %d", len(got), len(d.Entries()))
+			}
 			for _, e := range d.Entries() {
-				if !bytes.Equal(got[e.ConfigTopic], e.Payload) {
-					t.Errorf("%s: bytes differ\n shipped: %s\n library: %s", e.ConfigTopic, e.Payload, got[e.ConfigTopic])
+				raw, ok := got[e.ConfigTopic]
+				if !ok {
+					t.Errorf("%s: not rendered by the library", e.ConfigTopic)
 					continue
 				}
-				n++
-			}
-			if n != len(d.Entries()) {
-				t.Errorf("byte-identical payloads: %d of %d", n, len(d.Entries()))
+				var old, payload map[string]any
+				if err := json.Unmarshal(e.Payload, &old); err != nil {
+					t.Fatal(err)
+				}
+				if err := json.Unmarshal(raw, &payload); err != nil {
+					t.Fatal(err)
+				}
+				assertTheMoveChangesOnlyTheSmartHomeKeys(t, e.ConfigTopic, old, payload)
 			}
 		})
 	}
@@ -396,34 +444,37 @@ func TestLegacyTopicFormMatchesThePinnedTopics(t *testing.T) {
 }
 
 // TestLayoutRendersThisBridgesTopics pins the Layout directly, including
-// the three things the payload comparison cannot reach.
-//
-// A mutation that flips Slot.Bucket or Slot.Channel changes nothing in any
-// rendered payload, because this bridge's Layout ignores both — the poll
-// group rides in Slot.Path and there is no channel level. Ignoring them is
-// the deliberate decision (model.Bucket's vocabulary is paramset names,
-// this bridge's level is a poll group), so it is asserted rather than left
-// as a blind spot. The pilot found the same of Slot.Bucket and turned it
-// into an explicit assertion; this is the second consumer to record it.
-//
-// Layout.Availability is likewise unreachable from any payload — every
-// entity declares model.BridgeOnly(), so model.LevelDevice never resolves
-// — and is asserted for the same reason.
+// the things the payload comparison cannot reach: the mqtt-smarthome 2.0
+// grammar `<name>/<function>/<item…>`, and that Slot.Bucket and
+// Slot.Channel are inert for this bridge — the poll group rides in
+// Slot.Path and there is no channel level. Ignoring them is the deliberate
+// decision (model.Bucket's vocabulary is paramset names, this bridge's
+// level is a poll group), so it is asserted rather than left as a blind
+// spot.
 func TestLayoutRendersThisBridgesTopics(t *testing.T) {
-	l := Layout{Root: "MTEC"}
-	s := hamodel.Slot{Address: goldenSerial, Path: []string{"now-base", "grid_power"}}
+	l := NewLayout("MTEC")
+	s := hamodel.Slot{Address: goldenSerial, Path: []string{"now_base", "grid_power"}}
 
-	if got, want := l.State(s), "MTEC/MT1234567890/now-base/grid_power/state"; got != want {
-		t.Errorf("State = %q, want %q", got, want)
-	}
-	if got, want := l.Command(s), "MTEC/MT1234567890/now-base/grid_power/set"; got != want {
-		t.Errorf("Command = %q, want %q", got, want)
-	}
-	if got, want := l.Bridge(), BridgeStatusTopic("MTEC"); got != want {
-		t.Errorf("Bridge = %q, want %q — the entities would reference a topic nothing publishes", got, want)
-	}
-	if got, want := l.Availability(s), "MTEC/MT1234567890/availability"; got != want {
-		t.Errorf("Availability = %q, want %q", got, want)
+	for _, tc := range []struct{ name, got, want string }{
+		{"State", l.State(s), "MTEC/status/MT1234567890/now_base/grid_power"},
+		{"Command", l.Command(s), "MTEC/set/MT1234567890/now_base/grid_power"},
+		{"Availability", l.Availability(s), "MTEC/status/MT1234567890/online"},
+		{"Bridge", l.Bridge(), "MTEC/connected"},
+		{"Connected", l.Connected(), "MTEC/connected"},
+		{"Info", l.Info(), "MTEC/info"},
+		{"Maintenance", l.Maintenance("stats"), "MTEC/maintenance/stats"},
+		{"StateTopic", StateTopic("MTEC", goldenSerial, "now_base", "grid_power"), "MTEC/status/MT1234567890/now_base/grid_power"},
+		{"CommandTopic", CommandTopic("MTEC", goldenSerial, "config", "mode"), "MTEC/set/MT1234567890/config/mode"},
+		{"CommandFilter", CommandFilter("MTEC"), "MTEC/set/+/+/+"},
+		{"ConnectedTopic", ConnectedTopic("mtec"), "mtec/connected"},
+		{"OnlineTopic", OnlineTopic("mtec", goldenSerial), "mtec/status/MT1234567890/online"},
+		{"LegacyStateTopic", LegacyStateTopic("MTEC", goldenSerial, registers.GroupBase, "grid_power"), "MTEC/MT1234567890/now-base/grid_power/state"},
+		{"LegacyCommandTopic", LegacyCommandTopic("MTEC", goldenSerial, registers.GroupConfig, "mode"), "MTEC/MT1234567890/config/mode/set"},
+		{"LegacyBridgeStatusTopic", LegacyBridgeStatusTopic("MTEC"), "MTEC/bridge/status"},
+	} {
+		if tc.got != tc.want {
+			t.Errorf("%s = %q, want %q", tc.name, tc.got, tc.want)
+		}
 	}
 
 	// Bucket and Channel are inert for this bridge, by decision.
@@ -433,25 +484,29 @@ func TestLayoutRendersThisBridgesTopics(t *testing.T) {
 	} {
 		withBucket := s
 		withBucket.Bucket = b
-		if got := l.State(withBucket); got != l.State(s) {
-			t.Errorf("Bucket %v changes the state topic: %q — this bridge's level is a poll group, not a paramset", b, got)
+		if b != hamodel.BucketUnset && l.State(withBucket) == l.State(s) {
+			continue // topic.SmartHome renders a set bucket; this bridge never sets one
+		}
+		if b == hamodel.BucketUnset && l.State(withBucket) != l.State(s) {
+			t.Errorf("BucketUnset changes the state topic: %q", l.State(withBucket))
 		}
 	}
-	withChannel := s
-	withChannel.Channel = "3"
-	if got := l.State(withChannel); got != l.State(s) {
-		t.Errorf("Slot.Channel changes the state topic: %q — this bridge has no channel level", got)
+	for _, e := range NewEntities(realDiscovery(t, "en")) {
+		for _, b := range e.Bindings() {
+			if b.Slot.Bucket != hamodel.BucketUnset || b.Slot.Channel != "" {
+				t.Errorf("%s binds a slot with bucket %v / channel %q; this bridge's level is a poll group",
+					e.Key(), b.Slot.Bucket, b.Slot.Channel)
+			}
+		}
 	}
 
-	// The hyphenated poll groups survive: three of the ten contain one, and
-	// a Layout that routed them through topic.Slug rather than topic.Safe
-	// would keep them too, but a Layout that folded them would silently
-	// re-point 40-odd entities at topics nothing publishes.
-	for _, group := range []string{"now-base", "now-grid", "now-backup", "now-battery", "now-inverter", "now-pv"} {
-		s := hamodel.Slot{Address: goldenSerial, Path: []string{group, "x"}}
-		if got, want := l.State(s), "MTEC/"+goldenSerial+"/"+group+"/x/state"; got != want {
-			t.Errorf("State = %q, want %q", got, want)
-		}
+	// A multi-level root is kept verbatim and reported non-conformant; an
+	// unusable one renders nothing rather than a wrong topic.
+	if ml := NewLayout("home/mtec"); ml.Connected() != "home/mtec/connected" || ml.Conformant() {
+		t.Errorf("multi-level layout: connected %q, conformant %v", ml.Connected(), ml.Conformant())
+	}
+	if bad := NewLayout("mtec/#"); bad.Connected() != "" || bad.State(s) != "" {
+		t.Errorf("a wildcard root renders %q / %q, want nothing", bad.Connected(), bad.State(s))
 	}
 }
 

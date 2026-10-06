@@ -149,6 +149,12 @@ type Deps struct {
 	// service, and that is a statement about an installed base rather than
 	// about this package. See [StateQoS].
 	StatePlane *publisher.StatePublisher
+
+	// Instance publishes `<name>/info` on every broker connect and serves
+	// the mqtt-smarthome maintenance topics through this coordinator's
+	// command router. Optional: nil publishes no info and routes no
+	// maintenance command.
+	Instance *publisher.Instance
 }
 
 // StateQoS is the delivery guarantee of every state publish this daemon
@@ -200,7 +206,9 @@ const CommandQoS = publisher.QoSAtLeastOnce
 func HARuntimeConfig(cfg *config.Config, logger *slog.Logger) publisher.Config {
 	return publisher.Config{
 		Prefix: cfg.HASSBaseTopic,
-		Layout: hass.Layout{Root: cfg.MQTTTopic},
+		// mqtt-smarthome 2.0: the Last Will writes 0 on `<name>/connected`,
+		// AnnounceOnline the level SetConnected last set.
+		Layout: hass.NewLayout(cfg.MQTTTopic),
 		QoS:    DiscoveryQoS,
 		// The per-entity topic form this fleet's installed base is on,
 		// stated rather than defaulted. publisher.Runtime.PublishBundle
@@ -328,12 +336,26 @@ type Coordinator struct {
 	// method of this type; what the composition root would otherwise own —
 	// the QoS — is stated once, in [CommandQoS].
 	commands *publisher.CommandRouter
+
+	// upstreamUp is the inverter's reachability as last observed — the
+	// Modbus link — which `<name>/connected` (2 while true, 1 while false)
+	// and the device's `online` item report. See [Coordinator.updateUpstream].
+	upstreamUp atomic.Bool
+
+	// legacySweepGate runs the start-up sweep of the pre-2.0 topic layout
+	// at most once per process.
+	legacySweepGate sync.Once
 }
 
 // writeReq is one HA → device command pending dispatch.
 type writeReq struct {
 	mqttKey string
 	value   string
+	// topic and payload are the `set` request as it arrived, for the warn
+	// line a rejected or failed request gets (mqtt-smarthome §3.3). Empty
+	// for a web UI write.
+	topic   string
+	payload string
 	// reply, when non-nil, receives the dispatch outcome exactly once so
 	// a synchronous caller (the web UI) can return it. Must be buffered
 	// (capacity 1) — the worker never blocks on a caller that gave up.
@@ -462,6 +484,7 @@ func (c *Coordinator) Run(ctx context.Context) error {
 		return err
 	}
 	defer func() { _ = c.deps.Modbus.Close() }()
+	c.updateUpstream(ctx)
 
 	// MQTT connect is handled by the lifecycle layer above us — by
 	// the time Run is called the client is already publishable. If a
@@ -493,6 +516,10 @@ func (c *Coordinator) Run(ctx context.Context) error {
 	if err := c.checkCommandDisjoint(); err != nil {
 		return err
 	}
+	// The inverter's online item, now that its topic is known.
+	c.updateUpstream(ctx)
+	// Clear what the pre-2.0 topic layout left retained for this serial.
+	c.sweepLegacyTopics(ctx)
 
 	if c.deps.HASS != nil {
 		c.deps.HASS.Initialize(c.serialNo, c.firmware, c.equipmentInfo)
@@ -537,15 +564,16 @@ func (c *Coordinator) Run(ctx context.Context) error {
 	return nil
 }
 
-// installInboundHandler wires this daemon's two inbound subscriptions:
-// Home Assistant's own birth topic, and — through
-// [publisher.CommandRouter] — every writable entity's /set topic.
+// installInboundHandler wires this daemon's inbound subscriptions: Home
+// Assistant's own birth topic, and — through [publisher.CommandRouter] —
+// every writable entity's `set` topic and the maintenance commands.
 //
-// Two narrow filters rather than one fat '#' wildcard, so an unrelated
-// topic on the broker cannot drive the daemon:
+// Narrow filters rather than one fat '#' wildcard, so an unrelated topic
+// on the broker cannot drive the daemon:
 //
-//	<hass_base>/status     → HA online/offline birth
-//	<mqtt_topic>/+/+/+/set → the command plane
+//	<hass_base>/status       → HA online/offline birth
+//	<name>/set/+/+/+         → the command plane
+//	<name>/maintenance/set/# → the mqtt-smarthome maintenance commands
 //
 // The command half moved onto the library's router in ADR 0070 phase 6
 // step 5. What that buys, beyond one fewer hand-rolled dispatch: the
@@ -555,8 +583,8 @@ func (c *Coordinator) Run(ctx context.Context) error {
 // router worker rather than the transport's read loop, retained commands
 // are dropped by policy rather than by a hand-written check, and the
 // subscription carries MQTT 5.0's No Local so this process cannot echo
-// its own publishes back into its own handler. The filter, the QoS and
-// the topic shape on the wire are unchanged.
+// its own publishes back into its own handler. The QoS is unchanged;
+// the topic shape is mqtt-smarthome 2.0's since 2.0.0.
 //
 // A failing subscribe is retried with the same bounded backoff the Modbus
 // connect uses instead of killing the daemon: a broker that is still
@@ -574,11 +602,22 @@ func (c *Coordinator) installInboundHandler(ctx context.Context) error {
 	}
 
 	filter := hass.CommandFilter(c.deps.Cfg.MQTTTopic)
-	if err := c.commands.Handle(filter, c.onCommand); err != nil {
+	// HandleSet rather than Handle: the payload arrives normalised per
+	// mqtt-smarthome §5.3 — `{"val": x}` as x, an empty payload dropped,
+	// malformed JSON logged at warn with topic and payload.
+	if err := c.commands.HandleSet(filter, c.onSet); err != nil {
 		// A rejected route is a programming error (a malformed filter, a
 		// duplicate, or an overlap with another route), not a broker
 		// condition, so it is not retried.
 		return fmt.Errorf("coordinator: route %s: %w", filter, err)
+	}
+	// `<name>/maintenance/set/#` on the same router, so the maintenance
+	// commands share its QoS, its retained drop and its worker. Registers
+	// nothing when MQTT_MAINTENANCE is off.
+	if c.deps.Instance != nil {
+		if err := c.deps.Instance.Register(c.commands); err != nil {
+			return fmt.Errorf("coordinator: route maintenance: %w", err)
+		}
 	}
 	if err := c.retryWithBackoff(ctx, "coordinator.subscribe_retry",
 		c.commands.Start,
@@ -603,8 +642,15 @@ func (c *Coordinator) installInboundHandler(ctx context.Context) error {
 // publish into a command, and the least diagnosable shape of that is a
 // device that appears to change its own settings.
 func (c *Coordinator) checkCommandDisjoint() error {
-	topics := []string{hass.BridgeStatusTopic(c.deps.Cfg.MQTTTopic)}
+	root := c.deps.Cfg.MQTTTopic
+	layout := hass.NewLayout(root)
 	serial := c.serialNo
+	topics := []string{
+		hass.ConnectedTopic(root),
+		hass.OnlineTopic(root, serial),
+		layout.Info(),
+		layout.Maintenance("stats"),
+	}
 	for _, g := range c.deps.Catalog.Groups {
 		for _, r := range c.deps.Catalog.ByGroup(g) {
 			topics = append(topics, hass.StateTopic(c.deps.Cfg.MQTTTopic, serial, string(g), r.MQTT))
@@ -685,35 +731,110 @@ func (c *Coordinator) onMessage(msg *mqtt.Message) {
 	c.discoverySent.Store(false) // trigger republish next chance
 }
 
-// onCommand handles one routed /set publish.
+// onSet handles one routed `set` publish.
 //
-// The route is "<root>/+/+/+/set", so [publisher.Command.Wildcards] is
-// exactly [serial, group, mqtt_key] — the topic arithmetic this daemon
-// used to do by hand with splitPath and a negative index. The serial is
-// checked against this process's own rather than ignored: one broker can
-// carry several inverters, and a command addressed to a sibling's serial
-// is not this daemon's to execute.
+// The route is "<name>/set/+/+/+", so [publisher.Command.Wildcards] is
+// exactly [serial, group, mqtt_key]. The serial is checked against this
+// process's own rather than ignored: one broker can carry several
+// inverters, and a command addressed to a sibling's serial is not this
+// daemon's to execute.
+//
+// The payload arrives normalised ([publisher.CommandRouter.HandleSet]), and
+// [Coordinator.setValue] applies the §5.3 conversions on top of everything
+// the write path accepted before. A request this daemon cannot read is
+// logged at warn with its topic and payload and goes no further; one it
+// can is written, and a write that then fails is logged the same way by
+// [Coordinator.writeWorker].
 //
 // It runs on a router worker, not the transport's read loop, and it still
 // hands the write to the bounded drop-oldest queue rather than touching
 // Modbus inline — the queue's policy (drop the OLDEST pending command) is
 // what keeps a dragged Home Assistant slider ending on the value the user
 // released it at, and the router's own FIFO does not have it.
-func (c *Coordinator) onCommand(_ context.Context, cmd publisher.Command) {
-	topicBase := c.loadTopicBase()
-	if topicBase == "" {
+func (c *Coordinator) onSet(_ context.Context, cmd publisher.Command, v publisher.SetValue) {
+	tp, ok := c.loadTopicParts()
+	if !ok {
 		return // not initialised yet — drop silently
 	}
 	if len(cmd.Wildcards) != 3 {
 		return
 	}
 	serial, mqttKey := cmd.Wildcards[0], cmd.Wildcards[2]
-	if c.deps.Cfg.MQTTTopic+"/"+serial != topicBase {
+	if serial != tp.serial {
 		return // addressed to another inverter on the same broker
+	}
+	value, err := c.setValue(mqttKey, v)
+	if err != nil {
+		c.deps.Logger.Warn("coordinator.set_rejected",
+			slog.String("topic", cmd.Topic),
+			slog.String("payload", string(cmd.Payload)),
+			slog.String("err", err.Error()))
+		return
 	}
 	// Errors are already logged by enqueueWrite; the MQTT path has no
 	// caller to report back to.
-	_ = c.enqueueWrite(writeReq{mqttKey: mqttKey, value: string(cmd.Payload)})
+	_ = c.enqueueWrite(writeReq{
+		mqttKey: mqttKey,
+		value:   value,
+		topic:   cmd.Topic,
+		payload: string(cmd.Payload),
+	})
+}
+
+// errStructuredSet refuses a `set` payload that is a JSON object without
+// `val`, or an array: no item of this bridge takes structured parameters.
+var errStructuredSet = errors.New("coordinator: structured set payload, this item takes a plain value")
+
+// setValue turns a normalised `set` value into the string the write path
+// takes, applying mqtt-smarthome §5.3 on top of what it accepted before:
+//
+//   - a switch (a switch register, or a synthetic "active" switch):
+//     true/false, 1/0, on/off, yes/no in any case, written as the
+//     register's hass_payload_on/off ("1"/"0");
+//   - a register with value items: its token (the English label) in any
+//     case, or a label in either language, written as that token;
+//   - everything else, and anything the conversions above do not read
+//     — a numeric enum code, a switch value "5" — unchanged, so the write
+//     path decides as it always did.
+func (c *Coordinator) setValue(mqttKey string, v publisher.SetValue) (string, error) {
+	if v.Structured() {
+		return "", errStructuredSet
+	}
+	if _, ok := c.virtualByKey[mqttKey]; ok {
+		if on, err := v.Bool(); err == nil {
+			return boolText(on, "1", "0"), nil
+		}
+		return v.Text, nil
+	}
+	reg := c.deps.Catalog.FindByMQTT(mqttKey)
+	switch {
+	case reg == nil:
+		// Unknown key: the write path refuses it with ErrUnknownRegister,
+		// which writeWorker logs with the topic and payload.
+	case reg.HassValueItems != nil:
+		if token, err := v.Enum(hass.ValueItemsEnum(reg), true); err == nil {
+			return token, nil
+		}
+	case isBoolRegister(reg):
+		if on, err := v.Bool(); err == nil {
+			return boolText(on, orDefault(reg.HassPayloadOn, "1"), orDefault(reg.HassPayloadOff, "0")), nil
+		}
+	}
+	return v.Text, nil
+}
+
+func boolText(on bool, onText, offText string) string {
+	if on {
+		return onText
+	}
+	return offText
+}
+
+func orDefault(s, fallback string) string {
+	if s == "" {
+		return fallback
+	}
+	return s
 }
 
 // enqueueWrite puts req on the write queue, making room by dropping the
@@ -1146,11 +1267,13 @@ func (c *Coordinator) modbusWatchdog(ctx context.Context) error {
 		if c.deps.Modbus.IsConnected() {
 			continue
 		}
+		c.updateUpstream(ctx)
 		c.deps.Logger.Warn("coordinator.modbus_reconnect")
 		if err := c.deps.Modbus.Connect(ctx); err != nil {
 			c.deps.Logger.Warn("coordinator.modbus_reconnect_failed",
 				slog.String("err", err.Error()))
 		}
+		c.updateUpstream(ctx)
 	}
 }
 
@@ -1180,10 +1303,17 @@ func (c *Coordinator) writeWorker(ctx context.Context) error {
 			err := c.dispatchWriteRetrying(ctx, req)
 			replyTo(req, err)
 			if err != nil {
-				log.Warn("coordinator.write_failed",
+				attrs := []any{
 					slog.String("mqtt_key", req.mqttKey),
 					slog.String("value", req.value),
-					slog.String("err", err.Error()))
+					slog.String("err", err.Error()),
+				}
+				if req.topic != "" {
+					// A failed `set` is logged with its topic and payload
+					// (mqtt-smarthome §3.3).
+					attrs = append(attrs, slog.String("topic", req.topic), slog.String("payload", req.payload))
+				}
+				log.Warn("coordinator.write_failed", attrs...)
 				continue
 			}
 			log.Info("coordinator.write_ok",
@@ -1342,38 +1472,95 @@ func (c *Coordinator) resetHAPlane() {
 	c.haBundlePublished.Store(false)
 }
 
-// PublishOnline (re)announces this daemon's availability and reopens both
-// dedup gates. Wired to the MQTT lifecycle's OnConnect hook, so it runs on
-// every (re)connect and not only at boot.
+// PublishOnline (re)announces this daemon on a broker connection. Wired to
+// the MQTT lifecycle's OnConnect hook, so it runs on every (re)connect and
+// not only at boot: the will only fires on ungraceful death, and without a
+// matching announcement a single network blip would leave
+// `<name>/connected` at 0 for the rest of the daemon's uptime.
 //
-// The will only fires on ungraceful death; without a matching birth
-// publish a single network blip would leave the retained availability
-// topic stuck at "offline" for the rest of the daemon's uptime.
+// mqtt-smarthome 2.0 asks for four things on every (re)connect, and this is
+// where all four happen:
 //
-// # The two resets
-//
-// StatePlane.Reset: a (re)connect may be to a broker that came back
-// without its retained store, in which case the dedup gate would suppress
-// every value it believes is already there and leave every entity blank
-// until its next change — which for the `static` and `total` groups is
-// effectively never. Reset opens the gate without forgetting the index, so
-// the next poll writes the fleet once and is deduped again afterwards. The
-// poll cycle is the snapshot pass the library's Reset documentation asks a
-// consumer to pair it with.
+//   - `<name>/connected` at the current level — 2 while the inverter is
+//     reachable, 1 while it is not ([Coordinator.announceConnected]);
+//   - `<name>/info` (§6);
+//   - every status item again, so a broker that came back without its
+//     retained store is complete (§3.2). [publisher.StatePublisher.Republish]
+//     re-sends the cached objects unchanged, original `ts` included: the
+//     replay is the same observation re-delivered, not a new one. Up to
+//     1.x this hook reopened the dedup gate and waited for the next poll,
+//     which for the hourly `static` group meant an hour without values;
+//   - the Home Assistant plane rebuilt ([Coordinator.resetHAPlane]) and the
+//     discovery document re-sent.
 //
 // resetHAPlane plus the discoverySent clear is the same argument for the
-// DISCOVERY plane, which this hook used to leave out — the broker that
-// forgot the state plane forgot the retained device document too, and
-// nothing would have republished it for the rest of the process's life.
-// The generation bump is what keeps a publish that is already in flight on
-// the connection being replaced from marking the new one done.
+// DISCOVERY plane — the broker that forgot the state plane forgot the
+// retained device document too. The generation bump is what keeps a
+// publish that is already in flight on the connection being replaced from
+// marking the new one done.
 func (c *Coordinator) PublishOnline(ctx context.Context) {
-	c.deps.StatePlane.Reset()
 	c.resetHAPlane()
 	c.discoveryGen.Add(1)
 	c.discoverySent.Store(false)
-	if err := c.ha().AnnounceOnline(ctx); err != nil {
+	c.announceConnected(ctx)
+	if c.deps.Instance != nil {
+		if err := c.deps.Instance.AnnounceInfo(ctx); err != nil {
+			c.deps.Logger.Warn("coordinator.info_failed", slog.String("err", err.Error()))
+		}
+	}
+	if _, err := c.deps.StatePlane.Republish(ctx); err != nil {
+		c.deps.Logger.Warn("coordinator.state_republish_failed", slog.String("err", err.Error()))
+	}
+}
+
+// announceConnected publishes `<name>/connected` on a fresh runtime. The
+// runtime starts at 1, so an inverter already known reachable is a 1 → 2
+// transition SetConnected publishes; otherwise AnnounceOnline publishes the
+// 1. Either way exactly one message, never a 1 that a 2 then overwrites —
+// which Home Assistant would show as every entity flickering unavailable
+// on each reconnect.
+func (c *Coordinator) announceConnected(ctx context.Context) {
+	rt := c.ha()
+	var err error
+	if c.upstreamUp.Load() {
+		_, err = rt.SetConnected(ctx, discovery.ConnectedOperational)
+	} else {
+		err = rt.AnnounceOnline(ctx)
+	}
+	if err != nil {
 		c.deps.Logger.Warn("coordinator.online_failed", slog.String("err", err.Error()))
+	}
+}
+
+// updateUpstream reads the inverter's reachability — the Modbus link, which
+// the transport poisons on any I/O error — and reports it on both topics
+// that carry it: `<name>/connected` (2 reachable, 1 not; spec §3.1) and,
+// once the serial is known, the device's `<name>/status/<serial>/online`.
+//
+// Called after every group read, by the watchdog around each reconnect, and
+// at boot. Both writes are no-ops when nothing changed — SetConnected
+// publishes transitions only and the status item is deduplicated on its
+// value — so calling it often costs nothing on the wire.
+func (c *Coordinator) updateUpstream(ctx context.Context) {
+	up := c.deps.Modbus.IsConnected()
+	c.upstreamUp.Store(up)
+	level := discovery.ConnectedBroker
+	if up {
+		level = discovery.ConnectedOperational
+	}
+	if _, err := c.ha().SetConnected(ctx, level); err != nil {
+		c.deps.Logger.Warn("coordinator.connected_failed",
+			slog.Int("level", level), slog.String("err", err.Error()))
+	}
+	tp, ok := c.loadTopicParts()
+	if !ok {
+		return
+	}
+	topic := hass.OnlineTopic(tp.root, tp.serial)
+	if _, err := c.deps.StatePlane.PublishStatus(ctx, topic,
+		publisher.Observation{Value: up, At: c.deps.Now()}); err != nil {
+		c.deps.Logger.Warn("coordinator.publish_failed",
+			slog.String("topic", topic), slog.String("err", err.Error()))
 	}
 }
 

@@ -53,6 +53,15 @@ fi
 MTEC_MQTT_TOPIC="$(bashio::config 'mqtt_topic')"
 export MTEC_MQTT_TOPIC
 
+# --- mqtt-smarthome maintenance topics ---
+MTEC_MQTT_MAINTENANCE="$(bashio::config 'mqtt_maintenance')"
+MTEC_MQTT_STATS_INTERVAL="$(bashio::config 'mqtt_stats_interval')"
+export MTEC_MQTT_MAINTENANCE MTEC_MQTT_STATS_INTERVAL
+# The add-on container looks supervised to the daemon's detection, but a
+# clean exit stops an add-on rather than restarting it, so the MQTT restart
+# command would be a stop. Refuse it; restart the add-on from Home Assistant.
+export MTEC_SUPERVISED=0
+
 # --- Home Assistant discovery ---
 MTEC_HASS_ENABLE="$(bashio::config 'hass_enable')"
 MTEC_HASS_UNIQUE_ID_INCLUDE_SERIAL="$(bashio::config 'hass_unique_id_include_serial')"

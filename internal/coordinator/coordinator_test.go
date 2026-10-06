@@ -5,6 +5,7 @@ package coordinator
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -153,9 +154,18 @@ func wirePlanes(t *testing.T, deps *Deps, mqttStub *stubMQTT) {
 		return rt
 	}
 	rt := deps.NewHARuntime()
+	// The mqtt-smarthome instance, as the composition root builds it:
+	// `<name>/info` and the maintenance routes on the coordinator's router.
+	deps.Instance = publisher.NewInstance(tr, publisher.InstanceConfig{
+		Layout:              hass.NewLayout(deps.Cfg.MQTTTopic),
+		Name:                hass.OriginName,
+		Version:             "0.0.0-test",
+		MaintenanceDisabled: !deps.Cfg.MQTTMaintenance,
+		Logger:              slog.New(slog.DiscardHandler),
+	})
 	deps.StatePlane = publisher.StateFor(rt, publisher.StateConfig{
 		QoS:            StateQoS,
-		Encoding:       discovery.RawEncoding,
+		Encoding:       discovery.StatusObjectEncoding,
 		CommandFilters: []string{hass.CommandFilter(deps.Cfg.MQTTTopic)},
 		Logger:         slog.New(slog.DiscardHandler),
 	})
@@ -184,6 +194,10 @@ type stubMQTT struct {
 	// the hook tests use to inject an event mid-batch. Called without
 	// the stub's lock held.
 	beforePublish func(topic string)
+	// retained is the broker's retained store as the stub models it: a
+	// successful Subscribe replays every entry its filter matches, with
+	// Retain set, the way a broker does right after the SUBACK.
+	retained map[string][]byte
 }
 
 type publishCall struct {
@@ -220,14 +234,24 @@ func (s *stubMQTT) Publish(_ context.Context, topic string, payload []byte, qos 
 
 func (s *stubMQTT) Subscribe(_ context.Context, filter string, qos mqtt.QoS, h mqtt.MessageHandler, _ ...mqtt.SubscribeOption) (mqtt.SubscribeResult, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.subscribes = append(s.subscribes, filter)
 	s.subscribeQoS = append(s.subscribeQoS, qos)
 	if s.subscribeFailures > 0 {
 		s.subscribeFailures--
+		s.mu.Unlock()
 		return mqtt.SubscribeResult{}, errInjected{}
 	}
 	s.handlers[filter] = h
+	var replay []*mqtt.Message
+	for topic, payload := range s.retained {
+		if matchTopicFilter(filter, topic) {
+			replay = append(replay, &mqtt.Message{Topic: topic, Payload: payload, Retain: true})
+		}
+	}
+	s.mu.Unlock()
+	for _, msg := range replay {
+		h(msg)
+	}
 	return mqtt.SubscribeResult{}, nil
 }
 
@@ -360,7 +384,7 @@ const testCatalogYAML = `
   type: I32
   unit: W
   mqtt: grid_power
-  group: now-base
+  group: now_base
   hass_device_class: power
 
 "11016":
@@ -369,7 +393,7 @@ const testCatalogYAML = `
   type: I32
   unit: W
   mqtt: inverter
-  group: now-base
+  group: now_base
   hass_device_class: power
 
 "52000":
@@ -389,7 +413,7 @@ const testCatalogYAML = `
   name: Household consumption
   unit: W
   mqtt: consumption
-  group: now-base
+  group: now_base
 `
 
 func buildConfig(t *testing.T, hassEnable bool) *config.Config {
@@ -442,7 +466,14 @@ func initDiscovery(t *testing.T, c *Coordinator) {
 
 func buildDeps(t *testing.T, hassEnable bool) (*Coordinator, *stubReader, *stubMQTT, *stubModbus) {
 	t.Helper()
-	catalog, _, err := registers.LoadFromString(testCatalogYAML)
+	return buildDepsWith(t, hassEnable, testCatalogYAML, nil)
+}
+
+// buildDepsWith is buildDeps over another catalog and with synthetic
+// switches.
+func buildDepsWith(t *testing.T, hassEnable bool, catalogYAML string, virtual []hass.VirtualSwitch) (*Coordinator, *stubReader, *stubMQTT, *stubModbus) {
+	t.Helper()
+	catalog, _, err := registers.LoadFromString(catalogYAML)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -480,6 +511,7 @@ func buildDeps(t *testing.T, hassEnable bool) (*Coordinator, *stubReader, *stubM
 		Modbus:  modbusStub,
 		Reader:  reader,
 		MQTT:    mqttStub,
+		Virtual: virtual,
 		Now:     func() time.Time { return time.Date(2026, 5, 25, 14, 30, 45, 0, time.UTC) },
 	}
 	if hassEnable {
@@ -522,7 +554,7 @@ func TestRunInitialisesFromStaticAndPublishesBase(t *testing.T) {
 	}
 
 	// Topic base must reflect the serial from the stubbed STATIC data.
-	wantPrefix := "MTEC/MTEC-TEST-001/"
+	wantPrefix := "MTEC/status/MTEC-TEST-001/"
 	found := false
 	for _, p := range mqttStub.snapshotPublishes() {
 		if startsWith(p.topic, wantPrefix) {
@@ -541,15 +573,15 @@ func TestRunPublishesPseudoConsumptionAndAPIDate(t *testing.T) {
 	runFor(t, c, 200*time.Millisecond)
 
 	pubs := mqttStub.snapshotPublishes()
-	// consumption is a float (3500.0) — formatValue applies the
-	// default MQTT_FLOAT_FORMAT ".3f" so we get three decimals.
-	want := map[string]string{
-		"MTEC/MTEC-TEST-001/now-base/consumption/state": "3500.000",
-		"MTEC/MTEC-TEST-001/now-base/api_date/state":    "2026-05-25 14:30:45",
+	// consumption is a float (3500.0): a JSON number since 2.0.0, rounded
+	// to MQTT_FLOAT_FORMAT's precision rather than formatted by it.
+	want := map[string]any{
+		"MTEC/status/MTEC-TEST-001/now_base/consumption": 3500.0,
+		"MTEC/status/MTEC-TEST-001/now_base/api_date":    "2026-05-25 14:30:45",
 	}
 	for topic, val := range want {
-		if !hasPublish(pubs, topic, val) {
-			t.Errorf("missing publish %s = %q", topic, val)
+		if !hasStatus(pubs, topic, val) {
+			t.Errorf("missing status %s = %v; pubs: %s", topic, val, summariseTopics(pubs))
 		}
 	}
 }
@@ -558,9 +590,9 @@ func TestRunProcessesEnumThroughInitFlow(t *testing.T) {
 	c, _, mqttStub, _ := buildDeps(t, false)
 	runFor(t, c, 200*time.Millisecond)
 
-	// mode=1 → "Eco" via value_items
+	// mode=1 → "Eco" via value_items, the English token
 	pubs := mqttStub.snapshotPublishes()
-	if !hasPublish(pubs, "MTEC/MTEC-TEST-001/config/mode/state", "Eco") {
+	if !hasStatus(pubs, "MTEC/status/MTEC-TEST-001/config/mode", "Eco") {
 		t.Fatalf("mode register did not flow through enum conversion; pubs: %s",
 			summariseTopics(pubs))
 	}
@@ -601,7 +633,7 @@ func TestRunHandlesIncomingSetCommand(t *testing.T) {
 	}
 	// Deliver a synthetic /set publish — should land as a write
 	// against mqtt key "mode" with payload "Eco".
-	mqttStub.deliver("MTEC/MTEC-TEST-001/config/mode/set", []byte("Eco"))
+	mqttStub.deliver("MTEC/set/MTEC-TEST-001/config/mode", []byte("Eco"))
 
 	// Give the write-worker a chance to drain.
 	time.Sleep(100 * time.Millisecond)
@@ -635,7 +667,7 @@ func TestRunIgnoresRetainedSetCommand(t *testing.T) {
 	// A retained delivery is the broker replaying an old command on
 	// (re)subscribe — it must never reach the inverter.
 	mqttStub.deliverMsg(&mqtt.Message{
-		Topic:   "MTEC/MTEC-TEST-001/config/mode/set",
+		Topic:   "MTEC/set/MTEC-TEST-001/config/mode",
 		Payload: []byte("Eco"),
 		Retain:  true,
 	})
@@ -667,7 +699,7 @@ func TestOnMessageDuringStaticInitIsRaceFree(t *testing.T) {
 		defer wg.Done()
 		for range 200 {
 			c.onMessage(&mqtt.Message{
-				Topic:   "MTEC/MTEC-TEST-001/config/mode/set",
+				Topic:   "MTEC/set/MTEC-TEST-001/config/mode",
 				Payload: []byte("Eco"),
 			})
 		}
@@ -1183,7 +1215,7 @@ func TestInstallInboundHandlerRetriesSubscribe(t *testing.T) {
 	}
 	// The second filter succeeded first try — retries must not re-subscribe
 	// a filter that is already installed.
-	setFilter := c.deps.Cfg.MQTTTopic + "/+/+/+/set"
+	setFilter := c.deps.Cfg.MQTTTopic + "/set/+/+/+"
 	if got := mqttStub.countSubscribes(setFilter); got != 1 {
 		t.Errorf("set filter subscribed %d times, want 1", got)
 	}
@@ -1269,9 +1301,21 @@ type errInjected struct{}
 
 func (errInjected) Error() string { return "injected: dial refused" }
 
-func hasPublish(pubs []publishCall, topic, payload string) bool {
+// hasStatus reports whether pubs holds a retained status object on topic
+// whose `val` is want (mqtt-smarthome 2.0 §5.2), with the `ts` and `lc`
+// the spec requires.
+func hasStatus(pubs []publishCall, topic string, want any) bool {
 	for _, p := range pubs {
-		if p.topic == topic && string(p.payload) == payload {
+		if p.topic != topic || !p.retain {
+			continue
+		}
+		var obj map[string]any
+		if json.Unmarshal(p.payload, &obj) != nil {
+			continue
+		}
+		_, ts := obj["ts"].(float64)
+		_, lc := obj["lc"].(float64)
+		if ts && lc && obj["val"] == want {
 			return true
 		}
 	}
@@ -1310,7 +1354,7 @@ func TestNewRefusesARuntimeThatDoesNotStateTheLegacyForm(t *testing.T) {
 	// The library default: LegacyEntityTopics unset.
 	rt := publisher.New(tr, publisher.Config{
 		Prefix: cfg.HASSBaseTopic,
-		Layout: hass.Layout{Root: cfg.MQTTTopic},
+		Layout: hass.NewLayout(cfg.MQTTTopic),
 		QoS:    DiscoveryQoS,
 		Logger: slog.New(slog.DiscardHandler),
 	})
@@ -1325,7 +1369,7 @@ func TestNewRefusesARuntimeThatDoesNotStateTheLegacyForm(t *testing.T) {
 		NewHARuntime: func() *publisher.Runtime { return rt },
 		StatePlane: publisher.StateFor(rt, publisher.StateConfig{
 			QoS:      StateQoS,
-			Encoding: discovery.RawEncoding,
+			Encoding: discovery.StatusObjectEncoding,
 			Logger:   slog.New(slog.DiscardHandler),
 		}),
 	}

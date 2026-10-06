@@ -13,13 +13,13 @@ var t0 = time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
 func TestUpdateGroupSnapshotIsolated(t *testing.T) {
 	s := New()
 	vals := map[string]any{"power": 1234.0, "soc": 80}
-	s.UpdateGroup("now-base", vals, t0)
+	s.UpdateGroup("now_base", vals, t0)
 
 	// Mutating the caller's map must not affect the stored copy.
 	vals["power"] = 9999.0
 
 	snap := s.Snapshot()
-	g, ok := snap.Groups["now-base"]
+	g, ok := snap.Groups["now_base"]
 	if !ok {
 		t.Fatal("group missing from snapshot")
 	}
@@ -32,7 +32,7 @@ func TestUpdateGroupSnapshotIsolated(t *testing.T) {
 
 	// Mutating the returned snapshot must not affect the store.
 	g.Values["power"] = 0
-	if s.Snapshot().Groups["now-base"].Values["power"] != 1234.0 {
+	if s.Snapshot().Groups["now_base"].Values["power"] != 1234.0 {
 		t.Error("snapshot shares state with store")
 	}
 }
@@ -43,12 +43,12 @@ func TestUpdateGroupSnapshotIsolated(t *testing.T) {
 // the dashboard while UpdatedAt still advertises a fresh cycle.
 func TestUpdateGroupMergesPartialReads(t *testing.T) {
 	s := New()
-	s.UpdateGroup("now-base", map[string]any{"power": 1234.0, "soc": 80}, t0)
+	s.UpdateGroup("now_base", map[string]any{"power": 1234.0, "soc": 80}, t0)
 
 	t1 := t0.Add(time.Minute)
-	s.UpdateGroup("now-base", map[string]any{"power": 999.0}, t1)
+	s.UpdateGroup("now_base", map[string]any{"power": 999.0}, t1)
 
-	g := s.Snapshot().Groups["now-base"]
+	g := s.Snapshot().Groups["now_base"]
 	if g.Values["power"] != 999.0 {
 		t.Errorf("power = %v, want the fresh 999", g.Values["power"])
 	}
@@ -63,9 +63,9 @@ func TestUpdateGroupMergesPartialReads(t *testing.T) {
 	}
 	// Merging must not leak the caller's map into the store either.
 	partial := map[string]any{"power": 1.0}
-	s.UpdateGroup("now-base", partial, t1)
+	s.UpdateGroup("now_base", partial, t1)
 	partial["power"] = 2.0
-	if got := s.Snapshot().Groups["now-base"].Values["power"]; got != 1.0 {
+	if got := s.Snapshot().Groups["now_base"].Values["power"]; got != 1.0 {
 		t.Errorf("store kept a reference to the caller's map: %v", got)
 	}
 }
@@ -103,7 +103,7 @@ func TestSubscribeReceivesAndCancels(t *testing.T) {
 	s := New()
 	ch, cancel := s.Subscribe()
 
-	s.UpdateGroup("now-base", map[string]any{"x": 1}, t0)
+	s.UpdateGroup("now_base", map[string]any{"x": 1}, t0)
 	select {
 	case <-ch:
 	case <-time.After(time.Second):
@@ -111,8 +111,8 @@ func TestSubscribeReceivesAndCancels(t *testing.T) {
 	}
 
 	// Coalescing: two rapid updates collapse to (at most) one pending wake.
-	s.UpdateGroup("now-base", map[string]any{"x": 2}, t0)
-	s.UpdateGroup("now-base", map[string]any{"x": 3}, t0)
+	s.UpdateGroup("now_base", map[string]any{"x": 2}, t0)
+	s.UpdateGroup("now_base", map[string]any{"x": 3}, t0)
 	<-ch // drain the single pending wake
 	select {
 	case <-ch:

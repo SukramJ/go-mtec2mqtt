@@ -3,6 +3,8 @@
 
 package coordinator
 
+import "github.com/SukramJ/go-mtec2mqtt/internal/registers"
+
 // equipment maps the two-byte payload of the inverter's "Equipment
 // info" register (10008) to the human-readable model code printed on
 // the device label. The outer key is the high byte, the inner the
@@ -62,9 +64,9 @@ func equipmentLookup(high, low int) string {
 // poll next. Order matches SECONDARY_REGISTER_GROUPS in const.py so
 // the on-the-wire pattern is unchanged.
 var secondaryGroups = []string{
-	"now-grid",
-	"now-inverter",
-	"now-backup",
-	"now-battery",
-	"now-pv",
+	string(registers.GroupGrid),
+	string(registers.GroupInverter),
+	string(registers.GroupBackup),
+	string(registers.GroupBattery),
+	string(registers.GroupPV),
 }

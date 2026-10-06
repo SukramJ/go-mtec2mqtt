@@ -22,7 +22,7 @@ const catalogYAML = `
   type: I32
   unit: W
   mqtt: grid_power
-  group: now-base
+  group: now_base
   hass_device_class: power
   hass_value_template: "{{ value | round(0) }}"
   hass_state_class: measurement
@@ -32,7 +32,7 @@ const catalogYAML = `
   length: 2
   type: BIT
   mqtt: fault_flag
-  group: now-base
+  group: now_base
   hass_device_class: enum
   hass_value_items:
     1: "Mains Lost"
@@ -323,7 +323,7 @@ const localisedCatalogYAML = `
   type: I32
   unit: W
   mqtt: grid_power
-  group: now-base
+  group: now_base
   hass_device_class: power
 
 "52000":
@@ -807,7 +807,7 @@ const unsupportedPlatformYAML = `
   type: I32
   unit: W
   mqtt: grid_power
-  group: now-base
+  group: now_base
   hass_device_class: power
 `
 

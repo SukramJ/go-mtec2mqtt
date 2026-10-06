@@ -3,7 +3,11 @@
 
 package coordinator
 
-import "time"
+import (
+	"time"
+
+	"github.com/SukramJ/go-mtec2mqtt/internal/registers"
+)
 
 // MQTT keys for pseudo-register inputs and outputs. Hard-coded here
 // because they are part of the coordinator's contract with downstream
@@ -70,7 +74,7 @@ const apiDateLayout = "2006-01-02 15:04:05"
 // `now` is injected for tests; pass time.Now() in production.
 func PseudoRegisters(group string, data map[string]any, now time.Time) (values map[string]any, skipped []string) {
 	switch group {
-	case "now-base":
+	case string(registers.GroupBase):
 		return basePseudos(data, now)
 	case "day":
 		return periodPseudos(
