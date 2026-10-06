@@ -18,11 +18,10 @@ import (
 // Daemon-wide constants. These match the Python project so MQTT topic
 // paths, env-var prefix, and config-file lookup stay compatible.
 const (
-	ClientID      = "M-TEC-MQTT"
-	MTECTopicRoot = "MTEC"
-	EnvPrefix     = "MTEC_"
-	AppDirName    = "aiomtec2mqtt"
-	ConfigFile    = "config.yaml"
+	ClientID   = "M-TEC-MQTT"
+	EnvPrefix  = "MTEC_"
+	AppDirName = "aiomtec2mqtt"
+	ConfigFile = "config.yaml"
 )
 
 // Config is the validated daemon configuration. Fields are flat to
@@ -46,11 +45,27 @@ type Config struct {
 	MQTTPort     int    `yaml:"MQTT_PORT"`
 	MQTTLogin    string `yaml:"MQTT_LOGIN"`
 	MQTTPassword string `yaml:"MQTT_PASSWORD"`
-	MQTTTopic    string `yaml:"MQTT_TOPIC"`
+	// MQTTTopic is the mqtt-smarthome instance name, the first level of
+	// every topic this daemon publishes (`<name>/status/…`,
+	// `<name>/connected`, …). Defaults to [DefaultMQTTTopic]; an
+	// explicitly configured value is kept verbatim. It is the ONLY thing
+	// that keeps two instances on one broker apart, and nothing checks it.
+	MQTTTopic string `yaml:"MQTT_TOPIC"`
 	// MQTTFloatFormat is the original Python-style format spec from
-	// the YAML (e.g. "{:.3f}" or ".3f"). Consumers should call
-	// [Config.FormatFloat] rather than interpret it directly.
+	// the YAML (e.g. "{:.3f}" or ".3f"). Since 2.0.0 values are JSON
+	// numbers on the wire, so only its precision still matters: a float
+	// is rounded to what the spec would have printed. Consumers call
+	// [Config.RoundFloat] rather than interpret it directly.
 	MQTTFloatFormat string `yaml:"MQTT_FLOAT_FORMAT"`
+	// MQTTMaintenance enables the mqtt-smarthome maintenance topics
+	// (`<name>/maintenance/set/loglevel`, `…/set/restart`,
+	// `<name>/maintenance/stats`). On by default; anyone who may publish
+	// on the broker can then raise the log level or restart the daemon,
+	// so an unsecured broker should run with it off.
+	MQTTMaintenance bool `yaml:"MQTT_MAINTENANCE"`
+	// MQTTStatsInterval is the period of `<name>/maintenance/stats` in
+	// seconds. Default 60; 0 switches the topic off.
+	MQTTStatsInterval int `yaml:"MQTT_STATS_INTERVAL"`
 	// MQTTSSL enables TLS for the broker connection: the daemon dials
 	// tls:// instead of tcp:// (default port 8883 instead of 1883, see
 	// [Config.MQTTBrokerURL]). Off by default so existing plain-TCP

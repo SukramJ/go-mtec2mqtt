@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/SukramJ/go-hamqtt/topic"
 )
 
 // ValidationError is returned by [Validate] when the loaded config
@@ -92,8 +94,16 @@ func Validate(c *Config) error {
 	if c.MQTTPort < 1 || c.MQTTPort > 65535 {
 		add("MQTT_PORT must be 1..65535, got %d", c.MQTTPort)
 	}
-	if c.MQTTTopic == "" {
-		add("MQTT_TOPIC is required")
+	// The instance name is the first level of every topic. A multi-level
+	// value ("home/mtec") is kept verbatim — refusing it would break an
+	// installation on upgrade — but runs outside mqtt-smarthome §3, and the
+	// daemon says so at start. Wildcards, NUL, a leading `$` and empty
+	// levels are refused: none of them can be published to.
+	if _, err := topic.NewSmartHomeMultiLevel(c.MQTTTopic); err != nil {
+		add("MQTT_TOPIC %q: %v", c.MQTTTopic, err)
+	}
+	if c.MQTTStatsInterval < 0 || c.MQTTStatsInterval > 86400 {
+		add("MQTT_STATS_INTERVAL must be 0..86400 seconds, got %d", c.MQTTStatsInterval)
 	}
 	verb, err := translateFloatFormat(c.MQTTFloatFormat)
 	if err != nil {
@@ -194,6 +204,26 @@ func (c *Config) FormatFloat(v float64) string {
 		panic("config: FormatFloat called before Validate")
 	}
 	return fmt.Sprintf(c.goFloatVerb, v)
+}
+
+// RoundFloat rounds v to the precision the validated MQTT_FLOAT_FORMAT
+// spec prints, and returns it as a number.
+//
+// Up to 1.x the spec formatted every float into a string payload
+// ("230.100"). Since 2.0.0 values are JSON numbers, so the option keeps
+// only what it meant for the value: ".3f" still rounds to three decimals,
+// ".4g" to four significant digits. Rounding through the formatter rather
+// than through math.Round keeps the result identical to the number the old
+// string spelled, whatever verb the operator chose.
+func (c *Config) RoundFloat(v float64) float64 {
+	r, err := strconv.ParseFloat(strings.TrimSpace(c.FormatFloat(v)), 64)
+	if err != nil {
+		// Unreachable for the verbs Validate admits (e, f, g in either
+		// case); an unparsable rendering keeps the unrounded value rather
+		// than inventing one.
+		return v
+	}
+	return r
 }
 
 // GoFloatVerb exposes the translated fmt verb for diagnostics and

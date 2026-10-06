@@ -177,7 +177,7 @@ MODBUS_FRAMER: nope
 	if !errors.As(err, &v) {
 		t.Fatalf("expected *ValidationError, got %T (%v)", err, err)
 	}
-	// All four issues plus MODBUS_IP / MQTT_SERVER / MQTT_TOPIC required.
+	// All four issues plus MODBUS_IP / MQTT_SERVER required.
 	if len(v.Issues) < 4 {
 		t.Fatalf("expected multiple aggregated issues, got %d: %v", len(v.Issues), v.Issues)
 	}
@@ -433,9 +433,12 @@ func TestLoadTemplateValidates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.ModbusPort != 502 || c.MQTTPort != 1883 || c.MQTTTopic != "MTEC" {
+	if c.ModbusPort != 502 || c.MQTTPort != 1883 || c.MQTTTopic != DefaultMQTTTopic {
 		t.Errorf("template values drifted: modbus=%d mqtt=%d topic=%q",
 			c.ModbusPort, c.MQTTPort, c.MQTTTopic)
+	}
+	if !c.MQTTMaintenance || c.MQTTStatsInterval != DefaultMQTTStatsInterval {
+		t.Errorf("template maintenance drifted: maintenance=%v stats=%d", c.MQTTMaintenance, c.MQTTStatsInterval)
 	}
 }
 
@@ -546,5 +549,102 @@ func TestHASSBaseTopicIsNormalisedAtTheBoundary(t *testing.T) {
 	if cfg.HASSBaseTopic != "homeassistant" {
 		t.Errorf("loaded HASS_BASE_TOPIC = %q, want homeassistant — the trailing slash "+
 			"survives into every topic built from it", cfg.HASSBaseTopic)
+	}
+}
+
+// MQTT_TOPIC gained a default in 2.0.0 (openccu-loom ADR 0083); every
+// earlier release required it, so an existing config names a root and
+// keeps it verbatim.
+func TestMQTTTopicDefaultsToMtecAndKeepsAnExplicitValue(t *testing.T) {
+	noTopic := strings.Replace(minimumYAML, "MQTT_TOPIC: MTEC\n", "", 1)
+	c, err := Load(strings.NewReader(noTopic), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.MQTTTopic != DefaultMQTTTopic || DefaultMQTTTopic != "mtec" {
+		t.Errorf("MQTT_TOPIC unset: got %q, want %q", c.MQTTTopic, "mtec")
+	}
+	c, err = Load(strings.NewReader(minimumYAML), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.MQTTTopic != "MTEC" {
+		t.Errorf("explicit MQTT_TOPIC not kept verbatim: %q", c.MQTTTopic)
+	}
+}
+
+func TestMQTTTopicRefusesWhatCannotBePublished(t *testing.T) {
+	noTopic := strings.Replace(minimumYAML, "MQTT_TOPIC: MTEC\n", "", 1)
+	for _, bad := range []string{"mtec/#", "a+b", "$SYS", "home//mtec"} {
+		_, err := Load(strings.NewReader(noTopic+"MQTT_TOPIC: \""+bad+"\"\n"), nil)
+		var v *ValidationError
+		if !errors.As(err, &v) {
+			t.Errorf("MQTT_TOPIC %q: got %v, want a validation error", bad, err)
+		}
+	}
+	// A multi-level root is kept: refusing it would break an installation
+	// on upgrade.
+	c, err := Load(strings.NewReader(noTopic+"MQTT_TOPIC: home/mtec\n"), nil)
+	if err != nil {
+		t.Fatalf("multi-level MQTT_TOPIC refused: %v", err)
+	}
+	if c.MQTTTopic != "home/mtec" {
+		t.Errorf("multi-level MQTT_TOPIC: %q", c.MQTTTopic)
+	}
+}
+
+func TestMaintenanceDefaultsAndExplicitValues(t *testing.T) {
+	c, err := Load(strings.NewReader(minimumYAML), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.MQTTMaintenance || c.MQTTStatsInterval != 60 {
+		t.Errorf("defaults: maintenance=%v stats=%d, want true/60", c.MQTTMaintenance, c.MQTTStatsInterval)
+	}
+	// File keys: an explicit false and an explicit 0 survive defaulting.
+	c, err = Load(strings.NewReader(minimumYAML+"MQTT_MAINTENANCE: false\nMQTT_STATS_INTERVAL: 0\n"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.MQTTMaintenance || c.MQTTStatsInterval != 0 {
+		t.Errorf("explicit: maintenance=%v stats=%d, want false/0", c.MQTTMaintenance, c.MQTTStatsInterval)
+	}
+	// Env overrides, the add-on's and Docker's only channel.
+	env := fakeEnv{vars: map[string]string{
+		"MTEC_MQTT_MAINTENANCE":    "false",
+		"MTEC_MQTT_STATS_INTERVAL": "15",
+	}}
+	c, err = Load(strings.NewReader(minimumYAML), env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.MQTTMaintenance || c.MQTTStatsInterval != 15 {
+		t.Errorf("env: maintenance=%v stats=%d, want false/15", c.MQTTMaintenance, c.MQTTStatsInterval)
+	}
+	if _, err := Load(strings.NewReader(minimumYAML+"MQTT_STATS_INTERVAL: -1\n"), nil); err == nil {
+		t.Error("negative MQTT_STATS_INTERVAL accepted")
+	}
+}
+
+// MQTT_FLOAT_FORMAT survives as numeric rounding: the number a value is
+// published as is the one the old string payload spelled.
+func TestRoundFloatKeepsTheConfiguredPrecision(t *testing.T) {
+	for _, tc := range []struct {
+		spec string
+		in   float64
+		want float64
+	}{
+		{".3f", 230.12345, 230.123},
+		{"{:.1f}", 49.96, 50},
+		{".2f", -0.004, -0},
+		{".4g", 12345.678, 12350},
+	} {
+		c, err := Load(strings.NewReader(minimumYAML+"MQTT_FLOAT_FORMAT: \""+tc.spec+"\"\n"), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := c.RoundFloat(tc.in); got != tc.want {
+			t.Errorf("%s: RoundFloat(%v) = %v, want %v", tc.spec, tc.in, got, tc.want)
+		}
 	}
 }
