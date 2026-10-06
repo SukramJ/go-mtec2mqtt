@@ -31,35 +31,38 @@ const (
 	uniqueIDPrefix = "MTEC_"
 )
 
-// Availability payloads. These are the two words the daemon writes to
-// [BridgeStatusTopic] and the two every entity is told to read there, so
-// they are spelled once.
+// Availability payloads of the pre-2.0 marker, the two words releases
+// 1.10 and 1.11 wrote to [LegacyBridgeStatusTopic] and the frozen
+// per-entity builder below still tells its record to read there.
 const (
 	PayloadAvailable    = "online"
 	PayloadNotAvailable = "offline"
 )
 
-// BridgeStatusTopic returns the daemon's own availability topic for a
-// given MQTT publish root: "<root>/bridge/status", e.g. "MTEC/bridge/status".
-//
-// It is deliberately NOT under the Home Assistant discovery prefix. Until
-// this release the daemon wrote its retained online/offline marker to
-// "<hass_base>/status/lwt" — by default homeassistant/status/lwt, one level
-// under the topic Home Assistant publishes its *own* birth message to and
-// which this daemon subscribes to. Nothing read it, which is exactly why
-// nothing had ever surfaced that it sat in another integration's tree. A
-// daemon's liveness belongs in the daemon's own tree.
-//
-// Both the process that publishes the marker (cmd/mtec2mqtt) and the
-// builder that tells Home Assistant to read it go through this function,
-// so the two cannot drift apart the way the state-topic builders once
-// could.
-//
-// The shape — root, "bridge", "status" — is the one the go-hamqtt topic
-// layout renders for a bridge-level availability source, so the ADR 0070
-// migration can reproduce this string rather than move it a second time.
-func BridgeStatusTopic(mqttTopic string) string {
+// LegacyBridgeStatusTopic is the daemon's availability topic before 2.0.0:
+// "<root>/bridge/status", e.g. "MTEC/bridge/status", carrying
+// online/offline. 2.0.0 replaced it with `<name>/connected` (0/1/2,
+// [ConnectedTopic]); the start-up sweep clears the retained copy an
+// upgrading broker still holds, and the frozen per-entity builder below
+// keeps naming it because that builder is the record of what such a broker
+// holds.
+func LegacyBridgeStatusTopic(mqttTopic string) string {
 	return mqttTopic + "/bridge/status"
+}
+
+// LegacyStateTopic is where a release before 2.0.0 published a register's
+// value: "<root>/<serial>/<group>/<key>/state", with the group in its
+// pre-2.0.0 spelling ("now-base"). Read by the start-up sweep, which clears
+// exactly these topics for the serial and keys this instance owns, and by
+// the frozen per-entity builder.
+func LegacyStateTopic(root, serial string, group registers.Group, key string) string {
+	return root + "/" + serial + "/" + group.Legacy() + "/" + key + "/state"
+}
+
+// LegacyCommandTopic is [LegacyStateTopic]'s command twin,
+// "<root>/<serial>/<group>/<key>/set".
+func LegacyCommandTopic(root, serial string, group registers.Group, key string) string {
+	return root + "/" + serial + "/" + group.Legacy() + "/" + key + "/set"
 }
 
 // Platform is the HA discovery platform — used as the second path
@@ -327,6 +330,11 @@ func (d *Discovery) Diagnostics() []string { return d.diagnostics }
 // Entries returns the discovery payloads built by [Initialize]. The
 // slice is shared — callers should iterate, not mutate.
 //
+// They are the pre-2.0.0 per-entity payloads, byte for byte, old topics
+// included ([LegacyStateTopic], [LegacyBridgeStatusTopic]): this builder
+// is a record of what an upgrading broker holds, not of what this release
+// publishes.
+//
 // Since ADR 0070 phase 6 step 6 this daemon PUBLISHES none of them: it
 // writes one retained device document (see [RenderBundle] and
 // [BundleConfigTopic]) and retracts these 100 per-entity configs first.
@@ -337,7 +345,8 @@ func (d *Discovery) Diagnostics() []string { return d.diagnostics }
 // document against a record this build does not also produce is what keeps
 // the two sides from agreeing on a wrong answer.
 //
-// CommandTopic is still live: it is what the command plane subscribes to.
+// CommandTopic is the pre-2.0.0 command topic and is subscribed by
+// nothing; the command plane routes [CommandFilter].
 func (d *Discovery) Entries() []Entry { return d.entries }
 
 // IsOwnConfig reports whether a retained HA discovery config payload was
@@ -453,7 +462,7 @@ func (d *Discovery) appendVirtualSwitch(v VirtualSwitch) {
 	// spelling of this bridge's topic schema, and a synthetic switch whose
 	// topics drift is the least visible kind — no register backs it, so
 	// nothing else ever writes there to reveal the mismatch.
-	command := CommandTopic(d.mqttTopic, d.serialNo, v.Group, v.Key)
+	command := LegacyCommandTopic(d.mqttTopic, d.serialNo, registers.Group(v.Group), v.Key)
 	payload := map[string]any{
 		"command_topic":      command,
 		"device":             d.device,
@@ -462,7 +471,7 @@ func (d *Discovery) appendVirtualSwitch(v VirtualSwitch) {
 		"name":               v.LocalizedName(d.lang),
 		"payload_off":        "0",
 		"payload_on":         "1",
-		"state_topic":        StateTopic(d.mqttTopic, d.serialNo, v.Group, v.Key),
+		"state_topic":        LegacyStateTopic(d.mqttTopic, d.serialNo, registers.Group(v.Group), v.Key),
 		"unique_id":          uid,
 	}
 	d.appendEntry(PlatformSwitch, uid, payload, command)
@@ -641,27 +650,22 @@ func (d *Discovery) configTopic(p Platform, uniqueID string) string {
 // what is actually published is the whole point of the key.
 func (d *Discovery) availability() []map[string]any {
 	return []map[string]any{{
-		"topic":                 BridgeStatusTopic(d.mqttTopic),
+		"topic":                 LegacyBridgeStatusTopic(d.mqttTopic),
 		"payload_available":     PayloadAvailable,
 		"payload_not_available": PayloadNotAvailable,
 	}}
 }
 
-// stateTopic returns the topic the coordinator publishes the
-// register's current value to: "<mqtt_topic>/<serial>/<group>/<mqtt_key>/state".
-//
-// It delegates to [StateTopic], which the poll loop now calls too. Until
-// this release the two sides were independent fmt.Sprintf expressions
-// (F5 of the phase-6 measurement) and nothing in the repository compared
-// them; a divergence points every entity at a topic nobody writes to.
+// stateTopic returns the pre-2.0.0 state topic of a register,
+// "<mqtt_topic>/<serial>/<group>/<mqtt_key>/state" ([LegacyStateTopic]).
 func (d *Discovery) stateTopic(r *registers.Register) string {
-	return StateTopic(d.mqttTopic, d.serialNo, string(r.Group), r.MQTT)
+	return LegacyStateTopic(d.mqttTopic, d.serialNo, r.Group, r.MQTT)
 }
 
-// commandTopic returns the topic HA writes back to for writable
-// entities: "<mqtt_topic>/<serial>/<group>/<mqtt_key>/set".
+// commandTopic returns the pre-2.0.0 command topic of a writable
+// register, "<mqtt_topic>/<serial>/<group>/<mqtt_key>/set".
 func (d *Discovery) commandTopic(r *registers.Register) string {
-	return CommandTopic(d.mqttTopic, d.serialNo, string(r.Group), r.MQTT)
+	return LegacyCommandTopic(d.mqttTopic, d.serialNo, r.Group, r.MQTT)
 }
 
 // valueItemsValues returns the HA select options derived from

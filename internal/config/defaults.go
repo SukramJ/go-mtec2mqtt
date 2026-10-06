@@ -13,6 +13,17 @@ const (
 	DefaultModbusFramer  = "rtu"
 	DefaultModbusRetries = 3
 
+	// DefaultMQTTTopic is the instance name when MQTT_TOPIC is unset
+	// (openccu-loom ADR 0083). Releases before 2.0.0 had no default and
+	// required the key, so every existing installation configured a value
+	// and keeps it.
+	DefaultMQTTTopic = "mtec"
+
+	// DefaultMQTTMaintenance and DefaultMQTTStatsInterval are the
+	// mqtt-smarthome 2.0 §7 defaults: maintenance on, stats every 60 s.
+	DefaultMQTTMaintenance   = true
+	DefaultMQTTStatsInterval = 60
+
 	DefaultMQTTLogin       = ""
 	DefaultMQTTPassword    = ""
 	DefaultMQTTFloatFormat = ".3f"
@@ -81,7 +92,7 @@ func rawHasKey(raw map[string]any, key string) bool {
 // applyDefaults fills in any field whose YAML+env round left it at its
 // zero value with the documented default. For fields where the zero
 // value is itself a legal, documented setting — MODBUS_RETRIES,
-// HASS_BIRTH_GRACETIME, REFRESH_NOW/CONFIG/DAY/STATIC/TOTAL,
+// MQTT_MAINTENANCE, MQTT_STATS_INTERVAL, HASS_BIRTH_GRACETIME, REFRESH_NOW/CONFIG/DAY/STATIC/TOTAL,
 // CHARGE_ACTIVE_VALUE, DISCHARGE_ACTIVE_VALUE (see [Validate]) — key
 // presence in raw, not the zero value, decides whether the default
 // applies: an explicit 0 must survive so Validate can reject (or
@@ -99,6 +110,18 @@ func applyDefaults(c *Config, raw map[string]any) {
 		// DefaultModbusRetries is 3, so an explicit MODBUS_RETRIES: 0
 		// must survive — only default when the key is truly absent.
 		c.ModbusRetries = DefaultModbusRetries
+	}
+	if c.MQTTTopic == "" {
+		c.MQTTTopic = DefaultMQTTTopic
+	}
+	if !rawHasKey(raw, "MQTT_MAINTENANCE") {
+		// false is the bool zero value and a legal setting, so presence
+		// decides, like the integer keys below.
+		c.MQTTMaintenance = DefaultMQTTMaintenance
+	}
+	if !rawHasKey(raw, "MQTT_STATS_INTERVAL") {
+		// An explicit 0 switches the stats off and must survive.
+		c.MQTTStatsInterval = DefaultMQTTStatsInterval
 	}
 	if c.MQTTFloatFormat == "" {
 		c.MQTTFloatFormat = DefaultMQTTFloatFormat

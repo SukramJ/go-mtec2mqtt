@@ -144,7 +144,7 @@ func TestWillIsTheRuntimesOwnStatement(t *testing.T) {
 
 	rt := publisher.New(nopTransport{}, publisher.Config{
 		Prefix: "homeassistant",
-		Layout: hass.Layout{Root: "MTEC"},
+		Layout: hass.NewLayout("MTEC"),
 		QoS:    coordinator.DiscoveryQoS,
 		Logger: discardLogger(),
 	})
@@ -152,12 +152,13 @@ func TestWillIsTheRuntimesOwnStatement(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Will() = %v", err)
 	}
-	if will.Topic != hass.BridgeStatusTopic("MTEC") {
+	if will.Topic != hass.ConnectedTopic("MTEC") || will.Topic != "MTEC/connected" {
 		t.Errorf("will topic = %q, want %q — the will and the 100 entities' "+
-			"availability_topic must be one string", will.Topic, hass.BridgeStatusTopic("MTEC"))
+			"availability_topic must be one string", will.Topic, hass.ConnectedTopic("MTEC"))
 	}
-	if string(will.Payload) != hass.PayloadNotAvailable {
-		t.Errorf("will payload = %q, want %q", will.Payload, hass.PayloadNotAvailable)
+	// mqtt-smarthome 2.0 §3.1: the will sets `connected` to 0.
+	if string(will.Payload) != publisher.ConnectedPayloadDown {
+		t.Errorf("will payload = %q, want %q", will.Payload, "0")
 	}
 	if !will.Retain {
 		t.Error("will retain = false — an unretained marker tells nothing to a " +
@@ -169,7 +170,7 @@ func TestWillIsTheRuntimesOwnStatement(t *testing.T) {
 	// The runtime derives the status topic from the Layout rather than
 	// taking a literal, and refuses a disagreement. Asserted because it is
 	// the property that makes the rest of this test more than a tautology.
-	layout := hass.Layout{Root: "MTEC"}
+	layout := hass.NewLayout("MTEC")
 	if rt.BridgeTopic() != layout.Bridge() {
 		t.Errorf("BridgeTopic() = %q, Layout.Bridge() = %q", rt.BridgeTopic(), layout.Bridge())
 	}
@@ -190,7 +191,7 @@ func TestLegacyFormsNamesTheMeasuredForm(t *testing.T) {
 
 	rt := publisher.New(nopTransport{}, publisher.Config{
 		Prefix:             "homeassistant",
-		Layout:             hass.Layout{Root: "MTEC"},
+		Layout:             hass.NewLayout("MTEC"),
 		QoS:                coordinator.DiscoveryQoS,
 		LegacyEntityTopics: hass.LegacyConfigTopicForms(),
 		Logger:             discardLogger(),
@@ -211,34 +212,42 @@ func (nopTransport) Subscribe(context.Context, string, byte, publisher.Handler) 
 }
 func (nopTransport) Unsubscribe(context.Context, string) error { return nil }
 
-// TestBridgeStatusTopicIsNotInTheDiscoveryTree pins the string this daemon
-// wills, births and buries itself on. Until this release it was
-// "<hass_base>/status/lwt" — homeassistant/status/lwt by default, inside
-// Home Assistant's own birth tree, one level under the topic this same
-// daemon subscribes to. It is now the daemon's own tree, and it is read
-// from the same function the discovery builder points 100 entities at, so
-// the publisher and the declaration cannot drift.
-func TestBridgeStatusTopicIsNotInTheDiscoveryTree(t *testing.T) {
+// TestConnectedTopicIsNotInTheDiscoveryTree pins the string this daemon
+// wills, announces and buries itself on: `<name>/connected` since 2.0.0
+// (mqtt-smarthome 2.0), `<root>/bridge/status` in 1.10 and 1.11, and
+// "<hass_base>/status/lwt" before that — inside Home Assistant's own birth
+// tree, one level under the topic this same daemon subscribes to. It is in
+// the daemon's own tree, and it is read from the same function the
+// discovery builder points 100 entities at, so the publisher and the
+// declaration cannot drift.
+func TestConnectedTopicIsNotInTheDiscoveryTree(t *testing.T) {
 	t.Parallel()
 
 	const mqttRoot, hassBase = "MTEC", "homeassistant"
-	got := hass.BridgeStatusTopic(mqttRoot)
-	// t.Errorf, not t.Fatalf: the three assertions below used to sit after
-	// a t.Fatalf and were therefore unreachable — the first one passing was
-	// the only reason the rest ever ran, and a mutation that moved the
-	// topic would have stopped at line one with the interesting assertions
-	// never evaluated.
-	if got != "MTEC/bridge/status" {
-		t.Errorf("BridgeStatusTopic(%q) = %q, want MTEC/bridge/status", mqttRoot, got)
+	got := hass.ConnectedTopic(mqttRoot)
+	if got != "MTEC/connected" {
+		t.Errorf("ConnectedTopic(%q) = %q, want MTEC/connected", mqttRoot, got)
 	}
-	if got == hass.LegacyAvailabilityTopic(hassBase) {
-		t.Error("the status topic is still in Home Assistant's own tree")
+	if got == hass.LegacyAvailabilityTopic(hassBase) || got == hass.LegacyBridgeStatusTopic(mqttRoot) {
+		t.Error("the status topic is still one of the pre-2.0 ones")
 	}
 	if strings.HasPrefix(got, hassBase+"/") {
 		t.Errorf("%q is under the Home Assistant discovery prefix", got)
 	}
 	if !strings.HasPrefix(got, mqttRoot+"/") {
 		t.Errorf("%q is not under the daemon's own publish root", got)
+	}
+}
+
+// TestInstanceInfoCarriesTheProjectFields pins the project's own
+// `<name>/info` fields beside the ones the library answers.
+func TestInstanceInfoCarriesTheProjectFields(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{ModbusIP: "192.168.1.5", ModbusPort: 5743, HASSEnable: true}
+	got := instanceInfo(cfg)
+	if got["modbus"] != "192.168.1.5:5743" || got["ha_discovery"] != true || len(got) != 2 {
+		t.Errorf("instanceInfo = %v", got)
 	}
 }
 

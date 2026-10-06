@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -113,17 +114,17 @@ func TestChangedStateValueIsPublished(t *testing.T) {
 	for _, p := range mqttStub.snapshotPublishes() {
 		wrote[p.topic] = true
 	}
-	const base = "MTEC/MTEC-TEST-001/now-base/"
-	if !wrote[base+"grid_power/state"] {
+	const base = "MTEC/status/MTEC-TEST-001/now_base/"
+	if !wrote[base+"grid_power"] {
 		t.Error("the changed value was suppressed by the dedup gate")
 	}
 	// `consumption` is a pseudo-register computed from grid_power, so it
 	// legitimately changes with it. Named here rather than left as an
 	// unexplained count.
-	if !wrote[base+"consumption/state"] {
+	if !wrote[base+"consumption"] {
 		t.Error("the pseudo-register derived from the changed value was suppressed")
 	}
-	if wrote[base+"inverter/state"] {
+	if wrote[base+"inverter"] {
 		t.Error("an unchanged value was re-published; the dedup gate is not engaged")
 	}
 	if len(wrote) != 2 {
@@ -131,46 +132,62 @@ func TestChangedStateValueIsPublished(t *testing.T) {
 	}
 }
 
-// TestPublishOnlineReopensTheDedupGate is the half of the reconnect path
-// that is new rather than preserved.
+// TestPublishOnlineRepublishesTheCachedState is the reconnect half of
+// mqtt-smarthome §3.2: every status item again after a broker reconnect,
+// so a broker that came back without its retained store is complete.
 //
-// A (re)connect may be to a broker that came back without its retained
-// store. The dedup cache would then answer "already published" for values
-// the broker no longer holds, and every entity would sit blank until its
-// value happened to change — which for the `static` and `total` groups is
-// effectively never. Reset opens the gate without forgetting the index,
-// so the next poll writes the fleet once and is deduped again afterwards.
-func TestPublishOnlineReopensTheDedupGate(t *testing.T) {
+// Up to 1.x this hook only reopened the dedup gate and left the rewrite to
+// the next poll, which for the hourly `static` group meant an hour without
+// values. It now re-sends the cached objects itself, before any poll, and
+// unchanged — original `ts` included, because the replay is the same
+// observation re-delivered (openccu-loom ADR 0083).
+func TestPublishOnlineRepublishesTheCachedState(t *testing.T) {
 	c, _, mqttStub, _ := buildDeps(t, false)
 	c.topicBase.Store(topicParts{root: "MTEC", serial: "MTEC-TEST-001"})
 	log := slog.New(slog.DiscardHandler)
 
 	c.publishGroupOnce(context.Background(), log, registers.GroupBase)
-	first := len(mqttStub.snapshotPublishes())
+	before := map[string]string{}
+	for _, p := range mqttStub.snapshotPublishes() {
+		if startsWith(p.topic, "MTEC/status/") {
+			before[p.topic] = string(p.payload)
+		}
+	}
+	if len(before) == 0 {
+		t.Fatal("the first cycle published no status item")
+	}
 	mqttStub.mu.Lock()
 	mqttStub.publishes = nil
 	mqttStub.mu.Unlock()
 
-	// The broker came back; the lifecycle fires OnConnect.
+	// The broker came back; the lifecycle fires OnConnect. No poll runs.
 	c.PublishOnline(context.Background())
 
-	c.publishGroupOnce(context.Background(), log, registers.GroupBase)
-	states := 0
+	after := map[string]string{}
 	for _, p := range mqttStub.snapshotPublishes() {
-		if endsWith(p.topic, "/state") {
-			states++
+		if startsWith(p.topic, "MTEC/status/") {
+			if !p.retain {
+				t.Errorf("%s replayed without retain", p.topic)
+			}
+			after[p.topic] = string(p.payload)
 		}
 	}
-	if states != first {
-		t.Errorf("after a reconnect the poll rewrote %d of %d values; a broker that lost its "+
-			"retained store leaves the rest of the fleet blank forever", states, first)
+	for topic, payload := range before {
+		if after[topic] != payload {
+			t.Errorf("%s: replayed %q, want the cached %q unchanged", topic, after[topic], payload)
+		}
+	}
+	if len(after) != len(before) {
+		t.Errorf("replayed %d status items, want %d", len(after), len(before))
 	}
 }
 
 // --- step 5: birth and LWT --------------------------------------------------
 
 // TestAnnouncementsUseTheBridgeTopic pins the three wire values of this
-// daemon's own availability marker, on both edges.
+// daemon's own availability marker, `<name>/connected`, on both edges:
+// 1 on a connect while the inverter is not (yet) reachable, 0 on a
+// graceful stop (mqtt-smarthome 2.0 §3.1).
 //
 // The topic is the SAME function the discovery builder points all 100
 // entities at, and it is deliberately not under the serial: the marker is
@@ -181,7 +198,7 @@ func TestPublishOnlineReopensTheDedupGate(t *testing.T) {
 // last value it ever saw.
 func TestAnnouncementsUseTheBridgeTopic(t *testing.T) {
 	c, _, mqttStub, _ := buildDeps(t, false)
-	want := hass.BridgeStatusTopic(c.deps.Cfg.MQTTTopic)
+	want := hass.ConnectedTopic(c.deps.Cfg.MQTTTopic)
 
 	c.PublishOnline(context.Background())
 	c.PublishOffline(context.Background())
@@ -195,11 +212,11 @@ func TestAnnouncementsUseTheBridgeTopic(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("announcements on %s = %d, want 2 (online then offline)", want, len(got))
 	}
-	if string(got[0].payload) != hass.PayloadAvailable {
-		t.Errorf("birth payload = %q, want %q", got[0].payload, hass.PayloadAvailable)
+	if string(got[0].payload) != "1" {
+		t.Errorf("birth payload = %q, want %q (broker up, inverter not known reachable)", got[0].payload, "1")
 	}
-	if string(got[1].payload) != hass.PayloadNotAvailable {
-		t.Errorf("death payload = %q, want %q", got[1].payload, hass.PayloadNotAvailable)
+	if string(got[1].payload) != "0" {
+		t.Errorf("death payload = %q, want %q", got[1].payload, "0")
 	}
 	for i, p := range got {
 		if !p.retain {
@@ -244,13 +261,24 @@ func TestWillAgreesWithTheAnnouncements(t *testing.T) {
 		t.Errorf("will{qos:%d retain:%v} vs announcement{qos:%v retain:%v}",
 			will.QoS, will.Retain, death.qos, death.retain)
 	}
-	if will.Topic != hass.BridgeStatusTopic(c.deps.Cfg.MQTTTopic) {
+	if will.Topic != hass.ConnectedTopic(c.deps.Cfg.MQTTTopic) {
 		t.Errorf("will topic = %q, want the builder's %q",
-			will.Topic, hass.BridgeStatusTopic(c.deps.Cfg.MQTTTopic))
+			will.Topic, hass.ConnectedTopic(c.deps.Cfg.MQTTTopic))
 	}
 }
 
 // --- step 5: the command router ---------------------------------------------
+
+// routeSet hands cmd to the route's handler the way the router does:
+// normalised by publisher.ParseSet (mqtt-smarthome §5.3) first.
+func routeSet(t *testing.T, c *Coordinator, cmd publisher.Command) {
+	t.Helper()
+	v, err := publisher.ParseSet(cmd.Payload)
+	if err != nil {
+		t.Fatalf("ParseSet(%q): %v", cmd.Payload, err)
+	}
+	c.onSet(context.Background(), cmd, v)
+}
 
 // TestRoutedCommandReachesTheWriteQueue proves the router replaces the
 // hand-rolled dispatch without changing what a /set publish does: the
@@ -260,8 +288,8 @@ func TestRoutedCommandReachesTheWriteQueue(t *testing.T) {
 	c, _, _, _ := buildDeps(t, false)
 	c.topicBase.Store(topicParts{root: "MTEC", serial: "MTEC-TEST-001"})
 
-	c.onCommand(context.Background(), publisher.Command{
-		Topic:     "MTEC/MTEC-TEST-001/config/mode/set",
+	routeSet(t, c, publisher.Command{
+		Topic:     "MTEC/set/MTEC-TEST-001/config/mode",
 		Payload:   []byte("Eco"),
 		Filter:    hass.CommandFilter("MTEC"),
 		Wildcards: []string{"MTEC-TEST-001", "config", "mode"},
@@ -285,8 +313,8 @@ func TestCommandForAnotherInvertersSerialIsDropped(t *testing.T) {
 	c, _, _, _ := buildDeps(t, false)
 	c.topicBase.Store(topicParts{root: "MTEC", serial: "MTEC-TEST-001"})
 
-	c.onCommand(context.Background(), publisher.Command{
-		Topic:     "MTEC/OTHER-INVERTER/config/mode/set",
+	routeSet(t, c, publisher.Command{
+		Topic:     "MTEC/set/OTHER-INVERTER/config/mode",
 		Payload:   []byte("Eco"),
 		Wildcards: []string{"OTHER-INVERTER", "config", "mode"},
 	})
@@ -303,8 +331,8 @@ func TestCommandForAnotherInvertersSerialIsDropped(t *testing.T) {
 // losing it.
 func TestCommandBeforeStaticInitIsDropped(t *testing.T) {
 	c, _, _, _ := buildDeps(t, false)
-	c.onCommand(context.Background(), publisher.Command{
-		Topic:     "MTEC/MTEC-TEST-001/config/mode/set",
+	routeSet(t, c, publisher.Command{
+		Topic:     "MTEC/set/MTEC-TEST-001/config/mode",
 		Payload:   []byte("Eco"),
 		Wildcards: []string{"MTEC-TEST-001", "config", "mode"},
 	})
@@ -332,7 +360,7 @@ func TestRetainedCommandsAreNotDelivered(t *testing.T) {
 	t.Cleanup(func() { c.stopCommands(context.Background()) })
 
 	mqttStub.deliverMsg(&mqtt.Message{
-		Topic:   "MTEC/MTEC-TEST-001/config/mode/set",
+		Topic:   "MTEC/set/MTEC-TEST-001/config/mode",
 		Payload: []byte("Eco"),
 		Retain:  true,
 	})
@@ -346,7 +374,7 @@ func TestRetainedCommandsAreNotDelivered(t *testing.T) {
 
 	// The same publish, live, must still land — otherwise this test would
 	// pass on a router that delivers nothing at all.
-	mqttStub.deliver("MTEC/MTEC-TEST-001/config/mode/set", []byte("Eco"))
+	mqttStub.deliver("MTEC/set/MTEC-TEST-001/config/mode", []byte("Eco"))
 	c.commands.WaitIdle()
 	select {
 	case req := <-c.writeQueue:
@@ -393,9 +421,10 @@ func TestCommandRouteAndFilterAreOneString(t *testing.T) {
 	t.Cleanup(func() { c.stopCommands(context.Background()) })
 
 	want := hass.CommandFilter(c.deps.Cfg.MQTTTopic)
+	maintenance := hass.NewLayout(c.deps.Cfg.MQTTTopic).Maintenance("set") + "/#"
 	filters := c.commands.Filters()
-	if len(filters) != 1 || filters[0] != want {
-		t.Fatalf("router filters = %v, want [%q]", filters, want)
+	if !slices.Equal(filters, []string{maintenance, want}) && !slices.Equal(filters, []string{want, maintenance}) {
+		t.Fatalf("router filters = %v, want [%q %q]", filters, want, maintenance)
 	}
 	if mqttStub.countSubscribes(want) != 1 {
 		t.Errorf("the router did not subscribe %q", want)

@@ -16,7 +16,7 @@ const sampleYAML = `
   name: Household consumption
   unit: W
   mqtt: consumption
-  group: now-base
+  group: now_base
   hass_device_class: power
   hass_value_template: "{{ value | round(0) }}"
 
@@ -32,7 +32,7 @@ const sampleYAML = `
   length: 1
   type: U16
   mqtt: inverter_status
-  group: now-base
+  group: now_base
   hass_device_class: enum
   hass_value_items:
     0: "wait for on-grid"
@@ -108,10 +108,10 @@ func TestLoadSkipsEntriesWithoutName(t *testing.T) {
 "10100":
   length: 1
   type: U16
-  group: now-base
+  group: now_base
 "10101":
   name: Good register
-  group: now-base
+  group: now_base
 `
 	m, diag, err := parse(strings.NewReader(broken), "test")
 	if err != nil {
@@ -132,7 +132,7 @@ func TestByGroupAndFindByMQTT(t *testing.T) {
 	}
 	base := m.ByGroup(GroupBase)
 	if len(base) != 2 {
-		t.Fatalf("now-base group: got %d, want 2 (consumption + status)", len(base))
+		t.Fatalf("now_base group: got %d, want 2 (consumption + status)", len(base))
 	}
 	if r := m.FindByMQTT("mode"); r == nil || r.Address != 52000 {
 		t.Errorf("FindByMQTT(\"mode\") = %+v, want register 52000", r)
@@ -209,22 +209,22 @@ func TestLoadRejectsMQTTUnsafeTopicSegments(t *testing.T) {
 "20000":
   name: Wildcard in mqtt
   mqtt: bat+soc
-  group: now-base
+  group: now_base
 "20001":
   name: Wildcard in group
   mqtt: ok_key
   group: "now#base"
 "20002":
   name: Fallback name + used as topic
-  group: now-base
+  group: now_base
 "20003":
   name: Hierarchical mqtt key
   mqtt: battery/soc
-  group: now-base
+  group: now_base
 "20004":
   name: Name with / but mqtt set
   mqtt: safe_key
-  group: now-base
+  group: now_base
 `
 	m, diag, err := parse(strings.NewReader(broken), "test")
 	if err != nil {
@@ -256,11 +256,11 @@ func TestLoadSkipsDuplicateKeys(t *testing.T) {
 "10105":
   name: First definition
   scale: 10
-  group: now-base
+  group: now_base
 "10105":
   name: Second definition
   scale: 100
-  group: now-base
+  group: now_base
 `
 	m, diag, err := parse(strings.NewReader(dup), "test")
 	if err != nil {
@@ -288,10 +288,10 @@ func TestLoadSkipsOutOfRangeNumericKeys(t *testing.T) {
 	const broken = `
 "104430":
   name: Typoed address
-  group: now-base
+  group: now_base
 "consumption":
   name: Real pseudo register
-  group: now-base
+  group: now_base
 `
 	m, diag, err := parse(strings.NewReader(broken), "test")
 	if err != nil {
@@ -371,12 +371,12 @@ func TestLoadRejectsTypeLengthMismatch(t *testing.T) {
   name: BIT past 64 bits
   type: BIT
   length: 5
-  group: now-base
+  group: now_base
 "31210":
   name: Healthy BIT at the 64-bit limit
   type: BIT
   length: 4
-  group: now-base
+  group: now_base
 "31215":
   name: Healthy STR of arbitrary length
   type: STR
@@ -506,12 +506,12 @@ func TestLoadSkipsDuplicateAddresses(t *testing.T) {
   name: Canonical spelling
   scale: 10
   mqtt: inverter_status
-  group: now-base
+  group: now_base
 "010105":
   name: Leading-zero spelling
   scale: 100
   mqtt: inverter_status_2
-  group: now-base
+  group: now_base
 `
 	m, diag, err := parse(strings.NewReader(dup), "test")
 	if err != nil {
@@ -646,6 +646,53 @@ func TestCatalogBitRegistersHaveNoEnumDeviceClass(t *testing.T) {
 		if r := m.ByAddr[addr]; r == nil || r.HassDeviceClass != "enum" {
 			t.Errorf("integer enum register %d must keep hass_device_class enum, got %+v",
 				addr, r)
+		}
+	}
+}
+
+// Groups are snake_case since 2.0.0. A catalog written for an earlier
+// release keeps working: its hyphenated group is read as the new one, and
+// the loader says so rather than leaving the group polled by nobody.
+func TestLoadAcceptsThePre2GroupSpelling(t *testing.T) {
+	m, diag, err := LoadFromString(`
+"11000":
+  name: Grid power
+  length: 2
+  type: I32
+  mqtt: grid_power
+  group: now-base
+"30230":
+  name: Backup power
+  type: U16
+  mqtt: backup_power
+  group: now-backup
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := m.ByKey["11000"].Group; got != GroupBase {
+		t.Errorf("now-base read as %q, want %q", got, GroupBase)
+	}
+	if got := m.ByKey["30230"].Group; got != GroupBackup {
+		t.Errorf("now-backup read as %q, want %q", got, GroupBackup)
+	}
+	if len(diag) != 2 || !strings.Contains(diag[0], "pre-2.0.0 spelling") {
+		t.Errorf("diagnostics: %v", diag)
+	}
+}
+
+func TestGroupLegacyIsThePre2Spelling(t *testing.T) {
+	want := map[Group]string{
+		GroupBase: "now-base", GroupGrid: "now-grid", GroupInverter: "now-inverter",
+		GroupBackup: "now-backup", GroupBattery: "now-battery", GroupPV: "now-pv",
+		GroupDay: "day", GroupTotal: "total", GroupConfig: "config", GroupStatic: "static",
+	}
+	for g, old := range want {
+		if got := g.Legacy(); got != old {
+			t.Errorf("%s.Legacy() = %q, want %q", g, got, old)
+		}
+		if strings.Contains(string(g), "-") {
+			t.Errorf("group %q is not snake_case", g)
 		}
 	}
 }

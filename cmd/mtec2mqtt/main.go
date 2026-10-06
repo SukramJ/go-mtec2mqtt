@@ -25,6 +25,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -70,11 +71,15 @@ func main() {
 		os.Exit(runHealthcheck(*configPath))
 	}
 
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	// One level variable behind the one handler, so DEBUG and the
+	// mqtt-smarthome `maintenance/set/loglevel` command move the level the
+	// daemon actually logs at rather than building a second logger.
+	level := &slog.LevelVar{}
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 	slog.SetDefault(logger)
 	logger.Info("mtec2mqtt.boot", slog.String("build", version.String()))
 
-	if err := run(*configPath, *registersPath, logger); fatalErr(err) {
+	if err := run(*configPath, *registersPath, logger, level); fatalErr(err) {
 		logger.Error("mtec2mqtt.fatal", slog.String("err", err.Error()))
 		os.Exit(1)
 	}
@@ -92,15 +97,22 @@ func fatalErr(err error) bool {
 
 // run is the testable entry point: returns a non-nil error on any
 // startup or runtime failure, nil on clean shutdown.
-func run(configPath, registersPath string, logger *slog.Logger) error {
+func run(configPath, registersPath string, logger *slog.Logger, level *slog.LevelVar) error {
 	// --- config ---
 	cfg, err := loadConfig(configPath, logger)
 	if err != nil {
 		return err
 	}
 	if cfg.Debug {
-		logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
-		slog.SetDefault(logger)
+		level.Set(slog.LevelDebug)
+	}
+	if layout := hass.NewLayout(cfg.MQTTTopic); !layout.Conformant() {
+		// Kept verbatim — refusing it would break the installation on
+		// upgrade — but said once, because a tool scanning `+/info` for
+		// mqtt-smarthome adapters cannot see this instance.
+		logger.Warn("mtec2mqtt.mqtt_topic_multi_level",
+			slog.String("mqtt_topic", cfg.MQTTTopic),
+			slog.String("effect", "runs outside mqtt-smarthome 2.0 §3; invisible to a +/info scan"))
 	}
 
 	// --- registers ---
@@ -112,6 +124,11 @@ func run(configPath, registersPath string, logger *slog.Logger) error {
 	// --- ctx wired to SIGINT/SIGTERM so the daemon shuts down on a
 	//     normal stop signal without leaving the inverter holding
 	//     half-open Modbus sockets.
+	//
+	// cancel is also the mqtt-smarthome `maintenance/set/restart` path: the
+	// same graceful shutdown a SIGTERM takes — the coordinator stops, the
+	// deferred PublishOffline writes `connected` 0, the process exits 0 —
+	// and the supervisor starts it again.
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
@@ -137,10 +154,11 @@ func run(configPath, registersPath string, logger *slog.Logger) error {
 	// where nothing reads it and every entity in Home Assistant stays
 	// available forever, showing the last value it ever saw.
 	//
-	// The status topic is hass.BridgeStatusTopic, the SAME function the
-	// discovery builder points all 100 entities at. It is deliberately NOT
-	// under the serial: the marker is published at CONNECT, before the
-	// STATIC read that learns the serial number.
+	// The status topic is `<name>/connected` (hass.ConnectedTopic), the
+	// SAME topic all 100 entities read their bridge-level availability
+	// from, and its will payload is 0. It is deliberately NOT under the
+	// serial: the marker is published at CONNECT, before the STATIC read
+	// that learns the serial number.
 	//
 	// The client it publishes through does not exist yet, so the transport
 	// is wired in below, before anything connects.
@@ -234,37 +252,49 @@ func run(configPath, registersPath string, logger *slog.Logger) error {
 
 	// --- state plane ---
 	//
-	// StateFor inherits the runtime's transport and logger; what it does
-	// NOT inherit is a QoS it was never told, which is the whole point of
-	// stating coordinator.StateQoS. publisher.QoS's zero value means
-	// *unset* and resolves to QoS 1; this bridge has published its entire
-	// state plane at QoS 0 since its first release, and a step whose
-	// purpose is de-duplication is not where an installed base's delivery
-	// guarantee changes on the wire.
+	// Every value is an mqtt-smarthome 2.0 status object, {"val","ts","lc"},
+	// deduplicated on `val` and retained. StateFor inherits the runtime's
+	// transport and logger; the QoS it is stated, not inherited — QoS 0,
+	// what this bridge has always published its state at and what the
+	// convention asks for (§4). publisher.QoS's zero value means *unset*,
+	// so the field is written out (coordinator.StateQoS).
 	//
 	// CommandFilters is the one thing the library can check that this
 	// bridge could not: a state topic falling inside this process's own
-	// /set subscription would be echoed back into its own command handler.
+	// `set` subscription would be echoed back into its own command handler.
 	// The filter is stated once, in hass.CommandFilter, and read by the
 	// router route and by this guard.
 	//
-	// PulseQoS is stated for the same reason and is NOT redundant with the
-	// line above it, even though both resolve to the same wire byte today.
-	// It is the one field in publisher whose default is QoS 0, so a plane
-	// that states StateConfig.QoS and leaves this one alone publishes its
-	// pulses at a level nobody chose — and the two only come apart when the
-	// state QoS is not 0, which a single-configuration bridge like this one
-	// never sees. The library warns about exactly this at construction
-	// (`publisher.state.pulse_qos_unstated`, new in go-hamqtt v0.34.0), and
-	// that warning is the ONLY thing that could have caught it here:
-	// nothing on the wire moves either way, so no golden, no pin and no
-	// byte comparison in this repo could ever have told the difference.
+	// PulseQoS is stated for the same reason, although this bridge
+	// publishes no pulses: it is the one field in publisher whose default
+	// is QoS 0, and the library warns at construction when a plane states
+	// one QoS and not the other (`publisher.state.pulse_qos_unstated`).
 	statePlane := publisher.StateFor(bootRuntime, publisher.StateConfig{
 		QoS:            coordinator.StateQoS,
 		PulseQoS:       coordinator.StateQoS,
-		Encoding:       discovery.RawEncoding,
+		Encoding:       discovery.StatusObjectEncoding,
 		CommandFilters: []string{hass.CommandFilter(cfg.MQTTTopic)},
 		Logger:         logger,
+	})
+
+	// --- mqtt-smarthome instance: <name>/info and the maintenance topics ---
+	//
+	// Restart is honoured only where a supervisor starts the process again
+	// after a clean exit: MTEC_SUPERVISED decides when set (1/true, 0/false),
+	// otherwise systemd, Kubernetes or a container marker counts. Anything
+	// else refuses it at warn, because without a supervisor a restart is a
+	// stop.
+	instance := publisher.NewInstance(haLink, publisher.InstanceConfig{
+		Layout:              hass.NewLayout(cfg.MQTTTopic),
+		Name:                hass.OriginName,
+		Version:             version.Version,
+		Extra:               instanceInfo(cfg),
+		MaintenanceDisabled: !cfg.MQTTMaintenance,
+		SetLogLevel:         publisher.LevelVarSetter(level),
+		Supervised:          publisher.DetectSupervised(config.EnvPrefix + "SUPERVISED"),
+		Shutdown:            cancel,
+		StatsInterval:       publisher.StatsInterval(cfg.MQTTStatsInterval),
+		Logger:              logger,
 	})
 
 	// --- hass discovery (optional) ---
@@ -305,6 +335,7 @@ func run(configPath, registersPath string, logger *slog.Logger) error {
 		Virtual:      virtualSwitches,
 		NewHARuntime: newHARuntime,
 		StatePlane:   statePlane,
+		Instance:     instance,
 		// The broker's advertised Maximum Packet Size, renegotiated on every
 		// CONNACK, so the device document's size is checked before the
 		// retraction that cannot be undone rather than by the publish that
@@ -341,6 +372,11 @@ func run(configPath, registersPath string, logger *slog.Logger) error {
 		_ = mqttLifecycle.Stop(stopCtx)
 	}()
 
+	// `<name>/maintenance/stats`, retained, until shutdown. A failed
+	// publish (broker away) is retried at the next tick by the library;
+	// ErrStatsOff means maintenance or the interval is off.
+	go func() { _ = instance.RunStats(ctx) }()
+
 	if !cfg.WebEnable {
 		return c.Run(ctx)
 	}
@@ -359,6 +395,18 @@ func run(configPath, registersPath string, logger *slog.Logger) error {
 	g.Go(func() error { return c.Run(gctx) })
 	g.Go(func() error { return webSrv.Run(gctx) })
 	return g.Wait()
+}
+
+// instanceInfo is the project's own `<name>/info` fields (mqtt-smarthome
+// §6 allows them beside the spec's): where the inverter is reached, and
+// whether Home Assistant discovery is on. Static — `info` is published on
+// every connect, before the STATIC read that learns the serial, so the
+// serial is not one of them.
+func instanceInfo(cfg *config.Config) map[string]any {
+	return map[string]any{
+		"modbus":       net.JoinHostPort(cfg.ModbusIP, strconv.Itoa(cfg.ModbusPort)),
+		"ha_discovery": cfg.HASSEnable,
+	}
 }
 
 // mqttStarter is the subset of [*mqtt.Lifecycle] that startMQTT

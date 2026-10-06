@@ -171,23 +171,31 @@ func publishEveryGroup(t *testing.T, c *Coordinator, catalog *registers.Map, stu
 	return pubs
 }
 
-// discoveryStateTopics reads the state_topic out of each built config
-// payload: the *config* side of F5.
-func discoveryStateTopics(t *testing.T, d *hass.Discovery) map[string]string {
+// discoveryStateTopics reads the state_topic out of each component of the
+// device document this daemon publishes: the *config* side of F5, keyed
+// by component key.
+func discoveryStateTopics(t *testing.T, c *Coordinator) map[string]string {
 	t.Helper()
 	out := map[string]string{}
-	for _, e := range d.Entries() {
-		var payload struct {
-			StateTopic string `json:"state_topic"`
-		}
-		if err := json.Unmarshal(e.Payload, &payload); err != nil {
-			t.Fatalf("%s: %v", e.ConfigTopic, err)
-		}
-		if payload.StateTopic == "" {
-			t.Errorf("%s has no state_topic", e.ConfigTopic)
+	for key := range c.haBundle.Components {
+		st := c.haBundle.Components[key].StateTopic
+		if st == "" {
+			t.Errorf("%s has no state_topic", key)
 			continue
 		}
-		out[e.ConfigTopic] = payload.StateTopic
+		out[key] = st
+	}
+	return out
+}
+
+// discoveryCommandTopics is the command_topic of every component that has
+// one: what Home Assistant is told to write back to.
+func discoveryCommandTopics(c *Coordinator) map[string]bool {
+	out := map[string]bool{}
+	for key := range c.haBundle.Components {
+		if ct := c.haBundle.Components[key].CommandTopic; ct != "" {
+			out[ct] = true
+		}
 	}
 	return out
 }
@@ -251,7 +259,7 @@ func subscribeFilters(t *testing.T, c *Coordinator, stub *stubMQTT) []string {
 // TestTopicGolden pins the whole topic tree — state, config, command and
 // the filters the daemon subscribes to — as produced by the real builders.
 func TestTopicGolden(t *testing.T) {
-	c, discovery, stub, catalog := realTopicCoordinator(t)
+	c, _, stub, catalog := realTopicCoordinator(t)
 
 	stateSet := map[string]bool{}
 	for _, p := range publishEveryGroup(t, c, catalog, stub) {
@@ -262,15 +270,10 @@ func TestTopicGolden(t *testing.T) {
 	for _, topic := range hass.SupersededConfigTopics(c.ha().Prefix(), c.haBundle) {
 		configSet[topic] = true
 	}
-	commandSet := map[string]bool{}
-	for _, e := range discovery.Entries() {
-		if e.CommandTopic != "" {
-			commandSet[e.CommandTopic] = true
-		}
-	}
+	commandSet := discoveryCommandTopics(c)
 
 	entityStateTopics := map[string]bool{}
-	for _, st := range discoveryStateTopics(t, discovery) {
+	for _, st := range discoveryStateTopics(t, c) {
 		entityStateTopics[st] = true
 	}
 	orphanState := map[string]bool{}
@@ -353,14 +356,14 @@ func diffTopicList(t *testing.T, name string, want, got []string) {
 // against the real publish path, not against the golden file, so a change
 // to either builder alone fails here even after a regeneration.
 func TestStateTopicBuildersAgree(t *testing.T) {
-	c, discovery, stub, catalog := realTopicCoordinator(t)
+	c, _, stub, catalog := realTopicCoordinator(t)
 
 	published := map[string]bool{}
 	for _, p := range publishEveryGroup(t, c, catalog, stub) {
 		published[p.topic] = true
 	}
 
-	advertised := discoveryStateTopics(t, discovery)
+	advertised := discoveryStateTopics(t, c)
 	if len(advertised) != 100 {
 		t.Errorf("advertised state topics = %d, want 100", len(advertised))
 	}
@@ -381,16 +384,16 @@ func TestStateTopicBuildersAgree(t *testing.T) {
 // subscribes to covers every command topic it advertises — the same
 // class of divergence as F5, on the inbound half.
 func TestCommandTopicsAreSubscribed(t *testing.T) {
-	_, discovery, _, _ := realTopicCoordinator(t)
-	filter := "MTEC/+/+/+/set"
+	c, _, _, _ := realTopicCoordinator(t)
+	filter := "MTEC/set/+/+/+"
+	if got := hass.CommandFilter("MTEC"); got != filter {
+		t.Fatalf("CommandFilter = %q, want %q", got, filter)
+	}
 	n := 0
-	for _, e := range discovery.Entries() {
-		if e.CommandTopic == "" {
-			continue
-		}
+	for topic := range discoveryCommandTopics(c) {
 		n++
-		if !matchTopicFilter(filter, e.CommandTopic) {
-			t.Errorf("%s is advertised but not covered by %s", e.CommandTopic, filter)
+		if !matchTopicFilter(filter, topic) {
+			t.Errorf("%s is advertised but not covered by %s", topic, filter)
 		}
 	}
 	if n != 11 {
@@ -486,7 +489,9 @@ func TestSubscribeQoS(t *testing.T) {
 
 	want := map[string]mqtt.QoS{
 		"homeassistant/status": mqtt.QoS1,
-		"MTEC/+/+/+/set":       mqtt.QoS1,
+		"MTEC/set/+/+/+":       mqtt.QoS1,
+		// mqtt-smarthome §7 maintenance, routed by the same router.
+		"MTEC/maintenance/set/#": mqtt.QoS1,
 		// DiscoveryQoS — publisher.Config's QoS, which the library applies
 		// to the sweep's window as well as to the discovery publishes.
 		"homeassistant/#": mqtt.QoS0,
@@ -539,10 +544,10 @@ func TestNilValueIsNotPublished(t *testing.T) {
 	const nilKey = "grid_power"
 	data, ok := c.deps.Reader.(*stubReader).groupData[registers.GroupBase]
 	if !ok {
-		t.Fatal("no now-base group data")
+		t.Fatal("no now_base group data")
 	}
 	if _, present := data[nilKey]; !present {
-		t.Fatalf("%s is not a now-base register any more; pick another plain sensor", nilKey)
+		t.Fatalf("%s is not a now_base register any more; pick another plain sensor", nilKey)
 	}
 	data[nilKey] = nil
 
@@ -552,7 +557,7 @@ func TestNilValueIsNotPublished(t *testing.T) {
 		t.Fatal("no publishes — the poll path did not run")
 	}
 
-	nilTopic := "MTEC/" + goldenSerial + "/now-base/" + nilKey + "/state"
+	nilTopic := hass.StateTopic("MTEC", goldenSerial, string(registers.GroupBase), nilKey)
 	sawOthers := false
 	for _, p := range pubs {
 		if p.topic == nilTopic {

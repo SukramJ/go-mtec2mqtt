@@ -1,3 +1,83 @@
+# Version 2.0.0 (2026-10-06)
+
+## What's Changed
+
+### Breaking
+
+- **MQTT topics follow the
+  [mqtt-smarthome 2.0](https://github.com/mqtt-smarthome/mqtt-smarthome/blob/master/SPEC.md)
+  convention** (openccu-loom ADR 0083), one convention for this bridge,
+  its sibling bridges and openccu-loom. A clean break with no
+  compatibility switch:
+
+  | Up to 1.11 | Since 2.0.0 |
+  | --- | --- |
+  | `MTEC/<serial>/now-base/grid_power/state` = `-500` | `MTEC/status/<serial>/now_base/grid_power` = `{"val":-500,"ts":…,"lc":…}` |
+  | `MTEC/<serial>/<group>/<key>/set` | `MTEC/set/<serial>/<group>/<key>` |
+  | `MTEC/bridge/status` = `online` / `offline` | `MTEC/connected` = `0` / `1` / `2` |
+  | — | `MTEC/status/<serial>/online`, `MTEC/info`, `MTEC/maintenance/…` |
+
+  - Every status item is a `{"val","ts","lc"}` object (`ts` the reading,
+    `lc` the last change, milliseconds). Numbers are JSON numbers,
+    switches JSON booleans (`true`/`false` instead of `1`/`0`), and
+    enumerations carry their English token (`"on-grid"`) instead of the
+    label of `LANGUAGE`. Status is published on change and on every broker
+    reconnect, which now re-sends the cached values itself instead of
+    waiting for the next poll (an hour for the `static` group).
+  - The live groups are snake_case: `now-base` → `now_base`, likewise
+    `now_grid`, `now_inverter`, `now_backup`, `now_battery`, `now_pv`. A
+    `registers.yaml` of your own that still says `now-base` keeps working,
+    with a catalog note at start.
+  - `MQTT_FLOAT_FORMAT` no longer formats a string; it is the rounding
+    precision of the published number.
+  - `<name>/connected` is `2` only while the inverter answers over Modbus,
+    `1` while the daemon is connected to the broker but the inverter is
+    not, `0` from the last will and on a clean shutdown. The inverter's
+    reachability is also the new status item `<name>/status/<serial>/online`.
+
+  **Home Assistant users need to do nothing**: every `unique_id`, entity
+  id, device identifier and the discovery topic are unchanged — proven
+  against the frozen 1.11 document — and the entities follow the new
+  topics on their own, history included. They now become unavailable when
+  the inverter stops answering, not only when the daemon goes away
+  (`connected` ≥ 2 and `online`, `availability_mode: all`). **Everything
+  else that reads raw topics** — Node-RED, Telegraf, dashboards, evcc —
+  must move to the new topics and read the JSON `val`.
+
+  On every start the daemon clears the retained topics the old layout left
+  for its own inverter: the old state (and any retained command) topic of
+  every register it publishes, under its own name and serial, and
+  `<name>/bridge/status`. Exact topics only — a sibling inverter's topics,
+  another name's, and the new layout are never touched.
+
+### Added
+
+- **`MQTT_TOPIC` defaults to `mtec`.** It was required until now, so every
+  existing installation keeps the name it configured. The README says it
+  next to the option: the name is the only thing that keeps two instances
+  on one broker apart.
+- **`<name>/info`**, published on every broker connect: `name`
+  (`go-mtec2mqtt`), `version`, `spec`, `go`, `host`, `pid`, `started`,
+  `maintenance`, `modbus`, `ha_discovery`.
+- **Maintenance topics, on by default**: `<name>/maintenance/set/loglevel`
+  (changes the running log level), `<name>/maintenance/set/restart`
+  (graceful shutdown, exit 0 — only where a supervisor restarts the
+  process: systemd, Kubernetes, a container, or `MTEC_SUPERVISED=1`;
+  refused otherwise and in the add-on), and the retained
+  `<name>/maintenance/stats`. New keys `MQTT_MAINTENANCE` (default `true`)
+  and `MQTT_STATS_INTERVAL` (default `60`, `0` = off), also add-on options.
+  Anyone who may publish on the broker can use them: secure it with ACLs
+  or switch them off.
+- **`set` accepts the mqtt-smarthome spellings** on top of everything it
+  accepted before: `{"val": …}`, switches as `true`/`false`, `on`/`off`,
+  `yes`/`no` in any case, enumeration tokens in any case. Empty and
+  retained payloads are ignored, and a refused or failed request is logged
+  at `warn` with its topic and payload.
+
+### Changed
+
+- `go-hamqtt` 0.35.0 → 0.36.0, the release that carries the convention.
+
 # Version 1.11.0 (2026-10-02)
 
 ## What's Changed

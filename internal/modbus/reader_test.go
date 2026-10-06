@@ -28,7 +28,7 @@ func buildCatalog(t *testing.T) *registers.Map {
   type: S32
   unit: W
   mqtt: grid_power
-  group: now-base
+  group: now_base
 
 "11006":
   name: Voltage A/B
@@ -37,14 +37,14 @@ func buildCatalog(t *testing.T) *registers.Map {
   unit: V
   scale: 10
   mqtt: ac_voltage_a_b
-  group: now-base
+  group: now_base
 
 "11100":
   name: Inverter status
   length: 1
   type: U16
   mqtt: inverter_status
-  group: now-base
+  group: now_base
 
 "52000":
   name: Operation mode
@@ -87,7 +87,7 @@ func buildCatalog(t *testing.T) *registers.Map {
 "consumption":
   name: Household
   mqtt: consumption
-  group: now-base
+  group: now_base
 
 "pseudo_writable":
   name: Pseudo writable
@@ -113,7 +113,7 @@ func loadCatalogString(s string) (*registers.Map, []string, error) {
 func TestReadGroupHappyPathSingleAndSplitClusters(t *testing.T) {
 	catalog := buildCatalog(t)
 
-	// now-base has registers at 11000 (len 2), 11006 (len 1), 11100
+	// now_base has registers at 11000 (len 2), 11006 (len 1), 11100
 	// (len 1). 11000..11006 sit in one cluster (Count = 7); 11100 is
 	// 94 words away → its own cluster.
 	srv := newMockServer(t, func(req []byte) ([]byte, *protocol.ExceptionError) {

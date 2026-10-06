@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/SukramJ/go-mtec2mqtt/internal/hass"
 	"github.com/SukramJ/go-mtec2mqtt/internal/registers"
 )
 
@@ -228,34 +229,52 @@ func findRegisterByOutputKey(catalog *registers.Map, key string) *registers.Regi
 	return nil
 }
 
-// formatValue renders one published value to a payload string. The
-// shape matches Python's coordinator: floats go through the
-// MQTT_FLOAT_FORMAT spec, booleans become "1" / "0", everything else
-// is Sprintf-stringified.
+// wireValue renders one value as the `val` of its mqtt-smarthome status
+// object (spec §5.2): a JSON number, boolean or string, never a formatted
+// string. raw is the reader's value for the key (absent for a
+// pseudo-register or a synthetic switch), processed the value
+// [processValues] made of it for the web UI. round applies the configured
+// MQTT_FLOAT_FORMAT precision.
 //
-// Integers deliberately share the default branch: %v renders int, int32
-// and the int64 an unscaled U32/S32 register decodes to identically
-// (no exponent, no thousands separator), so a wide register publishes
-// its full value without a width-specific case here.
+//   - A register with hass_value_items publishes its stable token, the
+//     ENGLISH label ("on-grid"; a BIT register: "OK" or the comma-joined
+//     English names of the set flags; an unmapped code: "Unknown"), never
+//     the label of the configured language. Home Assistant maps it to the
+//     localised label in discovery (hass.ValueItemsEnum).
+//   - A switch or binary_sensor register publishes a boolean: true when the
+//     register holds its hass_payload_on value ("1"), or any non-zero
+//     value when the catalog names none. Up to 1.x the payload was the
+//     raw "1"/"0".
+//   - A float is rounded and stays a number; a Go bool (the synthetic
+//     switches) stays a bool; everything else is published as it is.
 //
-// A nil value renders as "", which is not a payload: on the retained
-// state plane an empty payload is MQTT's retraction. The empty string is
-// kept as the "no payload" signal rather than being invented into a
-// placeholder, and publishGroupOnce refuses to publish it.
-func formatValue(v any, floatFmt string) string {
-	switch x := v.(type) {
-	case float64:
-		return fmt.Sprintf(floatFmt, x)
-	case bool:
-		if x {
-			return "1"
+// A nil value yields nil, which the caller skips: an empty payload on a
+// retained topic would clear it.
+func wireValue(reg *registers.Register, raw, processed any, round func(float64) float64) any {
+	if reg != nil && raw != nil {
+		if reg.HassValueItems != nil {
+			return convertCode(raw, reg.HassValueItems)
 		}
-		return "0"
-	case nil:
-		return ""
-	default:
-		return fmt.Sprintf("%v", x)
+		if isBoolRegister(reg) {
+			if reg.HassPayloadOn != "" {
+				return fmt.Sprint(raw) == reg.HassPayloadOn
+			}
+			f, ok := toFloat(raw)
+			return ok && f != 0
+		}
 	}
+	if f, ok := processed.(float64); ok {
+		return round(f)
+	}
+	return processed
+}
+
+// isBoolRegister reports whether a register's state is a boolean on the
+// wire: the switch and binary_sensor platforms, whose Home Assistant
+// entities compare `val` against true/false.
+func isBoolRegister(reg *registers.Register) bool {
+	p := hass.Platform(reg.HassComponentType)
+	return p == hass.PlatformSwitch || p == hass.PlatformBinarySensor
 }
 
 // sortInts is a 6-line insertion sort. Pulled out so the body of

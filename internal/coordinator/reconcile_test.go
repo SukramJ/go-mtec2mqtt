@@ -843,7 +843,7 @@ func TestAnInvalidDocumentWithholdsTheWholeMigration(t *testing.T) {
   length: 1
   type: U16
   mqtt: bad_entity
-  group: now-base
+  group: now_base
   hass_component_type: binary_sensor
   hass_device_class: voltage
 `

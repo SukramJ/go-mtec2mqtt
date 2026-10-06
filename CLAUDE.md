@@ -12,8 +12,10 @@ Go port of the Python project
 [`aiomtec2mqtt`](https://github.com/sukramj/aiomtec2mqtt), which itself
 derives from Christian Rödel's
 [`croedel/MTECmqtt`](https://github.com/croedel/MTECmqtt) — same YAML
-config, same MQTT topic layout, same HA entities, drop-in replacement for
-the Python daemon.
+config, same HA entities. Since 2.0.0 its MQTT topics follow the
+mqtt-smarthome 2.0 convention (`<name>/status/…` as `{"val","ts","lc"}`,
+`<name>/set/…`, `<name>/connected`, `<name>/info`, maintenance; openccu-loom
+ADR 0083) rather than the Python daemon's layout.
 
 ## Key Characteristics
 

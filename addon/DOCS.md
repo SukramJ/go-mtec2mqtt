@@ -28,7 +28,9 @@ Everything else has sensible defaults; use the reference below to fine-tune.
 | `mqtt_port` | int | `1883` | MQTT broker port. Only used when `mqtt_server` is set; the auto-detected broker brings its own port. |
 | `mqtt_login` | str | `""` | MQTT username. Only used when `mqtt_server` is set (auto-detect supplies credentials). |
 | `mqtt_password` | password | `""` | MQTT password. Only used when `mqtt_server` is set. |
-| `mqtt_topic` | str | `MTEC` | Base MQTT topic for published register state. |
+| `mqtt_topic` | str | `MTEC` | Instance name, the first level of every MQTT topic (`<name>/status/…`, `<name>/connected`, …). **The name is the only thing that keeps two instances on one broker apart**: two add-on instances (two inverters) need two different names. |
+| `mqtt_maintenance` | bool | `true` | mqtt-smarthome maintenance topics: `<name>/maintenance/set/loglevel` and the retained `<name>/maintenance/stats`. Anyone who may publish on the broker can change the log level — see *MQTT topics* below. The restart command is refused in the add-on; restart the add-on from Home Assistant. |
+| `mqtt_stats_interval` | int | `60` | Seconds between `<name>/maintenance/stats`; `0` switches them off. |
 | `hass_enable` | bool | `true` | Publish Home Assistant MQTT discovery so entities appear automatically. On by default — leave enabled for the normal HA experience; disable only to manage entities manually. |
 | `device_name` | str | `""` | Optional friendly name for this inverter. When set, it becomes the Home Assistant device name (instead of the generic "MTEC EnergyButler") and is slugged into every entity's entity-id seed, so HA seeds fresh entity ids like `sensor.<device_name>_grid_power` — handy to tell multiple inverters apart. The seed is the slugified English register name (matching the Python `aiomtec2mqtt` entity ids), never the localised display name, so entity ids stay language-independent; only the display name follows `language`. The entity `unique_id` is left unchanged, so enabling this on an existing install does not orphan established entities; only newly created ones pick up the nicer id. Leave empty to keep the previous behaviour. MQTT topics also stay keyed on the inverter serial. |
 | `language` | list(en\|de) | `en` | UI / entity naming language. Entity ids stay language-independent, so switching never re-creates entities. |
@@ -41,6 +43,34 @@ Fixed by the add-on (not user-configurable): the web UI binds to `0.0.0.0:8080`
 for Ingress, and `hass_base_topic` stays at Home Assistant's default
 (`homeassistant`). The refresh intervals and MQTT float format use the daemon
 defaults; run the standalone binary / Docker image if you need to tune those.
+
+## MQTT topics
+
+Since 2.0.0 the add-on follows the
+[mqtt-smarthome 2.0](https://github.com/mqtt-smarthome/mqtt-smarthome/blob/master/SPEC.md)
+convention, `<name>/<function>/<item…>` with `<name>` = `mqtt_topic`:
+
+| Up to 1.11 | Since 2.0.0 |
+| --- | --- |
+| `MTEC/<serial>/now-base/grid_power/state` = `-500` | `MTEC/status/<serial>/now_base/grid_power` = `{"val":-500,"ts":…,"lc":…}` |
+| `MTEC/<serial>/config/grid_inject_switch/state` = `1` | `MTEC/status/<serial>/config/grid_inject_switch` = `{"val":true,…}` |
+| `MTEC/<serial>/now-base/inverter_status/state` = `Netzbetrieb` | `MTEC/status/<serial>/now_base/inverter_status` = `{"val":"on-grid",…}` |
+| `MTEC/<serial>/config/charge_limit/set` | `MTEC/set/<serial>/config/charge_limit` |
+| `MTEC/bridge/status` = `online` / `offline` | `MTEC/connected` = `2` / `1` / `0` |
+| — | `MTEC/status/<serial>/online`, `MTEC/info`, `MTEC/maintenance/…` |
+
+Values are JSON numbers and booleans; enumerations carry their English
+token, and Home Assistant still shows the labels of your language. Home
+Assistant entities are unaffected — the same entities, ids and history,
+re-pointed to the new topics — and are available only while the add-on is
+connected **and** the inverter answers (`connected` = 2 and `online` =
+true). Anything else reading the raw topics (Node-RED, dashboards, evcc)
+must move to the new ones. On every start the add-on clears the retained
+topics the old layout left for its own inverter, and nothing else.
+
+**Security:** anyone who may publish on the broker can change the log level
+through `<name>/maintenance/set/loglevel`. The Mosquitto add-on is
+authenticated; on a broker you cannot secure, set `mqtt_maintenance: false`.
 
 ## Home Assistant discovery
 

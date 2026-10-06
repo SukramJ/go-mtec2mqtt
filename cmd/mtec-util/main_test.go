@@ -61,7 +61,7 @@ func TestListByGroupOption(t *testing.T) {
 	body := out.String()
 	for _, want := range []string{
 		"Group static:",
-		"Group now-base:",
+		"Group now_base:",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("output missing %q\n----\n%s\n----", want, body)

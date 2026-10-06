@@ -34,7 +34,7 @@ func (f *fakeBackend) Snapshot() state.Snapshot {
 	return state.Snapshot{
 		Serial: "SN1",
 		Groups: map[string]state.GroupView{
-			"now-base": {Values: map[string]any{"power": 100.0}},
+			"now_base": {Values: map[string]any{"power": 100.0}},
 		},
 	}
 }
@@ -149,7 +149,7 @@ func TestStatusEndpointCombinesHealthAndSnapshot(t *testing.T) {
 	if v.Health.Serial != "SN1" {
 		t.Error("missing health in status")
 	}
-	if _, ok := v.Snapshot.Groups["now-base"]; !ok {
+	if _, ok := v.Snapshot.Groups["now_base"]; !ok {
 		t.Error("missing snapshot in status")
 	}
 }

@@ -32,21 +32,58 @@ const (
 // Group enumerates the MQTT publication buckets. The string values are
 // embedded in MQTT topic paths, so they must stay in sync with what
 // downstream consumers (Home Assistant dashboards, evcc) expect.
+//
+// They are snake_case since 2.0.0 (mqtt-smarthome 2.0, openccu-loom ADR
+// 0083: segments a project coins are snake_case). Releases before 2.0.0
+// spelled the six live groups with a hyphen; [Group.Legacy] renders that
+// spelling for the one reader that still needs it, the start-up sweep of
+// the old topic layout.
 type Group string
 
 // Group values used by the registers.yaml catalog.
 const (
-	GroupBase     Group = "now-base"
-	GroupGrid     Group = "now-grid"
-	GroupInverter Group = "now-inverter"
-	GroupBackup   Group = "now-backup"
-	GroupBattery  Group = "now-battery"
-	GroupPV       Group = "now-pv"
+	GroupBase     Group = "now_base"
+	GroupGrid     Group = "now_grid"
+	GroupInverter Group = "now_inverter"
+	GroupBackup   Group = "now_backup"
+	GroupBattery  Group = "now_battery"
+	GroupPV       Group = "now_pv"
 	GroupDay      Group = "day"
 	GroupTotal    Group = "total"
 	GroupConfig   Group = "config"
 	GroupStatic   Group = "static"
 )
+
+// legacyGroups maps the six groups 2.0.0 renamed to the spelling every
+// earlier release used in its topics and in registers.yaml.
+var legacyGroups = map[Group]string{
+	GroupBase:     "now-base",
+	GroupGrid:     "now-grid",
+	GroupInverter: "now-inverter",
+	GroupBackup:   "now-backup",
+	GroupBattery:  "now-battery",
+	GroupPV:       "now-pv",
+}
+
+// Legacy returns the group's spelling before 2.0.0: "now-base" for
+// [GroupBase], unchanged for a group that was never renamed.
+func (g Group) Legacy() string {
+	if old, ok := legacyGroups[g]; ok {
+		return old
+	}
+	return string(g)
+}
+
+// groupFromLegacy returns the current group for a pre-2.0.0 spelling, and
+// whether s was one.
+func groupFromLegacy(s Group) (Group, bool) {
+	for g, old := range legacyGroups {
+		if string(s) == old {
+			return g, true
+		}
+	}
+	return "", false
+}
 
 // Register describes one entry from registers.yaml. The schema is
 // permissive — most fields are optional and only meaningful for
@@ -201,7 +238,7 @@ func (m *Map) ByGroup(g Group) []*Register {
 
 // FindByMQTT returns the register whose MQTT suffix matches name, or
 // nil. Used by the coordinator's write path to translate an incoming
-// `MTEC/<serial>/<group>/<mqtt_key>/set` command back to a register.
+// `<name>/set/<serial>/<group>/<mqtt_key>` command back to a register.
 func (m *Map) FindByMQTT(name string) *Register {
 	for _, r := range m.All {
 		if r.MQTT == name {

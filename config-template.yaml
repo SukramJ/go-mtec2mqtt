@@ -13,8 +13,14 @@ MQTT_SERVER: localhost # MQTT server
 MQTT_PORT: 1883 # MQTT server port (default: 1883 plain, 8883 when MQTT_SSL is true)
 MQTT_LOGIN: "" # MQTT Login (override: env MTEC_MQTT_LOGIN)
 MQTT_PASSWORD: "" # MQTT Password (override: env MTEC_MQTT_PASSWORD)
-MQTT_TOPIC: MTEC # MQTT topic name
-MQTT_FLOAT_FORMAT: "{:.3f}" # Defines how to format float values
+MQTT_TOPIC: mtec # Instance name, the first level of every topic (default: mtec).
+#                  The ONLY thing that keeps two instances on one broker apart:
+#                  two instances of this bridge (two inverters) need two names.
+MQTT_FLOAT_FORMAT: "{:.3f}" # Rounding precision of published floats (values are JSON numbers)
+# MQTT_MAINTENANCE: true     # mqtt-smarthome maintenance topics: <name>/maintenance/set/loglevel,
+#                            # .../set/restart and <name>/maintenance/stats. Anyone who may publish
+#                            # on the broker can use them; secure the broker with ACLs or set false.
+# MQTT_STATS_INTERVAL: 60    # Seconds between <name>/maintenance/stats; 0 = off
 # MQTT_SSL: false            # Connect via TLS (tls://) instead of plain TCP
 # MQTT_SSL_INSECURE: false   # DANGEROUS: skip broker certificate verification
 #                             # (self-signed certs only); only takes effect

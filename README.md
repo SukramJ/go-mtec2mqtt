@@ -9,8 +9,11 @@ values for consumption by Home Assistant, evcc, or any other MQTT
 consumer.
 
 Port of [`aiomtec2mqtt`](https://github.com/sukramj/aiomtec2mqtt)
-(Python / asyncio) — same YAML config, same MQTT topic layout, same
-Home Assistant entities. Drop-in replacement for the Python daemon.
+(Python / asyncio) — same YAML config, same Home Assistant entities.
+Since 2.0.0 its MQTT topics follow the
+[mqtt-smarthome 2.0](https://github.com/mqtt-smarthome/mqtt-smarthome/blob/master/SPEC.md)
+convention instead of the Python daemon's layout (see
+[MQTT topic layout](#mqtt-topic-layout)).
 
 ## Features
 
@@ -27,6 +30,9 @@ Home Assistant entities. Drop-in replacement for the Python daemon.
   narrowing all match the Python coordinator.
 - Watchdog-driven Modbus reconnect; exponential-backoff MQTT
   reconnect with subscription replay.
+- [mqtt-smarthome 2.0](https://github.com/mqtt-smarthome/mqtt-smarthome/blob/master/SPEC.md)
+  topics: `<name>/status/…` as `{"val","ts","lc"}` objects, `<name>/set/…`,
+  `<name>/connected`, `<name>/info` and the maintenance topics.
 - Pure Go, no CGo — single static binary, distroless Docker image.
 
 ## Quickstart
@@ -133,10 +139,21 @@ MODBUS_TIMEOUT: 5
 
 MQTT_SERVER: localhost
 MQTT_PORT: 1883
-MQTT_TOPIC: MTEC
+MQTT_TOPIC: mtec             # optional, the instance name; default "mtec"
 
 HASS_ENABLE: true            # optional Home Assistant discovery
 ```
+
+`MQTT_TOPIC` is the **instance name**, the first level of every topic
+(`<name>/status/…`, `<name>/connected`, …). It defaults to `mtec`; a value
+you configured keeps working verbatim (every release before 2.0.0
+required it, the examples used `MTEC`). **The name is the only thing that
+keeps two instances on one broker apart, and nothing checks it:** two
+instances of this bridge — one per inverter — need two different names, or
+they overwrite each other's `connected` and `info`. Keep it a single topic
+level (no `/`): a multi-level name still works, but runs outside
+mqtt-smarthome §3 and is invisible to a tool scanning `+/info`, which the
+daemon logs once at start (`mtec2mqtt.mqtt_topic_multi_level`).
 
 To connect over TLS instead of plain TCP, set `MQTT_SSL: true` (the
 daemon then dials `tls://` and defaults to port 8883 unless
@@ -173,6 +190,39 @@ install: enabling it changes every `unique_id`, which creates fresh HA
 entities and orphans the established ones together with their history —
 MQTT discovery has no `unique_id` migration.
 
+`MQTT_FLOAT_FORMAT` (default `.3f`) no longer formats anything on the
+wire: since 2.0.0 values are JSON numbers, and the option survives as
+their **rounding precision** — `.3f` rounds to three decimals, `.4g` to
+four significant digits, exactly the number the old string payload spelled.
+
+### Maintenance topics
+
+On by default (mqtt-smarthome §7), so tools such as the Smart Home Engine
+can manage the daemon over MQTT:
+
+| Topic | Effect |
+| --- | --- |
+| `<name>/maintenance/set/loglevel` | `error` / `warn` / `info` / `debug` — changes the daemon's log level until the next start |
+| `<name>/maintenance/set/restart` | graceful shutdown (`connected` → `0`, exit 0) — **only** when a supervisor restarts the process, otherwise refused and logged at `warn` |
+| `<name>/maintenance/stats` | retained process statistics (`rss`, `heapUsed`, `heapTotal`, `cpu`, `uptime`, `ts`) every `MQTT_STATS_INTERVAL` seconds |
+
+```yaml
+MQTT_MAINTENANCE: true       # false switches all three off
+MQTT_STATS_INTERVAL: 60      # seconds; 0 switches the stats off
+```
+
+Whether a supervisor restarts the daemon is detected: systemd as the
+parent process, Kubernetes, or a container counts. Set
+`MTEC_SUPERVISED=1` to state it, or `MTEC_SUPERVISED=0` to refuse the
+restart — a container started **without** a restart policy is detected as
+supervised, and a restart there is a stop. The Home Assistant add-on sets
+`MTEC_SUPERVISED=0`.
+
+> **Security:** anyone who may publish on the broker can restart the
+> daemon or raise its log level. Use broker authentication and per-client
+> ACLs (the daemon needs `<name>/#` and the discovery prefix, nothing
+> else); on a broker that cannot be secured, set `MQTT_MAINTENANCE: false`.
+
 Every config key can be overridden at runtime via an `MTEC_<KEY>` env
 var — useful in Docker / systemd setups:
 
@@ -184,21 +234,45 @@ Bool / int / float values are coerced; everything else stays a string.
 
 ## MQTT topic layout
 
+Since 2.0.0 the daemon follows
+[mqtt-smarthome 2.0](https://github.com/mqtt-smarthome/mqtt-smarthome/blob/master/SPEC.md),
+`<name>/<function>/<item…>`, with `<name>` = `MQTT_TOPIC`:
+
 ```
-MTEC/<serial>/now-base/<key>/state         current power, SOC, status …
-MTEC/<serial>/now-grid/<key>/state         per-phase grid voltage / current
-MTEC/<serial>/now-inverter/<key>/state     per-phase inverter power
-MTEC/<serial>/now-backup/<key>/state       backup-power readings
-MTEC/<serial>/now-battery/<key>/state      battery cell readings
-MTEC/<serial>/now-pv/<key>/state           PV string voltages / currents
-MTEC/<serial>/day/<key>/state              daily energy totals
-MTEC/<serial>/total/<key>/state            lifetime energy totals
-MTEC/<serial>/config/<key>/state           writable settings (mirror)
-MTEC/<serial>/static/<key>/state           serial / firmware / equipment
-MTEC/<serial>/<group>/<key>/set            command topic for writables
+<name>/status/<serial>/now_base/<key>      current power, SOC, status …
+<name>/status/<serial>/now_grid/<key>      per-phase grid voltage / current
+<name>/status/<serial>/now_inverter/<key>  per-phase inverter power
+<name>/status/<serial>/now_backup/<key>    backup-power readings
+<name>/status/<serial>/now_battery/<key>   battery cell readings
+<name>/status/<serial>/now_pv/<key>        PV string voltages / currents
+<name>/status/<serial>/day/<key>           daily energy totals
+<name>/status/<serial>/total/<key>         lifetime energy totals
+<name>/status/<serial>/config/<key>        writable settings (mirror)
+<name>/status/<serial>/static/<key>        serial / firmware / equipment
+<name>/status/<serial>/online              the inverter reachable: true | false
+<name>/set/<serial>/<group>/<key>          command topic for writables
+<name>/connected = 0 | 1 | 2               daemon / inverter availability (retained)
+<name>/info                                instance description (retained JSON)
+<name>/maintenance/…                       see "Maintenance topics"
 <hass_base>/device/<node-id>/config        ONE retained HA discovery document
-MTEC/bridge/status = online | offline      daemon availability (retained)
 ```
+
+Old and new, side by side (`MTEC` as the configured name):
+
+| Up to 1.11 | Since 2.0.0 |
+| --- | --- |
+| `MTEC/<serial>/now-base/grid_power/state` = `-500` | `MTEC/status/<serial>/now_base/grid_power` = `{"val":-500,"ts":…,"lc":…}` |
+| `MTEC/<serial>/now-base/consumption/state` = `3500.000` | `MTEC/status/<serial>/now_base/consumption` = `{"val":3500,…}` |
+| `MTEC/<serial>/now-base/inverter_status/state` = `Netzbetrieb` (`LANGUAGE: de`) | `MTEC/status/<serial>/now_base/inverter_status` = `{"val":"on-grid",…}` |
+| `MTEC/<serial>/config/grid_inject_switch/state` = `1` | `MTEC/status/<serial>/config/grid_inject_switch` = `{"val":true,…}` |
+| `MTEC/<serial>/config/charge_limit/set` | `MTEC/set/<serial>/config/charge_limit` |
+| `MTEC/bridge/status` = `online` / `offline` | `MTEC/connected` = `2` / `1` / `0` |
+| — | `MTEC/status/<serial>/online`, `MTEC/info`, `MTEC/maintenance/…` |
+
+The groups are snake_case (`now-base` → `now_base`, likewise `now_grid`,
+`now_inverter`, `now_backup`, `now_battery`, `now_pv`); a
+`registers.yaml` of your own that still says `now-base` keeps working and
+the daemon logs a catalog note at start.
 
 `<serial>` above is the inverter serial **as the inverter reports it**.
 `<node-id>` is not: it is that serial put through go-hamqtt's `topic.Slug`
@@ -212,29 +286,81 @@ topic at start-up**, as
 `<hass_base>` is `HASS_BASE_TOPIC`, `homeassistant` unless you changed it;
 a trailing slash is trimmed.
 
-State topics are **retained**, so a subscriber that connects between two
-polls gets the last known value immediately instead of `unknown`. They are
-also **de-duplicated**: a value identical to the one the broker already
-holds is not published again, so a register that does not change is
-written once rather than once per poll. Read the retained value rather
-than counting messages — a consumer that triggers on *message received*
-will see far fewer of them than before 1.10.0.
+### Status payloads
 
-Every publish this daemon makes is **QoS 0** (state, discovery configs and
-the availability marker alike); the command subscription is **QoS 1**.
-Both are unchanged from every previous release.
+Every status item is a JSON object: `val` is the value, `ts` the time of
+the reading that produced it and `lc` the time the value last changed,
+both in milliseconds since the epoch.
 
-`MTEC/bridge/status` is the daemon's own liveness marker: `online` on
-every (re)connect, `offline` on a clean shutdown, and `offline` via the
-broker-side last will when the process dies ungracefully. Every discovery
-payload references it, so the entities grey out in Home Assistant when the
-daemon goes away instead of showing stale readings forever.
+- Numbers are JSON numbers, rounded to `MQTT_FLOAT_FORMAT`'s precision.
+- Switches are JSON booleans (`true` / `false`), not `1` / `0`.
+- Enumerations carry their stable **English token** (`"on-grid"`,
+  `"General mode"`; fault registers `"OK"` or the comma-joined English
+  fault names), whatever `LANGUAGE` says. Home Assistant still shows the
+  labels of your language: the discovery document maps token to label and
+  back.
 
-> **Upgrading from ≤ 1.9.0:** this marker used to live at
+Status items are **retained** and published **on change and on every
+broker reconnect** only — a value identical to the one the broker already
+holds is not published again, whatever its timestamp. Read the retained
+value rather than counting messages. Status is published at **QoS 0**,
+the command subscription is **QoS 1**.
+
+### `set`
+
+Publish to `<name>/set/<serial>/<group>/<key>` — not retained. A plain
+value and `{"val": …}` are both accepted; an empty payload and a retained
+message are ignored. Switches take `true`/`false`, `1`/`0`, `on`/`off`,
+`yes`/`no` in any case; enumerations take the token in any case, a label
+in English or German, or the numeric register code; numbers are written
+as before (scaled, range-checked). A request the daemon refuses, or a
+write the inverter rejects, is logged at `warn` with its topic and
+payload. Nothing echoes the request: the new value appears on the status
+topic with the next poll.
+
+### Availability
+
+`<name>/connected` is `0` while the daemon is not running (broker-side
+last will, and on a clean shutdown), `1` while it is connected to the
+broker but the inverter is not reachable over Modbus, and `2` while both
+are. The inverter's own reachability is also the status item
+`<name>/status/<serial>/online`. Every Home Assistant entity requires both
+— `connected` ≥ 2 **and** `online` true (`availability_mode: all`) — so
+the entities grey out when the daemon goes away *or* the inverter stops
+answering, instead of showing stale readings.
+
+`<name>/info` is published on every broker connect: `name`
+(`go-mtec2mqtt`), `version`, `spec` (`2.0`), `go`, `host`, `pid`,
+`started`, `maintenance`, plus `modbus` (the inverter's address) and
+`ha_discovery`.
+
+### Upgrading to 2.0.0
+
+2.0.0 is a clean break, with no compatibility switch:
+
+- **Home Assistant users** need to do nothing. Every `unique_id`, entity
+  id, device identifier and the discovery topic are unchanged, and the
+  entities follow the new topics on their own; history is kept.
+- **Everything else that reads raw topics** — Node-RED flows, Telegraf,
+  dashboards, `mosquitto_sub` scripts, evcc — must move to the new topics
+  and parse the JSON `val` (see the table above).
+- On every start the daemon **clears what the old layout left retained**
+  for *its own* inverter: the old `…/<group>/<key>/state` (and any
+  retained `…/set`) of every register it publishes, under its own name and
+  its own serial, and `<name>/bridge/status`. It clears exact topics only:
+  another inverter's topics on the same name, another name, and anything
+  under `<name>/status/…`, `<name>/connected` and the other new functions
+  are never touched. It is harmless to run repeatedly and also cleans up
+  after a rollback and re-upgrade.
+- Kept your name? Then nothing else changes. Running **two instances on
+  one broker** under the same name worked before only because the serial
+  separated the state topics; since `connected` and `info` are per name,
+  give each instance its own `MQTT_TOPIC` now.
+
+> **Upgrading from ≤ 1.9.0:** the availability marker once lived at
 > `<hass_base>/status/lwt` (`homeassistant/status/lwt` by default), inside
-> Home Assistant's own birth tree. It moved, and the daemon clears the old
-> retained copy itself on every connect — an automation or dashboard that
-> watched the old topic must be repointed at `MTEC/bridge/status`.
+> Home Assistant's own birth tree. The daemon still clears that old
+> retained copy itself on every connect.
 
 ### Home Assistant discovery: one document per device
 
@@ -257,8 +383,9 @@ appear.
 **Nothing is re-keyed.** Every `unique_id` is byte-identical, and
 `unique_id` is what Home Assistant's entity registry is keyed on, so
 history, renames, icons, areas, hidden flags and automation references all
-survive the move untouched. `MQTT_TOPIC` must still not be changed — it
-namespaces nothing in a `unique_id`, but it does key every state topic.
+survive the move untouched. `MQTT_TOPIC` namespaces nothing in a
+`unique_id`, but it keys every state topic: changing it later moves the
+entities to the new topics and leaves the old ones retained.
 
 > **Downgrading to ≤ 1.9.x needs one manual step.** The document stays
 > retained on the broker, and the older release republishing per-entity
