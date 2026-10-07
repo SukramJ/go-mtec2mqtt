@@ -73,7 +73,7 @@ func TestSixBuildersDeclareBridgeAndDevice(t *testing.T) {
 		// NewEntities pairs them.
 		{"binarySensorEntity", binarySensorEntity(goldenSerial, switchReg)},
 		{"numberEntity", numberEntity(goldenSerial, numberReg)},
-		{"selectEntity", selectEntity(goldenSerial, selectReg)},
+		{"selectEntity", selectEntity(goldenSerial, selectReg, "en")},
 		{"switchEntity", switchEntity(goldenSerial, switchReg)},
 		{"virtualSwitchEntity", virtualSwitchEntity(goldenSerial, DefaultVirtualSwitches(50, 50)[0])},
 	}

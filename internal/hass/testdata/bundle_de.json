@@ -99,6 +99,8 @@
         "command_topic": "MTEC/set/MT1234567890/config/charge_limit",
         "default_entity_id": "number.charge_limit",
         "enabled_by_default": false,
+        "max": 6553.5,
+        "min": 0,
         "mode": "box",
         "name": "Ladestrombegrenzung",
         "platform": "number",
@@ -126,6 +128,8 @@
         "command_topic": "MTEC/set/MT1234567890/config/discharge_limit",
         "default_entity_id": "number.discharge_limit",
         "enabled_by_default": false,
+        "max": 6553.5,
+        "min": 0,
         "mode": "box",
         "name": "Entladestrombegrenzung",
         "platform": "number",
@@ -245,7 +249,7 @@
         "platform": "select",
         "state_topic": "MTEC/status/MT1234567890/now_base/mode",
         "unique_id": "MTEC_mode",
-        "value_template": "{% set m = {'General mode': 'Allgemeiner Modus', 'Economic mode': 'Sparmodus', 'UPS mode': 'USV-Modus', 'Off grid': 'Inselbetrieb'} %}{% if value_json is defined and value_json.val is not none %}{{ m.get(value_json.val, value_json.val) }}{% endif %}"
+        "value_template": "{% set m = {'General mode': 'Allgemeiner Modus', 'Economic mode': 'Sparmodus', 'UPS mode': 'USV-Modus', 'Off grid': 'Inselbetrieb'} %}{% if value_json is defined and value_json.val is string %}{{ m.get(value_json.val, 'None') }}{% else %}None{% endif %}"
       },
       "sensor.ac_current_a": {
         "availability": [
@@ -1247,7 +1251,7 @@
         "platform": "sensor",
         "state_topic": "MTEC/status/MT1234567890/now_base/battery_mode",
         "unique_id": "MTEC_battery_mode",
-        "value_template": "{% set m = {'Discharge': 'Entladen', 'Charge': 'Laden', 'Unknown': 'Unknown'} %}{% if value_json is defined and value_json.val is not none %}{{ m.get(value_json.val, value_json.val) }}{% endif %}"
+        "value_template": "{% set m = {'Discharge': 'Entladen', 'Charge': 'Laden'} %}{% if value_json is defined and value_json.val is string %}{{ m.get(value_json.val, 'None') }}{% else %}None{% endif %}"
       },
       "sensor.battery_soc": {
         "availability": [
@@ -1380,7 +1384,7 @@
         "state_topic": "MTEC/status/MT1234567890/now_base/bms_alarm_code",
         "unique_id": "MTEC_bms_alarm_code",
         "unit_of_measurement": "",
-        "value_template": "{% set m = {'Cells High Voltage Warning': 'Zellen-Überspannungswarnung', 'Battery Module Discharge Low Voltage Warning': 'Batteriemodul Entlade-Unterspannungswarnung', 'Battery Module Charge Over Voltage Warning': 'Batteriemodul Lade-Überspannungswarnung', 'Charge Low Temperature Warning': 'Lade-Untertemperaturwarnung', 'Charge Over Temperature Warning': 'Lade-Übertemperaturwarnung', 'Discharge Low Temperature Warning': 'Entlade-Untertemperaturwarnung', 'Discharge Over Temperature Warning': 'Entlade-Übertemperaturwarnung', 'Battery Module Charge Over Current Warning': 'Batteriemodul Lade-Überstromwarnung', 'Battery Module Discharge Over Current Warning': 'Batteriemodul Entlade-Überstromwarnung', 'Battery Module Low Voltage Warning': 'Batteriemodul Unterspannungswarnung', 'Battery Module Over Voltage Warning': 'Batteriemodul Überspannungswarnung', 'Power Terminal Over Temperature Warning': 'Anschluss-Übertemperaturwarnung', 'Ambient Low Temperature Warning': 'Umgebungs-Untertemperaturwarnung', 'Ambient Over Temperature Warning': 'Umgebungs-Übertemperaturwarnung'} %}{% if value_json is defined and value_json.val is string %}{% set ns = namespace(out=[]) %}{% for t in value_json.val.split(', ') %}{% set ns.out = ns.out + [m.get(t, t)] %}{% endfor %}{{ ns.out | join(', ') }}{% endif %}"
+        "value_template": "{% set m = {'Cells High Voltage Warning': 'Zellen-Überspannungswarnung', 'Battery Module Discharge Low Voltage Warning': 'Batteriemodul Entlade-Unterspannungswarnung', 'Battery Module Charge Over Voltage Warning': 'Batteriemodul Lade-Überspannungswarnung', 'Charge Low Temperature Warning': 'Lade-Untertemperaturwarnung', 'Charge Over Temperature Warning': 'Lade-Übertemperaturwarnung', 'Discharge Low Temperature Warning': 'Entlade-Untertemperaturwarnung', 'Discharge Over Temperature Warning': 'Entlade-Übertemperaturwarnung', 'Battery Module Charge Over Current Warning': 'Batteriemodul Lade-Überstromwarnung', 'Battery Module Discharge Over Current Warning': 'Batteriemodul Entlade-Überstromwarnung', 'Battery Module Low Voltage Warning': 'Batteriemodul Unterspannungswarnung', 'Battery Module Over Voltage Warning': 'Batteriemodul Überspannungswarnung', 'Power Terminal Over Temperature Warning': 'Anschluss-Übertemperaturwarnung', 'Ambient Low Temperature Warning': 'Umgebungs-Untertemperaturwarnung', 'Ambient Over Temperature Warning': 'Umgebungs-Übertemperaturwarnung'} %}{% if value_json is defined and value_json.val is string and value_json.val != '' and value_json.val != 'Unknown' %}{% set ns = namespace(out=[]) %}{% for t in value_json.val.split(', ') %}{% set ns.out = ns.out + [m.get(t, t)] %}{% endfor %}{{ ns.out | join(', ') }}{% else %}None{% endif %}"
       },
       "sensor.bms_error_code": {
         "availability": [
@@ -1405,7 +1409,7 @@
         "state_topic": "MTEC/status/MT1234567890/now_base/bms_error_code",
         "unique_id": "MTEC_bms_error_code",
         "unit_of_measurement": "",
-        "value_template": "{% set m = {'Internal COM Fault': 'Interner COM-Fehler', 'Voltage Sensor Fault': 'Spannungssensor-Fehler', 'Temperature Sensor Fault': 'Temperatursensor-Fehler', 'Relay Fault': 'Relais-Fehler', 'Cells Damage Fault': 'Zellschaden-Fehler'} %}{% if value_json is defined and value_json.val is string %}{% set ns = namespace(out=[]) %}{% for t in value_json.val.split(', ') %}{% set ns.out = ns.out + [m.get(t, t)] %}{% endfor %}{{ ns.out | join(', ') }}{% endif %}"
+        "value_template": "{% set m = {'Internal COM Fault': 'Interner COM-Fehler', 'Voltage Sensor Fault': 'Spannungssensor-Fehler', 'Temperature Sensor Fault': 'Temperatursensor-Fehler', 'Relay Fault': 'Relais-Fehler', 'Cells Damage Fault': 'Zellschaden-Fehler'} %}{% if value_json is defined and value_json.val is string and value_json.val != '' and value_json.val != 'Unknown' %}{% set ns = namespace(out=[]) %}{% for t in value_json.val.split(', ') %}{% set ns.out = ns.out + [m.get(t, t)] %}{% endfor %}{{ ns.out | join(', ') }}{% else %}None{% endif %}"
       },
       "sensor.bms_protection_code": {
         "availability": [
@@ -1430,7 +1434,7 @@
         "state_topic": "MTEC/status/MT1234567890/now_base/bms_protection_code",
         "unique_id": "MTEC_bms_protection_code",
         "unit_of_measurement": "",
-        "value_template": "{% set m = {'Cells High Voltage Protection': 'Zellen-Überspannungsschutz', 'Battery Module Discharge Low Voltage Protection': 'Batteriemodul Entlade-Unterspannungsschutz', 'Battery Module Charge Over Voltage Protection': 'Batteriemodul Lade-Überspannungsschutz', 'Charge Low Temperature Protection': 'Lade-Untertemperaturschutz', 'Charge Over Temperature Protection': 'Lade-Übertemperaturschutz', 'Discharge Low Temperature Protection': 'Entlade-Untertemperaturschutz', 'Discharge Over Temperature Protection': 'Entlade-Übertemperaturschutz', 'Battery Module Charge Over Current Protection': 'Batteriemodul Lade-Überstromschutz', 'Battery Module Discharge Over Current Protection': 'Batteriemodul Entlade-Überstromschutz', 'Battery Module Low Voltage Protection': 'Batteriemodul Unterspannungsschutz', 'Battery Module Over Voltage Protection': 'Batteriemodul Überspannungsschutz', 'Power Terminal Over Temperature Protection': 'Anschluss-Übertemperaturschutz', 'Ambient Low Temperature Protection': 'Umgebungs-Untertemperaturschutz', 'Ambient High Temperature Protection': 'Umgebungs-Übertemperaturschutz', 'Leakage Current Protection': 'Fehlerstromschutz'} %}{% if value_json is defined and value_json.val is string %}{% set ns = namespace(out=[]) %}{% for t in value_json.val.split(', ') %}{% set ns.out = ns.out + [m.get(t, t)] %}{% endfor %}{{ ns.out | join(', ') }}{% endif %}"
+        "value_template": "{% set m = {'Cells High Voltage Protection': 'Zellen-Überspannungsschutz', 'Battery Module Discharge Low Voltage Protection': 'Batteriemodul Entlade-Unterspannungsschutz', 'Battery Module Charge Over Voltage Protection': 'Batteriemodul Lade-Überspannungsschutz', 'Charge Low Temperature Protection': 'Lade-Untertemperaturschutz', 'Charge Over Temperature Protection': 'Lade-Übertemperaturschutz', 'Discharge Low Temperature Protection': 'Entlade-Untertemperaturschutz', 'Discharge Over Temperature Protection': 'Entlade-Übertemperaturschutz', 'Battery Module Charge Over Current Protection': 'Batteriemodul Lade-Überstromschutz', 'Battery Module Discharge Over Current Protection': 'Batteriemodul Entlade-Überstromschutz', 'Battery Module Low Voltage Protection': 'Batteriemodul Unterspannungsschutz', 'Battery Module Over Voltage Protection': 'Batteriemodul Überspannungsschutz', 'Power Terminal Over Temperature Protection': 'Anschluss-Übertemperaturschutz', 'Ambient Low Temperature Protection': 'Umgebungs-Untertemperaturschutz', 'Ambient High Temperature Protection': 'Umgebungs-Übertemperaturschutz', 'Leakage Current Protection': 'Fehlerstromschutz'} %}{% if value_json is defined and value_json.val is string and value_json.val != '' and value_json.val != 'Unknown' %}{% set ns = namespace(out=[]) %}{% for t in value_json.val.split(', ') %}{% set ns.out = ns.out + [m.get(t, t)] %}{% endfor %}{{ ns.out | join(', ') }}{% else %}None{% endif %}"
       },
       "sensor.bms_status": {
         "availability": [
@@ -1464,7 +1468,7 @@
         "platform": "sensor",
         "state_topic": "MTEC/status/MT1234567890/now_base/bms_status",
         "unique_id": "MTEC_bms_status",
-        "value_template": "{% set m = {'wait for on-grid': 'Warte auf Netzbetrieb', 'self-check': 'Selbsttest', 'on-grid': 'Netzbetrieb', 'fault': 'Fehler', 'firmware update': 'Firmware-Update', 'off grid': 'Inselbetrieb', 'Unknown': 'Unknown'} %}{% if value_json is defined and value_json.val is not none %}{{ m.get(value_json.val, value_json.val) }}{% endif %}"
+        "value_template": "{% set m = {'wait for on-grid': 'Warte auf Netzbetrieb', 'self-check': 'Selbsttest', 'on-grid': 'Netzbetrieb', 'fault': 'Fehler', 'firmware update': 'Firmware-Update', 'off grid': 'Inselbetrieb'} %}{% if value_json is defined and value_json.val is string %}{{ m.get(value_json.val, 'None') }}{% else %}None{% endif %}"
       },
       "sensor.charge_limit": {
         "availability": [
@@ -1622,7 +1626,7 @@
         "state_topic": "MTEC/status/MT1234567890/now_base/fault_flag_1",
         "unique_id": "MTEC_fault_flag_1",
         "unit_of_measurement": "",
-        "value_template": "{% set m = {'Mains Lost': 'Netzausfall', 'Grid Voltage Fault': 'Netzspannungsfehler', 'Grid Frequency Fault': 'Netzfrequenzfehler', 'DCI Fault': 'DCI-Fehler', 'ISO Over Limitation': 'ISO-Grenzwertüberschreitung', 'GFCI Fault': 'GFCI-Fehler', 'PV Over Voltage': 'PV-Überspannung', 'Bus Voltage Fault': 'Bus-Spannungsfehler'} %}{% if value_json is defined and value_json.val is string %}{% set ns = namespace(out=[]) %}{% for t in value_json.val.split(', ') %}{% set ns.out = ns.out + [m.get(t, t)] %}{% endfor %}{{ ns.out | join(', ') }}{% endif %}"
+        "value_template": "{% set m = {'Mains Lost': 'Netzausfall', 'Grid Voltage Fault': 'Netzspannungsfehler', 'Grid Frequency Fault': 'Netzfrequenzfehler', 'DCI Fault': 'DCI-Fehler', 'ISO Over Limitation': 'ISO-Grenzwertüberschreitung', 'GFCI Fault': 'GFCI-Fehler', 'PV Over Voltage': 'PV-Überspannung', 'Bus Voltage Fault': 'Bus-Spannungsfehler'} %}{% if value_json is defined and value_json.val is string and value_json.val != '' and value_json.val != 'Unknown' %}{% set ns = namespace(out=[]) %}{% for t in value_json.val.split(', ') %}{% set ns.out = ns.out + [m.get(t, t)] %}{% endfor %}{{ ns.out | join(', ') }}{% else %}None{% endif %}"
       },
       "sensor.fault_flag_2": {
         "availability": [
@@ -1647,7 +1651,7 @@
         "state_topic": "MTEC/status/MT1234567890/now_base/fault_flag_2",
         "unique_id": "MTEC_fault_flag_2",
         "unit_of_measurement": "",
-        "value_template": "{% set m = {'SPI Fault': 'SPI-Fehler', 'E2 Fault': 'E2-Fehler', 'GFCI Device Fault': 'GFCI-Gerätefehler', 'AC Transducer Fault': 'AC-Wandler-Fehler', 'Relay Check Fail': 'Relais-Prüfung fehlgeschlagen', 'Iternal Fan Fault': 'Interner Lüfterfehler'} %}{% if value_json is defined and value_json.val is string %}{% set ns = namespace(out=[]) %}{% for t in value_json.val.split(', ') %}{% set ns.out = ns.out + [m.get(t, t)] %}{% endfor %}{{ ns.out | join(', ') }}{% endif %}"
+        "value_template": "{% set m = {'SPI Fault': 'SPI-Fehler', 'E2 Fault': 'E2-Fehler', 'GFCI Device Fault': 'GFCI-Gerätefehler', 'AC Transducer Fault': 'AC-Wandler-Fehler', 'Relay Check Fail': 'Relais-Prüfung fehlgeschlagen', 'Iternal Fan Fault': 'Interner Lüfterfehler'} %}{% if value_json is defined and value_json.val is string and value_json.val != '' and value_json.val != 'Unknown' %}{% set ns = namespace(out=[]) %}{% for t in value_json.val.split(', ') %}{% set ns.out = ns.out + [m.get(t, t)] %}{% endfor %}{{ ns.out | join(', ') }}{% else %}None{% endif %}"
       },
       "sensor.grid_a": {
         "availability": [
@@ -2058,7 +2062,7 @@
         "platform": "sensor",
         "state_topic": "MTEC/status/MT1234567890/now_base/inverter_status",
         "unique_id": "MTEC_inverter_status",
-        "value_template": "{% set m = {'wait for on-grid': 'Warte auf Netzbetrieb', 'self-check': 'Selbsttest', 'on-grid': 'Netzbetrieb', 'fault': 'Fehler', 'firmware update': 'Firmware-Update', 'off grid': 'Inselbetrieb', 'Unknown': 'Unknown'} %}{% if value_json is defined and value_json.val is not none %}{{ m.get(value_json.val, value_json.val) }}{% endif %}"
+        "value_template": "{% set m = {'wait for on-grid': 'Warte auf Netzbetrieb', 'self-check': 'Selbsttest', 'on-grid': 'Netzbetrieb', 'fault': 'Fehler', 'firmware update': 'Firmware-Update', 'off grid': 'Inselbetrieb'} %}{% if value_json is defined and value_json.val is string %}{{ m.get(value_json.val, 'None') }}{% else %}None{% endif %}"
       },
       "sensor.inverter_temp1": {
         "availability": [
@@ -2198,7 +2202,7 @@
         "platform": "sensor",
         "state_topic": "MTEC/status/MT1234567890/now_base/mode",
         "unique_id": "MTEC_mode",
-        "value_template": "{% set m = {'General mode': 'Allgemeiner Modus', 'Economic mode': 'Sparmodus', 'UPS mode': 'USV-Modus', 'Off grid': 'Inselbetrieb', 'Unknown': 'Unknown'} %}{% if value_json is defined and value_json.val is not none %}{{ m.get(value_json.val, value_json.val) }}{% endif %}"
+        "value_template": "{% set m = {'General mode': 'Allgemeiner Modus', 'Economic mode': 'Sparmodus', 'UPS mode': 'USV-Modus', 'Off grid': 'Inselbetrieb'} %}{% if value_json is defined and value_json.val is string %}{{ m.get(value_json.val, 'None') }}{% else %}None{% endif %}"
       },
       "sensor.off_grid_soc_limit": {
         "availability": [

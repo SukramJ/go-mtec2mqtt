@@ -5,6 +5,7 @@ package coordinator
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"maps"
 	"time"
@@ -158,7 +159,9 @@ func (c *Coordinator) publishGroupOnce(ctx context.Context, log *slog.Logger, gr
 		// phase-6 measurement); a divergence points every entity at a topic
 		// nobody writes to, permanently `unknown`, with nothing in the log.
 		topic := hass.StateTopic(topicBase.root, topicBase.serial, string(group), key)
-		wire := wireValue(findRegisterByOutputKey(c.deps.Catalog, key), raw[key], val, c.deps.Cfg.RoundFloat)
+		reg := findRegisterByOutputKey(c.deps.Catalog, key)
+		wire := wireValue(reg, raw[key], val, c.deps.Cfg.RoundFloat)
+		c.noteUnmapped(log, reg, raw[key], wire)
 		// An empty payload on a *retained* topic is MQTT's retraction, so a
 		// value that is not there is skipped rather than published; the
 		// library refuses a nil status value too
@@ -189,4 +192,45 @@ func (c *Coordinator) publishGroupOnce(ctx context.Context, log *slog.Logger, gr
 	// measurable effect of the dedup gate: a steady-state group should
 	// show written=0, and an operator should be able to see that.
 	log.Debug("coordinator.published", slog.Int("count", published), slog.Int("written", written))
+}
+
+// maxUnmappedLogged bounds the memory of [Coordinator.noteUnmapped]. A BIT
+// register can in principle take 2^32 values; past this many distinct
+// unmapped ones the warn line stops rather than the set growing.
+const maxUnmappedLogged = 256
+
+// noteUnmapped logs, once per register and raw value, a value-mapped
+// register whose value the catalog does not map in full: an enum code
+// with no label, or a fault field with a bit no mask names. The wire
+// carries the "Unknown" token for it (or the named faults alone, when
+// some bits are named), which Home Assistant shows as unknown — so this
+// line is the only place the raw value is visible, and the hint that the
+// catalog lacks an entry.
+func (c *Coordinator) noteUnmapped(log *slog.Logger, reg *registers.Register, raw, wire any) {
+	if reg == nil || reg.HassValueItems == nil || raw == nil {
+		return
+	}
+	_, unmapped := decodeCode(raw, reg.HassValueItems)
+	if unmapped == "" {
+		return
+	}
+	key := reg.MQTT + "\x00" + fmt.Sprint(raw)
+	c.unmappedMu.Lock()
+	_, seen := c.unmappedSeen[key]
+	full := len(c.unmappedSeen) >= maxUnmappedLogged
+	if !seen && !full {
+		if c.unmappedSeen == nil {
+			c.unmappedSeen = make(map[string]struct{})
+		}
+		c.unmappedSeen[key] = struct{}{}
+	}
+	c.unmappedMu.Unlock()
+	if seen || full {
+		return
+	}
+	log.Warn("coordinator.unmapped_value",
+		slog.String("register", reg.MQTT),
+		slog.String("raw", fmt.Sprint(raw)),
+		slog.String("unmapped", unmapped),
+		slog.String("published", fmt.Sprint(wire)))
 }

@@ -299,6 +299,10 @@ both in milliseconds since the epoch.
   fault names), whatever `LANGUAGE` says. Home Assistant still shows the
   labels of your language: the discovery document maps token to label and
   back.
+- A code `registers.yaml` does not map, and a fault register whose only
+  set bits it does not name, carry `"Unknown"`; Home Assistant shows the
+  entity as unknown, and the daemon logs `coordinator.unmapped_value` with
+  the raw value once per register and value.
 
 Status items are **retained** and published **on change and on every
 broker reconnect** only — a value identical to the one the broker already

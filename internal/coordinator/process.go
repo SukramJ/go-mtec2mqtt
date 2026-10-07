@@ -143,19 +143,34 @@ func parseEquipmentBytes(s string) (hi, lo int, ok bool) {
 // `1<<key` instead of `key` reported the wrong fault for every mask
 // beyond 1 and could not match the high masks at all.
 func convertCode(val any, items map[int]string) string {
+	label, _ := decodeCode(val, items)
+	return label
+}
+
+// decodeCode is [convertCode] plus what it could not map, for the warn
+// line an unmapped value gets ([Coordinator.noteUnmapped]); unmapped is
+// empty when the value was mapped in full.
+//
+// A BIT field with a set bit the catalog has no mask for is no longer
+// "OK": up to 2.0.0 the unnamed bit was dropped, and a field holding
+// nothing else read as fault-free — fail-open, against the same contract
+// the unparseable case below keeps. Such a field is "Unknown" now; one
+// that also holds named bits still lists those, and the unnamed rest is
+// what unmapped reports.
+func decodeCode(val any, items map[int]string) (label, unmapped string) {
 	if iv, ok := toInt(val); ok {
 		if label, has := items[iv]; has {
-			return label
+			return label, ""
 		}
-		return "Unknown"
+		return unknownToken, strconv.Itoa(iv)
 	}
 	s, ok := val.(string)
 	if !ok {
-		return "Unknown"
+		return unknownToken, fmt.Sprint(val)
 	}
 	flat := strings.ReplaceAll(s, " ", "")
 	if flat == "" {
-		return "OK"
+		return "OK", ""
 	}
 	bits, err := strconv.ParseUint(flat, 2, 64)
 	if err != nil {
@@ -163,10 +178,10 @@ func convertCode(val any, items map[int]string) string {
 		// cannot prove the device is fault-free, so report it as unknown
 		// rather than fail open with a reassuring "OK" — same contract
 		// as the integer path.
-		return "Unknown"
+		return unknownToken, s
 	}
 	if bits == 0 {
-		return "OK"
+		return "OK", ""
 	}
 	// Sort by mask value so the output is deterministic — Python's dict
 	// iteration order is insertion-ordered (YAML order); Go's is
@@ -178,6 +193,7 @@ func convertCode(val any, items map[int]string) string {
 	}
 	sortInts(codes)
 	var faults []string
+	rest := bits
 	for _, c := range codes {
 		if c <= 0 {
 			continue // 0 (and any negative) is not a usable mask
@@ -185,13 +201,24 @@ func convertCode(val any, items map[int]string) string {
 		mask := uint64(c)
 		if bits&mask != 0 {
 			faults = append(faults, items[c])
+			rest &^= mask
 		}
 	}
-	if len(faults) == 0 {
-		return "OK"
+	if rest != 0 {
+		unmapped = fmt.Sprintf("%#x", rest)
 	}
-	return strings.Join(faults, ", ")
+	if len(faults) == 0 {
+		return unknownToken, unmapped
+	}
+	return strings.Join(faults, ", "), unmapped
 }
+
+// unknownToken is what a value-mapped register publishes for a value the
+// catalog does not map. Home Assistant shows it as unknown: the select,
+// enum-sensor and fault-sensor value templates render every string that
+// is not one of the register's tokens as None (see hass.EnumValueTemplate
+// and hass.BitFieldValueTemplate).
+const unknownToken = "Unknown"
 
 // toInt accepts int, int64, float64 and returns the corresponding int.
 // Reader values flow through `any` so an inverter_status register may
@@ -238,7 +265,8 @@ func findRegisterByOutputKey(catalog *registers.Map, key string) *registers.Regi
 //
 //   - A register with hass_value_items publishes its stable token, the
 //     ENGLISH label ("on-grid"; a BIT register: "OK" or the comma-joined
-//     English names of the set flags; an unmapped code: "Unknown"), never
+//     English names of the set flags; an unmapped code, or a field whose
+//     only set bits the catalog does not name: "Unknown"), never
 //     the label of the configured language. Home Assistant maps it to the
 //     localised label in discovery (hass.ValueItemsEnum).
 //   - A switch or binary_sensor register publishes a boolean: true when the

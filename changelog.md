@@ -1,5 +1,52 @@
 # Unreleased
 
+# Version 2.0.1 (2026-10-07)
+
+## What's Changed
+
+### Fixed
+
+- **An inverter mode outside the catalog no longer freezes the mode
+  select.** A code `registers.yaml` does not map (code 0 of `mode`, for
+  instance) is published as `"Unknown"`, which is not one of the select's
+  options: Home Assistant logged "Invalid option" at error on every change
+  and kept showing the last valid mode as if it were current. The select
+  and the enum sensors (inverter status, BMS status, battery mode, mode)
+  now show such a value as unknown instead of an option or the English
+  word "Unknown". Their option lists are unchanged.
+- **A fault register no longer reads "OK" while a fault bit is set.** A
+  set bit the catalog has no name for was dropped, and a field holding
+  nothing else published `"OK"`. It publishes `"Unknown"` now (shown as
+  unknown); named faults set beside it are still listed.
+- **Charge and discharge limits above 100 A are shown.** The two numbers
+  had no range, so Home Assistant applied 0–100 and discarded every
+  reading above 100 A with an error. They now declare 0–6553.5 A, the
+  register's own range — what the write path and the charge/discharge
+  "active" switches already accepted. The percentage limits keep 0–100.
+- **The inverter's reachability is current after a broker outage.** On a
+  broker reconnect the cached status items were replayed with the
+  inverter's `online` as it was before the outage: an inverter that
+  dropped, or came back, while the broker was away was shown available
+  (or unavailable) wrongly until the next read. The reconnect now reads
+  the Modbus link and publishes `online` and `<name>/connected` from it
+  before the replay.
+
+### Added
+
+- A code or fault bit the catalog does not map is logged once per
+  register and value (`coordinator.unmapped_value`, with the raw value),
+  so a missing catalog entry is visible.
+- A test renders every Home Assistant template of the device document
+  against the values the publish path really writes, in English and
+  German, including the command round trips.
+
+**Who is affected**: Home Assistant users whose inverter reports a mode
+or fault bit the catalog does not know, or a current limit above 100 A,
+and everyone whose broker restarted while the inverter's link changed.
+On the wire only the fault value for unnamed bits changes (`"Unknown"`
+instead of `"OK"`); topics, entity ids and every other payload are
+unchanged. **Updating needs no other action.**
+
 # Version 2.0.0 (2026-10-06)
 
 ## What's Changed

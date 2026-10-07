@@ -276,7 +276,7 @@ func NewEntities(d *Discovery) []hamodel.Entity {
 		case PlatformNumber:
 			out = append(out, numberEntity(d.serialNo, r), sensorEntity(d.serialNo, r, d.lang))
 		case PlatformSelect:
-			out = append(out, selectEntity(d.serialNo, r), sensorEntity(d.serialNo, r, d.lang))
+			out = append(out, selectEntity(d.serialNo, r, d.lang), sensorEntity(d.serialNo, r, d.lang))
 		case PlatformSwitch:
 			out = append(out, switchEntity(d.serialNo, r), binarySensorEntity(d.serialNo, r))
 		default:
@@ -492,16 +492,53 @@ func StatusTemplate(t string) string {
 	return b.String()
 }
 
-// bitFieldTemplate maps the published English fault names of a BIT
-// register — "OK", or a comma-separated list of active flags — onto the
-// labels of lang, so a German Home Assistant keeps showing German fault
-// names while the wire carries the language-independent tokens. Empty when
-// no label differs from its token (English), and then the library's plain
-// `{{ value_json.val }}` applies.
-func bitFieldTemplate(r *registers.Register, lang string) string {
+// EnumValueTemplate is the value_template of a select and of an enum
+// sensor: the wire token mapped to the option Home Assistant lists in lang,
+// and `None` — unknown — for anything that is not one of the register's
+// tokens: the "Unknown" the coordinator publishes for a code the catalog
+// does not map, a non-string, or a payload that is not a status object.
+//
+// Every token is mapped, in English too where token and option are the
+// same string, because the miss is the point. The library's pass-through
+// (`m.get(val, val)`, or a bare `{{ value_json.val }}` in English) handed
+// "Unknown" to Home Assistant as a state: a select logs "Invalid option"
+// at error and keeps showing the last valid option as if it were current
+// (homeassistant/components/mqtt/select.py `_message_received`), and an
+// enum sensor showed the English word as one of its options. "None" sets
+// either to unknown (select.py: `payload.lower() == "none"`; sensor.py:
+// PAYLOAD_NONE).
+func EnumValueTemplate(e *hamodel.Enum, lang string) string {
+	if e == nil || len(e.Codes) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(`{% set m = {`)
+	for i, token := range e.Codes {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(discovery.JinjaQuote(token) + ": " + discovery.JinjaQuote(e.Label(token, lang)))
+	}
+	b.WriteString(`} %}{% if value_json is defined and value_json.val is string %}` +
+		`{{ m.get(value_json.val, 'None') }}{% else %}None{% endif %}`)
+	return b.String()
+}
+
+// BitFieldValueTemplate is the value_template of a BIT (fault/alarm)
+// register's sensor. The wire carries "OK", the comma-separated English
+// names of the set flags, or "Unknown" for a field the catalog cannot
+// name (see coordinator.decodeCode). The names are mapped onto the labels
+// of lang, so a German Home Assistant keeps showing German fault names
+// while the wire carries the language-independent tokens; "Unknown", a
+// non-string and a payload that is not a status object render `None`,
+// which the sensor shows as unknown (mqtt/sensor.py PAYLOAD_NONE).
+//
+// English needs no mapping, and gets the guard alone.
+func BitFieldValueTemplate(r *registers.Register, lang string) string {
 	if r.Type != registers.DataBIT || len(r.HassValueItems) == 0 {
 		return ""
 	}
+	const guard = `{% if value_json is defined and value_json.val is string and value_json.val != '' and value_json.val != 'Unknown' %}`
 	enum := ValueItemsEnum(r)
 	var m strings.Builder
 	differs := false
@@ -514,13 +551,35 @@ func bitFieldTemplate(r *registers.Register, lang string) string {
 		m.WriteString(discovery.JinjaQuote(token) + ": " + discovery.JinjaQuote(label))
 	}
 	if !differs {
-		return ""
+		return guard + `{{ value_json.val }}{% else %}None{% endif %}`
 	}
-	return `{% set m = {` + m.String() + `} %}` +
-		`{% if value_json is defined and value_json.val is string %}` +
+	return `{% set m = {` + m.String() + `} %}` + guard +
 		`{% set ns = namespace(out=[]) %}` +
 		`{% for t in value_json.val.split(', ') %}{% set ns.out = ns.out + [m.get(t, t)] %}{% endfor %}` +
-		`{{ ns.out | join(', ') }}{% endif %}`
+		`{{ ns.out | join(', ') }}{% else %}None{% endif %}`
+}
+
+// numberBounds is the min/max of a number entity whose unit is not a
+// percentage: the range the write path accepts for the register — a
+// uint16 after scaling (modbus.ParseWriteValue), so 0..65535/scale.
+//
+// Home Assistant otherwise applies 0..100 (number/const.py
+// DEFAULT_MIN_VALUE/DEFAULT_MAX_VALUE) and discards a state outside it
+// with an error (mqtt/number.py `_message_received`), which is right for
+// the percentage limits and wrong for the charge and discharge current
+// limits in A: the register holds up to 6553.5, and the charge/discharge
+// "active" switches already write up to CHARGE_ACTIVE_VALUE's 6000. The
+// bound is the register's own, not a guess at what a given inverter
+// model allows. A percentage keeps Home Assistant's 0..100.
+func numberBounds(r *registers.Register) (lo, hi *float64) {
+	if r.Unit == "%" {
+		return nil, nil
+	}
+	scale := r.Scale
+	if scale < 1 {
+		scale = 1
+	}
+	return new(0.0), new(float64(0xFFFF) / float64(scale))
 }
 
 func sensorEntity(serial string, r *registers.Register, lang string) *Entity {
@@ -534,11 +593,17 @@ func sensorEntity(serial string, r *registers.Register, lang string) *Entity {
 	}
 	if r.HassValueTemplate != "" {
 		desc.ValueTemplate = StatusTemplate(r.HassValueTemplate)
-	} else if t := bitFieldTemplate(r, lang); t != "" {
+	} else if t := BitFieldValueTemplate(r, lang); t != "" {
 		desc.ValueTemplate = t
 	}
 	if r.HassDeviceClass == "enum" && len(r.HassValueItems) > 0 {
+		// The option list keeps its trailing "Unknown", exactly as 2.0.0
+		// published it, so nothing keyed on the list moves; the value
+		// template never renders it (the token maps to None).
 		desc.Options = ValueItemsEnum(r, "Unknown")
+		if r.HassValueTemplate == "" {
+			desc.ValueTemplate = EnumValueTemplate(ValueItemsEnum(r), lang)
+		}
 		if r.Unit == "" {
 			desc.Unit = ""
 		}
@@ -581,6 +646,7 @@ func binarySensorEntity(serial string, r *registers.Register) *Entity {
 }
 
 func numberEntity(serial string, r *registers.Register) *Entity {
+	lo, hi := numberBounds(r)
 	return &Entity{
 		EntityKey:      string(PlatformNumber) + "." + r.MQTT,
 		EntityPlatform: hacatalog.Platform(PlatformNumber),
@@ -588,6 +654,8 @@ func numberEntity(serial string, r *registers.Register) *Entity {
 			Name:         localized(r.Name, r.NameDE),
 			DeviceClass:  hamodel.DeviceClass(r.HassDeviceClass),
 			Unit:         hamodel.Unit(r.Unit),
+			Min:          lo,
+			Max:          hi,
 			Enabled:      new(false),
 			Availability: bridgeAndDevice(),
 		},
@@ -598,15 +666,17 @@ func numberEntity(serial string, r *registers.Register) *Entity {
 	}
 }
 
-func selectEntity(serial string, r *registers.Register) *Entity {
+func selectEntity(serial string, r *registers.Register, lang string) *Entity {
+	options := ValueItemsEnum(r)
 	return &Entity{
 		EntityKey:      string(PlatformSelect) + "." + r.MQTT,
 		EntityPlatform: hacatalog.Platform(PlatformSelect),
 		Description: hamodel.Description{
-			Name:         localized(r.Name, r.NameDE),
-			Options:      ValueItemsEnum(r),
-			Enabled:      new(false),
-			Availability: bridgeAndDevice(),
+			Name:          localized(r.Name, r.NameDE),
+			Options:       options,
+			ValueTemplate: EnumValueTemplate(options, lang),
+			Enabled:       new(false),
+			Availability:  bridgeAndDevice(),
 		},
 		Binds:        readWriteBinds(slot(serial, r)),
 		UniqueIDSeed: r.MQTT,

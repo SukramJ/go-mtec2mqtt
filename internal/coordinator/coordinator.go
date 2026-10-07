@@ -325,6 +325,13 @@ type Coordinator struct {
 	lastActiveMu sync.Mutex
 	lastActive   map[string]float64
 
+	// unmappedSeen is the set of (register, value) pairs already logged as
+	// unmapped, so a code the catalog does not map is reported once rather
+	// than on every poll. Guarded by unmappedMu; lazily allocated and
+	// bounded by maxUnmappedLogged. See [Coordinator.noteUnmapped].
+	unmappedMu   sync.Mutex
+	unmappedSeen map[string]struct{}
+
 	// reconcileGate is a try-locked gate so only one discovery orphan
 	// reconcile runs at a time; a re-entrant call while one is in flight
 	// is skipped (discovery changes are infrequent). The zero value is
@@ -1498,16 +1505,30 @@ func (c *Coordinator) resetHAPlane() {
 // retained device document too. The generation bump is what keeps a
 // publish that is already in flight on the connection being replaced from
 // marking the new one done.
+//
+// The inverter's reachability is read from the Modbus link HERE, and the
+// device's `online` item published with it BEFORE the replay. The replay
+// re-sends what the broker last ACCEPTED, and a write refused during the
+// outage was never recorded (publisher.StatePublisher keeps only accepted
+// writes): an inverter that dropped, or came back, while the broker was
+// away was otherwise replayed at its pre-outage reachability, and shown so
+// until the next group read or watchdog tick noticed the difference. Up to
+// 2.0.0 `<name>/connected` was announced from the last OBSERVED level for
+// the same reason. Publishing first also refreshes the cache, so the
+// replay then carries the current value too.
 func (c *Coordinator) PublishOnline(ctx context.Context) {
 	c.resetHAPlane()
 	c.discoveryGen.Add(1)
 	c.discoverySent.Store(false)
+	up := c.deps.Modbus.IsConnected()
+	c.upstreamUp.Store(up)
 	c.announceConnected(ctx)
 	if c.deps.Instance != nil {
 		if err := c.deps.Instance.AnnounceInfo(ctx); err != nil {
 			c.deps.Logger.Warn("coordinator.info_failed", slog.String("err", err.Error()))
 		}
 	}
+	c.publishDeviceOnline(ctx, up)
 	if _, err := c.deps.StatePlane.Republish(ctx); err != nil {
 		c.deps.Logger.Warn("coordinator.state_republish_failed", slog.String("err", err.Error()))
 	}
@@ -1552,6 +1573,13 @@ func (c *Coordinator) updateUpstream(ctx context.Context) {
 		c.deps.Logger.Warn("coordinator.connected_failed",
 			slog.Int("level", level), slog.String("err", err.Error()))
 	}
+	c.publishDeviceOnline(ctx, up)
+}
+
+// publishDeviceOnline writes the device's `<name>/status/<serial>/online`
+// item, once the serial is known. Deduplicated on its value by the state
+// plane, so an unchanged reachability costs nothing on the wire.
+func (c *Coordinator) publishDeviceOnline(ctx context.Context, up bool) {
 	tp, ok := c.loadTopicParts()
 	if !ok {
 		return
