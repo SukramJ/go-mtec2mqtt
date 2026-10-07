@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -75,6 +76,56 @@ func withoutSmartHomeKeys(payload map[string]any) map[string]any {
 	return out
 }
 
+// numberBounds201 are the only keys outside [smartHomeKeys] that moved
+// after 2.0.0: 2.0.1 gives the two current limits, in A, the range their
+// register can hold (numberBounds), because Home Assistant's default
+// 0..100 discarded every reading above 100 A. Keyed by the register's
+// mqtt key, which every unique_id variant ends in; pinned here rather than
+// derived, so the bounds cannot drift with the code under test.
+var numberBounds201 = map[string][2]float64{
+	"charge_limit":    {0, 6553.5},
+	"discharge_limit": {0, 6553.5},
+}
+
+// withoutNumberBounds checks the 2.0.1 min/max of a number against
+// [numberBounds201] and returns got without them, so the comparison with
+// the pre-2.0 pin that follows still covers every other key. A bound on any
+// other entity, or a pinned payload that already carried one, is an error.
+func withoutNumberBounds(t *testing.T, cfgTopic string, old, got map[string]any) map[string]any {
+	t.Helper()
+	uid, _ := got["unique_id"].(string)
+	var want [2]float64
+	bounded := false
+	for key, b := range numberBounds201 {
+		if strings.HasPrefix(uid, "MTEC_") && strings.HasSuffix(uid, "_"+key) {
+			want, bounded = b, true
+		}
+	}
+	// The sensor that mirrors each number shares its unique_id; only the
+	// number has a command topic.
+	if _, writable := got["command_topic"]; !writable {
+		bounded = false
+	}
+	_, hasMin := got["min"]
+	_, hasMax := got["max"]
+	if !bounded {
+		if hasMin || hasMax {
+			t.Errorf("%s: min/max %v/%v on an entity 2.0.1 does not bound", cfgTopic, got["min"], got["max"])
+		}
+		return got
+	}
+	if _, was := old["min"]; was {
+		t.Errorf("%s: the pre-2.0 pin already carries min", cfgTopic)
+	}
+	if got["min"] != want[0] || got["max"] != want[1] {
+		t.Errorf("%s: min/max = %v/%v, want %v/%v", cfgTopic, got["min"], got["max"], want[0], want[1])
+	}
+	out := maps.Clone(got)
+	delete(out, "min")
+	delete(out, "max")
+	return out
+}
+
 // assertTheMoveChangesOnlyTheSmartHomeKeys compares one pre-2.0 payload
 // (pinned, or the frozen builder's) with the library's 2.0 rendering of the
 // same entity: identical outside [smartHomeKeys], and inside them exactly
@@ -84,6 +135,7 @@ func withoutSmartHomeKeys(payload map[string]any) map[string]any {
 // and booleans as true/false.
 func assertTheMoveChangesOnlyTheSmartHomeKeys(t *testing.T, cfgTopic string, old, got map[string]any) {
 	t.Helper()
+	got = withoutNumberBounds(t, cfgTopic, old, got)
 	if wb, gb := canonical(t, withoutSmartHomeKeys(old)), canonical(t, withoutSmartHomeKeys(got)); !bytes.Equal(wb, gb) {
 		t.Errorf("%s: a key outside the 2.0 move changed\n pre-2.0: %s\n     2.0: %s", cfgTopic, wb, gb)
 		return

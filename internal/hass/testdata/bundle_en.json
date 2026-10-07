@@ -99,6 +99,8 @@
         "command_topic": "MTEC/set/MT1234567890/config/charge_limit",
         "default_entity_id": "number.charge_limit",
         "enabled_by_default": false,
+        "max": 6553.5,
+        "min": 0,
         "mode": "box",
         "name": "Charge limit",
         "platform": "number",
@@ -126,6 +128,8 @@
         "command_topic": "MTEC/set/MT1234567890/config/discharge_limit",
         "default_entity_id": "number.discharge_limit",
         "enabled_by_default": false,
+        "max": 6553.5,
+        "min": 0,
         "mode": "box",
         "name": "Discharge limit",
         "platform": "number",
@@ -244,7 +248,7 @@
         "platform": "select",
         "state_topic": "MTEC/status/MT1234567890/now_base/mode",
         "unique_id": "MTEC_mode",
-        "value_template": "{{ value_json.val }}"
+        "value_template": "{% set m = {'General mode': 'General mode', 'Economic mode': 'Economic mode', 'UPS mode': 'UPS mode', 'Off grid': 'Off grid'} %}{% if value_json is defined and value_json.val is string %}{{ m.get(value_json.val, 'None') }}{% else %}None{% endif %}"
       },
       "sensor.ac_current_a": {
         "availability": [
@@ -1246,7 +1250,7 @@
         "platform": "sensor",
         "state_topic": "MTEC/status/MT1234567890/now_base/battery_mode",
         "unique_id": "MTEC_battery_mode",
-        "value_template": "{{ value_json.val }}"
+        "value_template": "{% set m = {'Discharge': 'Discharge', 'Charge': 'Charge'} %}{% if value_json is defined and value_json.val is string %}{{ m.get(value_json.val, 'None') }}{% else %}None{% endif %}"
       },
       "sensor.battery_soc": {
         "availability": [
@@ -1379,7 +1383,7 @@
         "state_topic": "MTEC/status/MT1234567890/now_base/bms_alarm_code",
         "unique_id": "MTEC_bms_alarm_code",
         "unit_of_measurement": "",
-        "value_template": "{{ value_json.val }}"
+        "value_template": "{% if value_json is defined and value_json.val is string and value_json.val != '' and value_json.val != 'Unknown' %}{{ value_json.val }}{% else %}None{% endif %}"
       },
       "sensor.bms_error_code": {
         "availability": [
@@ -1404,7 +1408,7 @@
         "state_topic": "MTEC/status/MT1234567890/now_base/bms_error_code",
         "unique_id": "MTEC_bms_error_code",
         "unit_of_measurement": "",
-        "value_template": "{{ value_json.val }}"
+        "value_template": "{% if value_json is defined and value_json.val is string and value_json.val != '' and value_json.val != 'Unknown' %}{{ value_json.val }}{% else %}None{% endif %}"
       },
       "sensor.bms_protection_code": {
         "availability": [
@@ -1429,7 +1433,7 @@
         "state_topic": "MTEC/status/MT1234567890/now_base/bms_protection_code",
         "unique_id": "MTEC_bms_protection_code",
         "unit_of_measurement": "",
-        "value_template": "{{ value_json.val }}"
+        "value_template": "{% if value_json is defined and value_json.val is string and value_json.val != '' and value_json.val != 'Unknown' %}{{ value_json.val }}{% else %}None{% endif %}"
       },
       "sensor.bms_status": {
         "availability": [
@@ -1463,7 +1467,7 @@
         "platform": "sensor",
         "state_topic": "MTEC/status/MT1234567890/now_base/bms_status",
         "unique_id": "MTEC_bms_status",
-        "value_template": "{{ value_json.val }}"
+        "value_template": "{% set m = {'wait for on-grid': 'wait for on-grid', 'self-check': 'self-check', 'on-grid': 'on-grid', 'fault': 'fault', 'firmware update': 'firmware update', 'off grid': 'off grid'} %}{% if value_json is defined and value_json.val is string %}{{ m.get(value_json.val, 'None') }}{% else %}None{% endif %}"
       },
       "sensor.charge_limit": {
         "availability": [
@@ -1621,7 +1625,7 @@
         "state_topic": "MTEC/status/MT1234567890/now_base/fault_flag_1",
         "unique_id": "MTEC_fault_flag_1",
         "unit_of_measurement": "",
-        "value_template": "{{ value_json.val }}"
+        "value_template": "{% if value_json is defined and value_json.val is string and value_json.val != '' and value_json.val != 'Unknown' %}{{ value_json.val }}{% else %}None{% endif %}"
       },
       "sensor.fault_flag_2": {
         "availability": [
@@ -1646,7 +1650,7 @@
         "state_topic": "MTEC/status/MT1234567890/now_base/fault_flag_2",
         "unique_id": "MTEC_fault_flag_2",
         "unit_of_measurement": "",
-        "value_template": "{{ value_json.val }}"
+        "value_template": "{% if value_json is defined and value_json.val is string and value_json.val != '' and value_json.val != 'Unknown' %}{{ value_json.val }}{% else %}None{% endif %}"
       },
       "sensor.grid_a": {
         "availability": [
@@ -2057,7 +2061,7 @@
         "platform": "sensor",
         "state_topic": "MTEC/status/MT1234567890/now_base/inverter_status",
         "unique_id": "MTEC_inverter_status",
-        "value_template": "{{ value_json.val }}"
+        "value_template": "{% set m = {'wait for on-grid': 'wait for on-grid', 'self-check': 'self-check', 'on-grid': 'on-grid', 'fault': 'fault', 'firmware update': 'firmware update', 'off grid': 'off grid'} %}{% if value_json is defined and value_json.val is string %}{{ m.get(value_json.val, 'None') }}{% else %}None{% endif %}"
       },
       "sensor.inverter_temp1": {
         "availability": [
@@ -2197,7 +2201,7 @@
         "platform": "sensor",
         "state_topic": "MTEC/status/MT1234567890/now_base/mode",
         "unique_id": "MTEC_mode",
-        "value_template": "{{ value_json.val }}"
+        "value_template": "{% set m = {'General mode': 'General mode', 'Economic mode': 'Economic mode', 'UPS mode': 'UPS mode', 'Off grid': 'Off grid'} %}{% if value_json is defined and value_json.val is string %}{{ m.get(value_json.val, 'None') }}{% else %}None{% endif %}"
       },
       "sensor.off_grid_soc_limit": {
         "availability": [

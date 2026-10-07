@@ -137,9 +137,12 @@ func TestConvertCodeBitFieldMaskSemantics(t *testing.T) {
 		{"all bits", "0000000011111111", "Mains Lost, Grid Voltage Fault, " +
 			"Grid Frequency Fault, DCI Fault, ISO Over Limitation, GFCI Fault, " +
 			"PV Over Voltage, Bus Voltage Fault"},
-		// A bit the catalog has no label for is simply not reported; the
-		// register is still faulty but we have nothing to name.
-		{"undocumented bit only", "0000000100000000", "OK"},
+		// A bit the catalog has no label for: the register is faulty but
+		// there is nothing to name. Up to 2.0.0 this read "OK" — fail-open.
+		{"undocumented bit only", "0000000100000000", "Unknown"},
+		// Named bits are still listed when an unnamed one is set beside
+		// them; the unnamed rest goes to the warn line (decodeCode).
+		{"undocumented bit beside a named one", "0000000100000001", "Mains Lost"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -519,3 +522,31 @@ func TestProcessValuesBatch(t *testing.T) {
 }
 
 func approxEq(a, b float64) bool { return math.Abs(a-b) < 1e-9 }
+
+// TestDecodeCodeReportsWhatItCannotMap pins the second result the warn line
+// in noteUnmapped is built from: empty when the value is mapped in full,
+// otherwise the code, the unnamed bits, or the unreadable field.
+func TestDecodeCodeReportsWhatItCannotMap(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		val             any
+		label, unmapped string
+	}{
+		{"mapped code", 2, "Grid Voltage Fault", ""},
+		{"unmapped code", 7, "Unknown", "7"},
+		{"unmapped float code", 7.0, "Unknown", "7"},
+		{"not a code", true, "Unknown", "true"},
+		{"no bits", "0000000000000000 0000000000000000", "OK", ""},
+		{"named bits", "0000000000000000 0000000000000011", "Mains Lost, Grid Voltage Fault", ""},
+		{"unnamed bit alone", "0000000000000001 0000000000000000", "Unknown", "0x10000"},
+		{"unnamed beside named", "0000000000000001 0000000100000001", "Mains Lost", "0x10100"},
+		{"unreadable", "01x", "Unknown", "01x"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			label, unmapped := decodeCode(tc.val, faultFlag1Items)
+			if label != tc.label || unmapped != tc.unmapped {
+				t.Errorf("decodeCode(%v) = (%q, %q), want (%q, %q)", tc.val, label, unmapped, tc.label, tc.unmapped)
+			}
+		})
+	}
+}
