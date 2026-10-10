@@ -1,5 +1,11 @@
 # Unreleased
 
+### Security
+
+- Built with Go 1.27.2, which fixes Go standard-library vulnerabilities
+  (net/http and HTTP/2, crypto/tls, net/textproto, html/template).
+  golangci-lint v2.14.0 (reads Go 1.27.2's export data).
+
 # Version 2.0.1 (2026-10-07)
 
 ## What's Changed
