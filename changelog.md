@@ -1,10 +1,20 @@
-# Unreleased
+# Version 2.1.0 (2026-10-12)
 
-### Security
+## What's Changed
 
-- Built with Go 1.27.2, which fixes Go standard-library vulnerabilities
-  (net/http and HTTP/2, crypto/tls, net/textproto, html/template).
-  golangci-lint v2.14.0 (reads Go 1.27.2's export data).
+### Changed
+
+- **One bad entity no longer withholds the whole device document.** Home
+  Assistant refuses a device document whole only over its device and origin
+  blocks, shared availability, or a component's platform and unique id; any
+  other bad component costs just that entity. The bridge now uses go-hamqtt
+  0.37.0 containment: a component Home Assistant would reject is left out
+  (and its existing per-entity config is not swept), the rest are published.
+  A document with a document-level error, or with nothing left, is still
+  refused before anything is retracted.
+- Updated go-hamqtt to v0.37.0. Built with Go 1.27.2, which fixes Go
+  standard-library vulnerabilities (net/http and HTTP/2, crypto/tls,
+  net/textproto, html/template). golangci-lint v2.14.0.
 
 # Version 2.0.1 (2026-10-07)
 

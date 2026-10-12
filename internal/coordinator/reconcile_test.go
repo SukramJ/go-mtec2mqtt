@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	hadiscovery "github.com/SukramJ/go-hamqtt/discovery"
+
 	"github.com/SukramJ/go-mtec2mqtt/internal/hass"
 	"github.com/SukramJ/go-mtec2mqtt/internal/registers"
 	"github.com/SukramJ/go-mtec2mqtt/internal/version"
@@ -823,10 +825,9 @@ func runSweep(t *testing.T, c *Coordinator, mqttStub *stubMQTT, published map[st
 //     config the sweep's window finds is an orphan by its own rule — which
 //     is right when the document went out and catastrophic when it did not.
 //
-// The library documents that wiring Validate into a publish path is
-// fail-closed and costs a device all of its entities on one bad component.
-// That is the trade, taken knowingly: the alternative is the same loss
-// plus a retraction that cannot be undone.
+// A document with nothing left after containment is refused outright; one
+// bad component among good ones is withheld alone (see
+// TestOneBadComponentCostsOnlyThatEntity).
 func TestAnInvalidDocumentWithholdsTheWholeMigration(t *testing.T) {
 	// A catalogue Home Assistant's schema refuses: "voltage" is not a
 	// device class a binary_sensor may carry.
@@ -901,6 +902,62 @@ func TestAnInvalidDocumentWithholdsTheWholeMigration(t *testing.T) {
 				t.Errorf("the sweep wrote %q with no document", p.topic)
 			}
 		})
+	}
+}
+
+// TestOneBadComponentCostsOnlyThatEntity pins that the document is still
+// built when only a component is bad: Home Assistant drops that one entity,
+// so withholding the whole document would be stricter than it is. The bad
+// component must not be in the published document, and the good one must.
+func TestOneBadComponentCostsOnlyThatEntity(t *testing.T) {
+	const mixed = `
+"10000":
+  name: Inverter serial number
+  length: 8
+  type: STR
+  mqtt: serial_no
+  group: static
+
+"11000":
+  name: Bad entity
+  length: 1
+  type: U16
+  mqtt: bad_entity
+  group: now_base
+  hass_component_type: binary_sensor
+  hass_device_class: voltage
+
+"11001":
+  name: Good entity
+  length: 1
+  type: U16
+  mqtt: good_entity
+  group: now_base
+  hass_component_type: sensor
+  hass_device_class: power
+  unit: W
+`
+	c, _, _, _ := buildDeps(t, true)
+	c.deps.Logger = slog.New(slog.DiscardHandler)
+	regs, _, err := registers.LoadFromString(mixed)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	c.deps.HASS = hass.New(c.deps.Cfg.HASSBaseTopic, c.deps.Cfg.MQTTTopic,
+		regs, c.deps.Cfg.Language, nil, c.deps.Cfg.DeviceName)
+	c.deps.HASS.Initialize("MTEC-TEST-001", "V1", "model")
+	c.buildBundle()
+
+	if c.haBundle == nil {
+		t.Fatal("one bad component withheld the whole document")
+	}
+	contained := hadiscovery.Contain(c.haBundle, hadiscovery.ContainOptions{})
+	if !contained.Publishable() || len(contained.Withheld) != 1 {
+		t.Fatalf("want exactly the bad component withheld, got %d (publishable=%v)",
+			len(contained.Withheld), contained.Publishable())
+	}
+	if len(contained.Bundle.Components) == 0 {
+		t.Fatal("the good component did not survive containment")
 	}
 }
 
