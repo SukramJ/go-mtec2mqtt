@@ -1,3 +1,15 @@
+# Version 2.1.1 (2026-10-12)
+
+## What's Changed
+
+### Fixed
+
+- **Modbus unit ids above 247 are accepted.** The daemon refused
+  `MODBUS_SLAVE` above 247 (the serial slave-id cap, which does not apply
+  over Modbus TCP) and the add-on schema stopped at 247 too; both now take
+  the full 0–255 range (#68). 247 stays the default; if the gateway does
+  not answer on it, 252 is the other common default.
+
 # Version 2.1.0 (2026-10-12)
 
 ## What's Changed
