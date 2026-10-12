@@ -134,7 +134,7 @@ At a minimum you need:
 ```yaml
 MODBUS_IP: 192.168.1.50      # inverter / espressif gateway address
 MODBUS_PORT: 502             # 502 for firmware ≥ V27.52.4.0, 5743 below
-MODBUS_SLAVE: 247
+MODBUS_SLAVE: 247            # some GEN3 gateways answer only 255
 MODBUS_TIMEOUT: 5
 
 MQTT_SERVER: localhost

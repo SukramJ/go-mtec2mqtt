@@ -1,3 +1,16 @@
+# Version 2.1.1 (2026-10-12)
+
+## What's Changed
+
+### Fixed
+
+- **Modbus unit id 255 is accepted.** Some GEN3 espressif gateways answer
+  only unit id 255 — the Modbus-TCP "unit id not significant" value — and
+  time out on the 247 shown on the inverter display. The daemon refused
+  `MODBUS_SLAVE` above 247 (the serial slave-id cap, which does not apply
+  over TCP) and the add-on schema stopped at 247 too; both now take the
+  full 0–255 range (#68).
+
 # Version 2.1.0 (2026-10-12)
 
 ## What's Changed

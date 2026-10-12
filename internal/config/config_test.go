@@ -183,6 +183,30 @@ MODBUS_FRAMER: nope
 	}
 }
 
+// Over Modbus TCP the whole byte is a legal unit id: some GEN3 espressif
+// gateways answer only 255 (issue #68), so the serial cap of 247 must not
+// refuse it — from YAML or from the add-on's MTEC_MODBUS_SLAVE. Beyond a
+// byte is still refused.
+func TestModbusSlaveAcceptsTheWholeUnitIDByte(t *testing.T) {
+	c, err := Load(strings.NewReader(strings.Replace(minimumYAML, "MODBUS_SLAVE: 247", "MODBUS_SLAVE: 255", 1)), nil)
+	if err != nil {
+		t.Fatalf("MODBUS_SLAVE 255 refused: %v", err)
+	}
+	if c.ModbusSlave != 255 {
+		t.Errorf("MODBUS_SLAVE: got %d, want 255", c.ModbusSlave)
+	}
+	c, err = Load(strings.NewReader(minimumYAML), fakeEnv{vars: map[string]string{"MTEC_MODBUS_SLAVE": "255"}})
+	if err != nil {
+		t.Fatalf("MTEC_MODBUS_SLAVE=255 refused: %v", err)
+	}
+	if c.ModbusSlave != 255 {
+		t.Errorf("MTEC_MODBUS_SLAVE: got %d, want 255", c.ModbusSlave)
+	}
+	if _, err := Load(strings.NewReader(strings.Replace(minimumYAML, "MODBUS_SLAVE: 247", "MODBUS_SLAVE: 256", 1)), nil); err == nil {
+		t.Error("MODBUS_SLAVE 256 accepted, want an error")
+	}
+}
+
 func TestEnvOverrideCoercion(t *testing.T) {
 	env := fakeEnv{vars: map[string]string{
 		"MTEC_MODBUS_IP":     "10.0.0.5",

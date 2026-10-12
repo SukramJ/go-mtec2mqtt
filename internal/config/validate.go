@@ -70,13 +70,13 @@ func Validate(c *Config) error {
 	if c.ModbusPort < 1 || c.ModbusPort > 65535 {
 		add("MODBUS_PORT must be 1..65535, got %d", c.ModbusPort)
 	}
-	// Slave-id 0 is "broadcast" — Modbus spec allows it but writes to
-	// holding registers in broadcast mode are silent, which is never
-	// what an end user wants. Allow it (Python schema does) but cap at
-	// 247 per the standard slave-id range.
-	if c.ModbusSlave > 247 {
-		add("MODBUS_SLAVE must be 0..247, got %d", c.ModbusSlave)
-	}
+	// MODBUS_SLAVE needs no check: the field is a byte, so decoding
+	// already refuses anything outside 0..255, and every value in that
+	// range is a legal Modbus-TCP unit id. The serial slave-id cap of
+	// 247 does not apply over TCP — 255 (0xFF) is the spec's "unit id
+	// not significant" value, which some GEN3 espressif gateways answer
+	// instead of 247 (issue #68). 0 is "broadcast": allowed (the Python
+	// schema does too), though writes in broadcast mode are silent.
 	if c.ModbusTimeout < 1 || c.ModbusTimeout > 600 {
 		add("MODBUS_TIMEOUT must be 1..600 seconds, got %d", c.ModbusTimeout)
 	}
