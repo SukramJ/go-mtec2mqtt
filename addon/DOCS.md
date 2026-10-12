@@ -20,7 +20,7 @@ Everything else has sensible defaults; use the reference below to fine-tune.
 | --- | --- | --- | --- |
 | `modbus_ip` | str | `0.0.0.0` | IP / hostname of the M-TEC "espressif" Modbus TCP gateway. **Required** — set this to your inverter's address. The add-on still starts with the placeholder (the web UI stays reachable) but shows the inverter as disconnected until a real address is entered. |
 | `modbus_port` | int | `502` | Modbus TCP port. `502` for firmware ≥ V27.52.4.0; older firmware needs `5743` (and `modbus_framer: rtu`). |
-| `modbus_slave` | int | `247` | Modbus slave / unit id, 0–255 (usually no change required). If the gateway times out on 247, try `255`, the Modbus-TCP "unit id not significant" value some GEN3 gateways expect. |
+| `modbus_slave` | int | `247` | Modbus slave / unit id, 0–255 (usually no change required). If the gateway times out on 247, try `252`, the other common default. |
 | `modbus_timeout` | int | `5` | Modbus response timeout in seconds. |
 | `modbus_retries` | int | `3` | Modbus retry count per transaction. |
 | `modbus_framer` | list(ascii\|rtu\|socket\|tls) | `socket` | Modbus framer. `socket` for firmware ≥ V27.52.4.0; `rtu` for older firmware on port 5743. |
