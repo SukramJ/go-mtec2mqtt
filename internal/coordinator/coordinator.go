@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -218,7 +219,13 @@ func HARuntimeConfig(cfg *config.Config, logger *slog.Logger) publisher.Config {
 		// 100 of this fleet's retained configs are on the four-segment
 		// form and the default matches 0.
 		LegacyEntityTopics: hass.LegacyConfigTopicForms(),
-		Logger:             logger,
+		// Home Assistant refuses a device document whole only over its
+		// device/origin blocks and a component's platform/unique_id; any
+		// other bad component costs that one entity. Containment withholds
+		// exactly those components (and keeps the sweep off their old
+		// per-entity configs) instead of the whole document.
+		Contain: &discovery.ContainOptions{},
+		Logger:  logger,
 	}
 }
 
@@ -1008,11 +1015,10 @@ func (c *Coordinator) loadTopicParts() (topicParts, bool) {
 // publishes nothing, nothing is retracted, and the installed base keeps
 // the per-entity configs it already has and goes on working.
 //
-// discovery.Validate is therefore run here rather than on the publish path.
-// The library warns that wiring it into a publish path is fail-closed — one
-// bad component costs a device all of its entities — and that is precisely
-// the trade being made on purpose: the alternative failure mode is the same
-// loss plus a retraction that cannot be undone.
+// discovery.Contain is therefore asked here, before any retraction. A
+// document-level error, or a document with no component left, withholds the
+// whole migration; a single bad component costs only that entity, as it
+// does in Home Assistant itself.
 //
 // The failure is deterministic (the catalogue is compiled in), so
 // discoverySent is left true and discoveryRepublisher does not spin on it.
@@ -1024,22 +1030,22 @@ func (c *Coordinator) buildBundle() {
 		c.discoverySent.Store(true)
 		return
 	}
-	if err := discovery.Validate(bundle); err != nil {
-		var verr *discovery.ValidationError
-		if errors.As(err, &verr) && !verr.Blocking() {
-			// Warnings are keys Home Assistant accepts and then rewrites.
-			// They are worth saying out loud and are not worth withholding
-			// a hundred entities over.
-			log.Warn("coordinator.discovery_bundle_warnings",
-				slog.String("node_id", bundle.NodeID),
-				slog.Any("warnings", verr.Warnings))
-		} else {
-			log.Error("coordinator.discovery_bundle_invalid",
-				slog.String("node_id", bundle.NodeID),
-				slog.String("err", err.Error()))
-			c.discoverySent.Store(true)
-			return
-		}
+	// Contain is what the publish path applies (publisher.Config.Contain);
+	// asking it here keeps the all-or-nothing decision before any retraction:
+	// a document with a document-level error, or with nothing left, is
+	// refused outright, while a bad component costs only itself.
+	contained := discovery.Contain(bundle, discovery.ContainOptions{})
+	if err := contained.Err(); err != nil {
+		log.Error("coordinator.discovery_bundle_invalid",
+			slog.String("node_id", bundle.NodeID),
+			slog.String("err", err.Error()))
+		c.discoverySent.Store(true)
+		return
+	}
+	for _, key := range slices.Sorted(maps.Keys(contained.Withheld)) {
+		log.Error("coordinator.discovery_component_withheld",
+			slog.String("node_id", bundle.NodeID),
+			slog.String("component", key))
 	}
 	c.haBundle = bundle
 	c.haBundleTopic = hass.BundleConfigTopic(c.ha().Prefix(), c.deps.HASS)
