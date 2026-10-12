@@ -183,10 +183,9 @@ MODBUS_FRAMER: nope
 	}
 }
 
-// Over Modbus TCP the whole byte is a legal unit id: some GEN3 espressif
-// gateways answer only 255 (issue #68), so the serial cap of 247 must not
-// refuse it — from YAML or from the add-on's MTEC_MODBUS_SLAVE. Beyond a
-// byte is still refused.
+// Over Modbus TCP the whole byte is a legal unit id (issue #68), so the
+// serial cap of 247 must not refuse 255 — from YAML or from the add-on's
+// MTEC_MODBUS_SLAVE. Beyond a byte is still refused.
 func TestModbusSlaveAcceptsTheWholeUnitIDByte(t *testing.T) {
 	c, err := Load(strings.NewReader(strings.Replace(minimumYAML, "MODBUS_SLAVE: 247", "MODBUS_SLAVE: 255", 1)), nil)
 	if err != nil {

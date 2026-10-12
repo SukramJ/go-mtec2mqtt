@@ -4,12 +4,11 @@
 
 ### Fixed
 
-- **Modbus unit ids above 247 are accepted.** Not every gateway answers
-  the 247 shown on the inverter display: 252 is the other common default,
-  and some GEN3 espressif gateways answer only 255, the Modbus-TCP "unit id
-  not significant" value. The daemon refused `MODBUS_SLAVE` above 247 (the
-  serial slave-id cap, which does not apply over TCP) and the add-on schema
-  stopped at 247 too; both now take the full 0–255 range (#68).
+- **Modbus unit ids above 247 are accepted.** The daemon refused
+  `MODBUS_SLAVE` above 247 (the serial slave-id cap, which does not apply
+  over Modbus TCP) and the add-on schema stopped at 247 too; both now take
+  the full 0–255 range (#68). 247 stays the default; if the gateway does
+  not answer on it, 252 is the other common default.
 
 # Version 2.1.0 (2026-10-12)
 

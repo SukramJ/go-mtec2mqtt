@@ -73,10 +73,10 @@ func Validate(c *Config) error {
 	// MODBUS_SLAVE needs no check: the field is a byte, so decoding
 	// already refuses anything outside 0..255, and every value in that
 	// range is a legal Modbus-TCP unit id. The serial slave-id cap of
-	// 247 does not apply over TCP — 255 (0xFF) is the spec's "unit id
-	// not significant" value, which some GEN3 espressif gateways answer
-	// instead of 247 (issue #68). 0 is "broadcast": allowed (the Python
-	// schema does too), though writes in broadcast mode are silent.
+	// 247 does not apply over TCP, where 255 (0xFF) is the spec's "unit
+	// id not significant" value (issue #68). 0 is "broadcast": allowed
+	// (the Python schema does too), though writes in broadcast mode are
+	// silent.
 	if c.ModbusTimeout < 1 || c.ModbusTimeout > 600 {
 		add("MODBUS_TIMEOUT must be 1..600 seconds, got %d", c.ModbusTimeout)
 	}
