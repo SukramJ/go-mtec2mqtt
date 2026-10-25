@@ -42,8 +42,10 @@ ADR 0083) rather than the Python daemon's layout.
   (errgroup), `gopkg.in/yaml.v3`, and `github.com/SukramJ/go-mqtt`
   (the shared MQTT client extracted from `openccu-loom`, MIT — MQTT 5.0
   by default, 3.1.1 selectable via `TCPConfig.ProtocolVersion`).
-  The Modbus MBAP codec remains hand-rolled in this repo (no
-  third-party protocol deps there).
+  The Modbus-TCP transport (MBAP codec + client) is the shared
+  `github.com/SukramJ/go-modbus` module (MIT, zero dependencies), also
+  used by go-keba2mqtt; `internal/modbus` keeps only the catalog-aware
+  `Reader` and type aliases for the transport.
 - **Config**: YAML (`config-template.yaml` is the annotated reference),
   overridable per-key via `MTEC_<KEY>` env vars. Loaded from
   `--config`, then `$XDG_CONFIG_HOME/aiomtec2mqtt/config.yaml` (or
@@ -56,7 +58,7 @@ cmd/mtec2mqtt/         daemon entry point (main.go)
 cmd/mtec-util/         interactive register CLI (list/read/write registers)
 internal/config/       YAML loader + MTEC_* env overlay + validation
 internal/registers/    register catalog loader, type-aware decoders, address clustering
-internal/modbus/       Modbus-TCP transport (own MBAP codec, no third-party deps)
+internal/modbus/       catalog-aware Reader over github.com/SukramJ/go-modbus (transport aliases in client.go)
 internal/hass/         Home Assistant discovery payload builder
 internal/coordinator/  orchestration: poll loops, pseudo-registers, write queue, virtual/equipment logic
 internal/state/        thread-safe live-value cache (Store) shared between coordinator writers and web readers
@@ -118,10 +120,10 @@ etc. — no special test runner beyond `go test`.
 - **Package layout mirrors the data flow**: config → registers → modbus
   → coordinator → mqtt/hass/web, each as its own `internal/` package
   with colocated `_test.go` files.
-- **Modbus wire correctness is cross-checked**: `internal/modbus`
-  ships byte-for-byte goldenfile vectors generated from `pymodbus 3.13`
-  (`internal/modbus/testdata/cross_check.py`) so the hand-rolled MBAP
-  codec is anchored to a reference implementation.
+- **Modbus wire correctness is cross-checked** in go-modbus: its
+  `protocol` package ships byte-for-byte goldenfile vectors generated
+  from `pymodbus 3.13` (`protocol/testdata/cross_check.py`). Reader tests
+  here run against `go-modbus/modbustest`.
 - **Dependency licensing is enforced by tooling**, not just policy —
   `make licenses` (`go-licenses check --disallowed_types=forbidden,
   restricted,reciprocal`) blocks GPL/AGPL/LGPL/MPL-style dependencies
