@@ -11,7 +11,9 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/SukramJ/go-mtec2mqtt/internal/modbus/protocol"
+	"github.com/SukramJ/go-modbus/modbustest"
+	"github.com/SukramJ/go-modbus/protocol"
+
 	"github.com/SukramJ/go-mtec2mqtt/internal/registers"
 )
 
@@ -116,7 +118,7 @@ func TestReadGroupHappyPathSingleAndSplitClusters(t *testing.T) {
 	// now_base has registers at 11000 (len 2), 11006 (len 1), 11100
 	// (len 1). 11000..11006 sit in one cluster (Count = 7); 11100 is
 	// 94 words away → its own cluster.
-	srv := newMockServer(t, func(req []byte) ([]byte, *protocol.ExceptionError) {
+	srv := modbustest.NewServer(t, func(req []byte) ([]byte, *protocol.ExceptionError) {
 		addr := binary.BigEndian.Uint16(req[1:3])
 		count := binary.BigEndian.Uint16(req[3:5])
 		switch addr {
@@ -127,12 +129,12 @@ func TestReadGroupHappyPathSingleAndSplitClusters(t *testing.T) {
 			vals := make([]uint16, 7)
 			vals[0], vals[1] = 0xFFFF, 0xFE0C // S32 -500
 			vals[6] = 2300                    // 230.0 V scaled
-			return cannedFC03(vals), nil
+			return modbustest.FC03(vals), nil
 		case 11100:
 			if count != 1 {
 				t.Errorf("second cluster count: got %d, want 1", count)
 			}
-			return cannedFC03([]uint16{2 /* on-grid */}), nil
+			return modbustest.FC03([]uint16{2 /* on-grid */}), nil
 		}
 		t.Errorf("unexpected read addr=%d count=%d", addr, count)
 		return nil, &protocol.ExceptionError{ExceptionCode: 2}
@@ -163,13 +165,13 @@ func TestReadGroupHappyPathSingleAndSplitClusters(t *testing.T) {
 
 func TestReadGroupPartialResultsOnClusterFailure(t *testing.T) {
 	catalog := buildCatalog(t)
-	srv := newMockServer(t, func(req []byte) ([]byte, *protocol.ExceptionError) {
+	srv := modbustest.NewServer(t, func(req []byte) ([]byte, *protocol.ExceptionError) {
 		addr := binary.BigEndian.Uint16(req[1:3])
 		switch addr {
 		case 11000:
 			vals := make([]uint16, 7)
 			vals[0], vals[1] = 0x0000, 0x0001 // grid_power = 1 W
-			return cannedFC03(vals), nil
+			return modbustest.FC03(vals), nil
 		case 11100:
 			return nil, &protocol.ExceptionError{
 				Function:      protocol.FCReadHoldingRegisters,
@@ -212,11 +214,11 @@ func TestReadGroupEmpty(t *testing.T) {
 
 func TestReadRegisterHappy(t *testing.T) {
 	catalog := buildCatalog(t)
-	srv := newMockServer(t, func(req []byte) ([]byte, *protocol.ExceptionError) {
+	srv := modbustest.NewServer(t, func(req []byte) ([]byte, *protocol.ExceptionError) {
 		if binary.BigEndian.Uint16(req[1:3]) != 52000 {
 			t.Errorf("wrong addr: %v", req)
 		}
-		return cannedFC03([]uint16{1}), nil
+		return modbustest.FC03([]uint16{1}), nil
 	})
 	c := newTestClient(t, srv.Port())
 	if err := c.Connect(context.Background()); err != nil {
@@ -236,11 +238,11 @@ func TestReadRegisterClampsNegativeLength(t *testing.T) {
 	// wire. Inject the bad length after load to bypass validation.
 	catalog := buildCatalog(t)
 	catalog.ByKey["52003"].Length = -1
-	srv := newMockServer(t, func(req []byte) ([]byte, *protocol.ExceptionError) {
+	srv := modbustest.NewServer(t, func(req []byte) ([]byte, *protocol.ExceptionError) {
 		if count := binary.BigEndian.Uint16(req[3:5]); count != 1 {
 			t.Errorf("negative length must clamp to count=1, got %d", count)
 		}
-		return cannedFC03([]uint16{5}), nil
+		return modbustest.FC03([]uint16{5}), nil
 	})
 	c := newTestClient(t, srv.Port())
 	if err := c.Connect(context.Background()); err != nil {
@@ -274,12 +276,12 @@ func TestReadRegisterUnknownKey(t *testing.T) {
 func TestWriteRegisterValueItemsReverseLookup(t *testing.T) {
 	catalog := buildCatalog(t)
 	var captured atomic.Uint32
-	srv := newMockServer(t, func(req []byte) ([]byte, *protocol.ExceptionError) {
+	srv := modbustest.NewServer(t, func(req []byte) ([]byte, *protocol.ExceptionError) {
 		addr := binary.BigEndian.Uint16(req[1:3])
 		val := binary.BigEndian.Uint16(req[3:5])
 		captured.Store(uint32(val))
 		// FC06 echoes the request body.
-		return cannedFC06(addr, val), nil
+		return modbustest.FC06(addr, val), nil
 	})
 	c := newTestClient(t, srv.Port())
 	if err := c.Connect(context.Background()); err != nil {
@@ -298,11 +300,11 @@ func TestWriteRegisterValueItemsReverseLookup(t *testing.T) {
 func TestWriteRegisterAppliesScale(t *testing.T) {
 	catalog := buildCatalog(t)
 	var captured atomic.Uint32
-	srv := newMockServer(t, func(req []byte) ([]byte, *protocol.ExceptionError) {
+	srv := modbustest.NewServer(t, func(req []byte) ([]byte, *protocol.ExceptionError) {
 		addr := binary.BigEndian.Uint16(req[1:3])
 		val := binary.BigEndian.Uint16(req[3:5])
 		captured.Store(uint32(val))
-		return cannedFC06(addr, val), nil
+		return modbustest.FC06(addr, val), nil
 	})
 	c := newTestClient(t, srv.Port())
 	if err := c.Connect(context.Background()); err != nil {
@@ -321,11 +323,11 @@ func TestWriteRegisterAppliesScale(t *testing.T) {
 func TestWriteRegisterTrimsPayload(t *testing.T) {
 	catalog := buildCatalog(t)
 	var captured atomic.Uint32
-	srv := newMockServer(t, func(req []byte) ([]byte, *protocol.ExceptionError) {
+	srv := modbustest.NewServer(t, func(req []byte) ([]byte, *protocol.ExceptionError) {
 		addr := binary.BigEndian.Uint16(req[1:3])
 		val := binary.BigEndian.Uint16(req[3:5])
 		captured.Store(uint32(val))
-		return cannedFC06(addr, val), nil
+		return modbustest.FC06(addr, val), nil
 	})
 	c := newTestClient(t, srv.Port())
 	if err := c.Connect(context.Background()); err != nil {
@@ -510,14 +512,14 @@ func TestDecodeClusterIntoCollectsPerRegisterErrors(t *testing.T) {
 
 func TestReadGroupConcurrentCallersSerialiseOnClient(t *testing.T) {
 	catalog := buildCatalog(t)
-	srv := newMockServer(t, func(req []byte) ([]byte, *protocol.ExceptionError) {
+	srv := modbustest.NewServer(t, func(req []byte) ([]byte, *protocol.ExceptionError) {
 		addr := binary.BigEndian.Uint16(req[1:3])
 		count := binary.BigEndian.Uint16(req[3:5])
 		vals := make([]uint16, count)
 		if addr == 11000 {
 			vals[0], vals[1] = 0x0000, 0x000A
 		}
-		return cannedFC03(vals), nil
+		return modbustest.FC03(vals), nil
 	})
 	c := newTestClient(t, srv.Port())
 	if err := c.Connect(context.Background()); err != nil {

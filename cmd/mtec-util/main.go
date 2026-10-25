@@ -24,9 +24,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/SukramJ/go-modbus/protocol"
+
 	"github.com/SukramJ/go-mtec2mqtt/internal/config"
 	"github.com/SukramJ/go-mtec2mqtt/internal/modbus"
-	"github.com/SukramJ/go-mtec2mqtt/internal/modbus/protocol"
 	"github.com/SukramJ/go-mtec2mqtt/internal/registers"
 	"github.com/SukramJ/go-mtec2mqtt/internal/version"
 )
