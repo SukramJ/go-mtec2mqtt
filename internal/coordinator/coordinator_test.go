@@ -46,6 +46,11 @@ type stubReader struct {
 	writeFailures int
 	writeErr      error
 	writeAttempts int
+	// regs answers ReadRegister by catalog key; afterWrite, when set, runs
+	// after every recorded write (under mu), so a test can make the write
+	// land in regs the way the inverter would.
+	regs       map[string]any
+	afterWrite func(key, value string)
 }
 
 type writeCall struct{ mqttKey, value string }
@@ -72,8 +77,10 @@ func (s *stubReader) ReadGroup(_ context.Context, g registers.Group) (map[string
 	return out, nil
 }
 
-func (s *stubReader) ReadRegister(_ context.Context, _ string) (any, error) {
-	return nil, nil
+func (s *stubReader) ReadRegister(_ context.Context, key string) (any, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.regs[key], nil
 }
 
 func (s *stubReader) WriteRegisterByMQTT(_ context.Context, key, value string) error {
@@ -85,6 +92,9 @@ func (s *stubReader) WriteRegisterByMQTT(_ context.Context, key, value string) e
 		return s.writeErr
 	}
 	s.writes = append(s.writes, writeCall{key, value})
+	if s.afterWrite != nil {
+		s.afterWrite(key, value)
+	}
 	return nil
 }
 
@@ -144,6 +154,11 @@ func wirePlanes(t *testing.T, deps *Deps, mqttStub *stubMQTT) {
 	// Config.LegacyEntityTopics at the composition root used to be caught
 	// by nothing, because the fixtures built a runtime that still had it.
 	haCfg := HARuntimeConfig(deps.Cfg, slog.New(slog.DiscardHandler))
+	// The one deviation: the stub broker replays its retained store inside
+	// Subscribe, so the SupersedeObserved snapshot needs no two-second
+	// window, and a boot test that runs for 200 ms would otherwise end
+	// before the document goes out.
+	haCfg.SweepWindow = testSweepWindow
 	// A factory, exactly as the composition root wires it: the runtime is
 	// rebuilt on every (re)connect so nothing it remembers — least of all
 	// which per-entity configs it has already retracted — can outlive the
@@ -170,6 +185,10 @@ func wirePlanes(t *testing.T, deps *Deps, mqttStub *stubMQTT) {
 		Logger:         slog.New(slog.DiscardHandler),
 	})
 }
+
+// testSweepWindow is the SupersedeObserved snapshot window of the test
+// runtimes; see wirePlanes.
+const testSweepWindow = 20 * time.Millisecond
 
 // stubMQTT captures publishes and subscribe handlers.
 type stubMQTT struct {
@@ -600,7 +619,7 @@ func TestRunProcessesEnumThroughInitFlow(t *testing.T) {
 
 func TestRunWithHASSPublishesDiscoveryRetained(t *testing.T) {
 	c, _, mqttStub, _ := buildDeps(t, true)
-	runFor(t, c, 200*time.Millisecond)
+	runFor(t, c, 500*time.Millisecond)
 
 	var retained []string
 	for _, p := range mqttStub.snapshotPublishes() {
@@ -775,7 +794,10 @@ func TestHASSBirthTriggersDiscoveryRepublish(t *testing.T) {
 			return n
 		}
 
-		// The initial discovery burst.
+		// The initial discovery burst, after the supersede snapshot window;
+		// the republisher starts with it, so its 5 s tick below counts from
+		// here.
+		time.Sleep(testSweepWindow)
 		synctest.Wait()
 		initial := countConfigs()
 		if initial == 0 {

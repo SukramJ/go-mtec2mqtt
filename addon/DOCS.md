@@ -19,11 +19,11 @@ Everything else has sensible defaults; use the reference below to fine-tune.
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `modbus_ip` | str | `0.0.0.0` | IP / hostname of the M-TEC "espressif" Modbus TCP gateway. **Required** — set this to your inverter's address. The add-on still starts with the placeholder (the web UI stays reachable) but shows the inverter as disconnected until a real address is entered. |
-| `modbus_port` | int | `502` | Modbus TCP port. `502` for firmware ≥ V27.52.4.0; older firmware needs `5743` (and `modbus_framer: rtu`). |
+| `modbus_port` | int | `502` | Modbus TCP port. `502` for firmware ≥ V27.52.4.0. |
 | `modbus_slave` | int | `247` | Modbus slave / unit id, 0–255 (usually no change required). If the gateway times out on 247, try `252`, the other common default. |
 | `modbus_timeout` | int | `5` | Modbus response timeout in seconds. |
-| `modbus_retries` | int | `3` | Modbus retry count per transaction. |
-| `modbus_framer` | list(ascii\|rtu\|socket\|tls) | `socket` | Modbus framer. `socket` for firmware ≥ V27.52.4.0; `rtu` for older firmware on port 5743. |
+| `modbus_retries` | int | — | **Deprecated, ignored**, removed in 3.0.0. |
+| `modbus_framer` | list | — | **Deprecated, ignored** (the add-on speaks Modbus TCP), removed in 3.0.0. |
 | `mqtt_server` | str | `""` | MQTT broker hostname. **Leave empty** to auto-use the Home Assistant MQTT broker (the configured MQTT integration / `core-mosquitto`). Set a value only to point at a different broker. |
 | `mqtt_port` | int | `1883` | MQTT broker port. Only used when `mqtt_server` is set; the auto-detected broker brings its own port. |
 | `mqtt_login` | str | `""` | MQTT username. Only used when `mqtt_server` is set (auto-detect supplies credentials). |
@@ -37,6 +37,8 @@ Everything else has sensible defaults; use the reference below to fine-tune.
 | `web_enable` | bool | `true` | Enable the diagnostic web UI (required for the Ingress panel). |
 | `charge_active_value` | int | `50` | Amperage written to the charge-limit register when the "Charge active" switch is first turned on (native register unit). |
 | `discharge_active_value` | int | `50` | Amperage written to the discharge-limit register when the "Discharge active" switch is first turned on. |
+| `evcc_enable` | bool | `false` | Publish the shared [evcc profile](https://github.com/SukramJ/go-mtec2mqtt/blob/main/docs/evcc.md): grid, PV and battery meters for evcc and its battery mode command. |
+| `evcc_batterymode_timeout` | int | `0` | Seconds after which a battery held or charging by evcc returns to normal unless evcc re-sends the mode; `0` = off. |
 | `debug` | bool | `false` | Verbose debug logging. |
 
 Fixed by the add-on (not user-configurable): the web UI binds to `0.0.0.0:8080`

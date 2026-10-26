@@ -32,6 +32,7 @@ import (
 func TestPublishDiscoveryReturnsPublishedSet(t *testing.T) {
 	c, _, mqttStub, _ := buildDeps(t, true)
 	initDiscovery(t, c)
+	retainLegacyConfigs(c, mqttStub)
 
 	published := c.publishDiscovery(context.Background())
 
@@ -140,6 +141,7 @@ func TestTheDocumentsOriginNamesThisBuild(t *testing.T) {
 func TestRetractionsPrecedeTheBundle(t *testing.T) {
 	c, _, mqttStub, _ := buildDeps(t, true)
 	initDiscovery(t, c)
+	retainLegacyConfigs(c, mqttStub)
 	c.publishDiscovery(context.Background())
 
 	const doc = "homeassistant/device/mtec-test-001/config"
@@ -221,6 +223,7 @@ func TestTheCrashWindowHealsOnTheNextBoot(t *testing.T) {
 	crashed, _, mqttStub, _ := buildDeps(t, true)
 	crashed.deps.Logger = slog.New(slog.DiscardHandler)
 	initDiscovery(t, crashed)
+	retainLegacyConfigs(crashed, mqttStub)
 
 	// The retractions land; the document does not.
 	mqttStub.setFailPublishTo("homeassistant/device/mtec-test-001/config", errInjected{})
@@ -250,6 +253,9 @@ func TestTheCrashWindowHealsOnTheNextBoot(t *testing.T) {
 	// that remembered the document would dedup it away.
 	fresh, _, freshStub, _ := buildDeps(t, true)
 	initDiscovery(t, fresh)
+	// The broker may have applied none of the QoS 0 retractions before the
+	// crash, so the next boot finds the per-entity configs still retained.
+	retainLegacyConfigs(fresh, freshStub)
 	fresh.publishDiscovery(context.Background())
 
 	var document, redone int
@@ -557,6 +563,9 @@ func TestReportOnlySweepOverTheRealFleet(t *testing.T) {
 
 	c, discovery, mqttStub, _ := realTopicCoordinator(t)
 	c.deps.Logger = slog.New(slog.DiscardHandler)
+	// The upgrade this sweep exists for starts from a broker that still
+	// retains the per-entity configs, and the supersede snapshot sees them.
+	retainLegacyConfigs(c, mqttStub)
 	published := c.publishDiscovery(context.Background())
 	const document = "homeassistant/device/mt1234567890/config"
 	if len(published) != 1 || !published[document] {
@@ -989,6 +998,7 @@ func TestAReconnectReSendsTheRetractionsBeforeTheDocument(t *testing.T) {
 	c, _, mqttStub, _ := buildDeps(t, true)
 	c.deps.Logger = slog.New(slog.DiscardHandler)
 	initDiscovery(t, c)
+	retainLegacyConfigs(c, mqttStub)
 
 	const doc = "homeassistant/device/mtec-test-001/config"
 	legacy := map[string]bool{}
@@ -1152,5 +1162,34 @@ func TestAnUnknownBrokerMaximumIsNotASmallOne(t *testing.T) {
 		if !sent {
 			t.Error("an unknown broker maximum withheld the document")
 		}
+	}
+}
+
+// retainLegacyConfigs puts the per-entity configs a release before 1.10
+// left on the broker into the stub's retained store. With
+// SupersedeObserved the runtime retracts only what its snapshot sees
+// there, so a test of the migration starts from the state it migrates.
+func retainLegacyConfigs(c *Coordinator, s *stubMQTT) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.retained == nil {
+		s.retained = map[string][]byte{}
+	}
+	for _, e := range c.deps.HASS.Entries() {
+		s.retained[e.ConfigTopic] = []byte(`{"name":"legacy"}`)
+	}
+}
+
+// TestNoRetractionsWithoutRetainedConfigs is what SupersedeObserved buys:
+// a broker that holds no per-entity config gets the document alone, not
+// an empty retraction per entity on every connect (each of which Home
+// Assistant logs as a conflicting discovery message).
+func TestNoRetractionsWithoutRetainedConfigs(t *testing.T) {
+	c, _, mqttStub, _ := buildDeps(t, true)
+	initDiscovery(t, c)
+	c.publishDiscovery(context.Background())
+	pubs := mqttStub.snapshotPublishes()
+	if len(pubs) != 1 || pubs[0].topic != "homeassistant/device/mtec-test-001/config" {
+		t.Fatalf("publishes %s, want the device document alone", summariseTopics(pubs))
 	}
 }

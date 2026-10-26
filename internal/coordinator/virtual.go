@@ -28,6 +28,9 @@ func (c *Coordinator) dispatchWrite(ctx context.Context, mqttKey, value string) 
 	if v, ok := c.virtualByKey[mqttKey]; ok {
 		return c.handleVirtualWrite(ctx, v, value)
 	}
+	if mqttKey == batteryModeWriteKey {
+		return c.applyBatteryMode(ctx, value)
+	}
 	return c.deps.Reader.WriteRegisterByMQTT(ctx, mqttKey, value)
 }
 

@@ -219,6 +219,15 @@ func HARuntimeConfig(cfg *config.Config, logger *slog.Logger) publisher.Config {
 		// 100 of this fleet's retained configs are on the four-segment
 		// form and the default matches 0.
 		LegacyEntityTopics: hass.LegacyConfigTopicForms(),
+		// Retract a superseded per-entity config only where the broker
+		// still retains one. The blind round re-sent all 100 empty
+		// retractions on every connect, long after the migration had
+		// completed, and Home Assistant logged each one that reached an
+		// entity the device document owns as "Received a conflicting MQTT
+		// discovery message". The snapshot window delays the first document
+		// of a connection by the sweep window; a topic the broker cannot
+		// show in time is retracted as before.
+		SupersedeObserved: true,
 		// Home Assistant refuses a device document whole only over its
 		// device/origin blocks and a component's platform/unique_id; any
 		// other bad component costs that one entity. Containment withholds
@@ -359,6 +368,9 @@ type Coordinator struct {
 	// legacySweepGate runs the start-up sweep of the pre-2.0 topic layout
 	// at most once per process.
 	legacySweepGate sync.Once
+
+	// evcc is the battery mode commanded through the evcc profile.
+	evcc evccState
 }
 
 // writeReq is one HA → device command pending dispatch.
@@ -532,6 +544,7 @@ func (c *Coordinator) Run(ctx context.Context) error {
 	}
 	// The inverter's online item, now that its topic is known.
 	c.updateUpstream(ctx)
+	c.publishBatteryMode(ctx)
 	// Clear what the pre-2.0 topic layout left retained for this serial.
 	c.sweepLegacyTopics(ctx)
 
@@ -557,6 +570,9 @@ func (c *Coordinator) Run(ctx context.Context) error {
 	c.spawnPolls(runCtx, g)
 	g.Go(func() error { return c.writeWorker(runCtx) })
 	g.Go(func() error { return c.modbusWatchdog(runCtx) })
+	if c.deps.Cfg.EVCCEnable && c.deps.Cfg.EVCCBatteryModeTimeout > 0 {
+		g.Go(func() error { return c.evccWatchdog(runCtx) })
+	}
 	if c.deps.HASS != nil {
 		g.Go(func() error { return c.discoveryRepublisher(runCtx) })
 	}
@@ -625,6 +641,14 @@ func (c *Coordinator) installInboundHandler(ctx context.Context) error {
 		// condition, so it is not retried.
 		return fmt.Errorf("coordinator: route %s: %w", filter, err)
 	}
+	// The evcc profile's commands, one level deeper than the register
+	// commands, so the two routes cannot overlap.
+	if c.deps.Cfg.EVCCEnable {
+		evccFilter := hass.EVCCCommandFilter(c.deps.Cfg.MQTTTopic)
+		if err := c.commands.HandleSet(evccFilter, c.onEVCCSet); err != nil {
+			return fmt.Errorf("coordinator: route %s: %w", evccFilter, err)
+		}
+	}
 	// `<name>/maintenance/set/#` on the same router, so the maintenance
 	// commands share its QoS, its retained drop and its worker. Registers
 	// nothing when MQTT_MAINTENANCE is off.
@@ -673,6 +697,7 @@ func (c *Coordinator) checkCommandDisjoint() error {
 	for _, v := range c.deps.Virtual {
 		topics = append(topics, hass.StateTopic(c.deps.Cfg.MQTTTopic, serial, v.Group, v.Key))
 	}
+	topics = append(topics, c.evccStatusTopics(topicParts{root: root, serial: serial})...)
 	if err := c.commands.CheckDisjoint(topics...); err != nil {
 		return fmt.Errorf("coordinator: command routes are not disjoint from what this daemon publishes: %w", err)
 	}

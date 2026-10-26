@@ -151,13 +151,39 @@ type Config struct {
 	ChargeActiveValue    int `yaml:"CHARGE_ACTIVE_VALUE"`
 	DischargeActiveValue int `yaml:"DISCHARGE_ACTIVE_VALUE"`
 
+	// --- evcc ---
+	// EVCCEnable publishes the shared evcc profile (`<name>/status/<serial>/
+	// evcc/<role>/<key>`: grid, PV and battery meters with evcc's signs) and
+	// routes its battery mode command. Off by default; off publishes
+	// nothing extra.
+	EVCCEnable bool `yaml:"EVCC_ENABLE"`
+	// EVCCBatteryModeTimeout returns the battery to normal when a hold or
+	// charge mode has not been re-sent for this many seconds, so an evcc
+	// that stopped never leaves the battery locked. 0 (default) is off.
+	EVCCBatteryModeTimeout int `yaml:"EVCC_BATTERYMODE_TIMEOUT"`
+
 	// --- Misc ---
 	Debug bool `yaml:"DEBUG"`
 
 	// goFloatVerb caches the translated [MQTTFloatFormat], populated
 	// in Validate. Never set by callers; ignored by yaml.v3.
 	goFloatVerb string `yaml:"-"`
+
+	// deprecated lists the [deprecatedKeys] the file or the environment
+	// set, populated in Load. See [Config.Deprecated].
+	deprecated []string `yaml:"-"`
 }
+
+// deprecatedKeys are accepted until 3.0.0 and removed then.
+// MODBUS_FRAMER and MODBUS_RETRIES are validated but never read: the
+// Modbus client speaks Modbus TCP and does not retry a transaction.
+// MQTT_FLOAT_FORMAT is a Python format spec of which only the precision
+// still matters since values are JSON numbers.
+var deprecatedKeys = []string{"MODBUS_FRAMER", "MODBUS_RETRIES", "MQTT_FLOAT_FORMAT"}
+
+// Deprecated returns the deprecated keys this configuration sets, so the
+// daemon can warn about them before 3.0.0 removes them.
+func (c *Config) Deprecated() []string { return c.deprecated }
 
 // mqttDefaultPlainPort / mqttDefaultTLSPort are the IANA-registered
 // default ports for plain and TLS MQTT, mirrored by [Config.MQTTBrokerURL]
@@ -196,6 +222,12 @@ func (c *Config) ModbusTimeoutDuration() time.Duration {
 // HASSBirthGracetimeDuration returns HASSBirthGracetime as a time.Duration.
 func (c *Config) HASSBirthGracetimeDuration() time.Duration {
 	return time.Duration(c.HASSBirthGracetime) * time.Second
+}
+
+// EVCCBatteryModeTimeoutDuration returns EVCCBatteryModeTimeout as a
+// time.Duration; 0 means off.
+func (c *Config) EVCCBatteryModeTimeoutDuration() time.Duration {
+	return time.Duration(c.EVCCBatteryModeTimeout) * time.Second
 }
 
 // RefreshNowDuration etc. — semantic helpers so callers do not litter

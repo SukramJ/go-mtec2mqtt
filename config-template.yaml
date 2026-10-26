@@ -3,8 +3,8 @@ MODBUS_IP: 0.0.0.0 # IP address / hostname of "espressif" modbus server
 MODBUS_PORT: 502 # Port (usually no change required)
 MODBUS_SLAVE: 247 # Modbus slave / unit id (usually no change required; the other common default is 252)
 MODBUS_TIMEOUT: 5 # Timeout for Modbus server (s)
-MODBUS_RETRIES: 3 # Retries
-MODBUS_FRAMER: socket # Modbus Framer (usually no change required; options: 'ascii', 'rtu', 'socket', 'tls')
+# MODBUS_RETRIES and MODBUS_FRAMER are deprecated: never read, accepted with
+# a warning until 3.0.0. Remove them from your config.
 
 # MQTT settings
 # Credentials can also be provided via the MTEC_MQTT_LOGIN /
@@ -16,7 +16,7 @@ MQTT_PASSWORD: "" # MQTT Password (override: env MTEC_MQTT_PASSWORD)
 MQTT_TOPIC: mtec # Instance name, the first level of every topic (default: mtec).
 #                  The ONLY thing that keeps two instances on one broker apart:
 #                  two instances of this bridge (two inverters) need two names.
-MQTT_FLOAT_FORMAT: "{:.3f}" # Rounding precision of published floats (values are JSON numbers)
+# MQTT_FLOAT_FORMAT: "{:.3f}" # Deprecated (removed in 3.0.0): rounding precision of published floats
 # MQTT_MAINTENANCE: true     # mqtt-smarthome maintenance topics: <name>/maintenance/set/loglevel,
 #                            # .../set/restart and <name>/maintenance/stats. Anyone who may publish
 #                            # on the broker can use them; secure the broker with ACLs or set false.
@@ -97,3 +97,9 @@ DISCHARGE_ACTIVE_VALUE: 50
 
 # General
 DEBUG: false # Set to True to get verbose debug messages
+
+# evcc (https://evcc.io): the shared evcc profile — grid, PV and battery
+# meters with evcc's signs and the battery mode command. See docs/evcc.md.
+# EVCC_ENABLE: false            # override: env MTEC_EVCC_ENABLE
+# EVCC_BATTERYMODE_TIMEOUT: 0   # s; return the battery to normal when hold/charge
+#                               # is not re-sent for this long (0 = off)

@@ -437,6 +437,7 @@ func TestPublishQoSAndRetain(t *testing.T) {
 	stub.mu.Lock()
 	stub.publishes = nil
 	stub.mu.Unlock()
+	retainLegacyConfigs(c, stub)
 	c.publishDiscovery(context.Background())
 	discoveryPubs := stub.snapshotPublishes()
 	if len(discoveryPubs) != 101 {

@@ -59,13 +59,15 @@ cmd/mtec-util/         interactive register CLI (list/read/write registers)
 internal/config/       YAML loader + MTEC_* env overlay + validation
 internal/registers/    register catalog loader, type-aware decoders, address clustering
 internal/modbus/       catalog-aware Reader over github.com/SukramJ/go-modbus (transport aliases in client.go)
-internal/hass/         Home Assistant discovery payload builder
+internal/hass/         Home Assistant discovery payload builder + topic functions
+internal/evcc/         the shared evcc profile: Derive (grid/pv/battery, evcc signs), battery modes, docs contract test
 internal/coordinator/  orchestration: poll loops, pseudo-registers, write queue, virtual/equipment logic
 internal/state/        thread-safe live-value cache (Store) shared between coordinator writers and web readers
 internal/web/          optional diagnostic web UI / HA add-on Ingress panel (embedded static assets, no build step)
 internal/version/      build-info package (Version/Commit/BuildDate, set via ldflags)
 addon/                 Home Assistant add-on packaging (Dockerfile, config.yaml, DOCS.md)
 script/                install.sh (curl|bash installer), run.sh, extract-release-notes.sh
+docs/evcc.md            evcc integration incl. the evcc.yaml snippet (checked by internal/evcc/docs_test.go)
 registers.yaml          register catalog (operator-editable, not embedded — copied alongside the binary)
 config-template.yaml     annotated reference config
 .github/workflows/       ci.yml (lint/test/build), docker-build-push.yml, addon-image.yml, release-on-tag.yml, codeql.yml, dependabot-auto-merge.yml
@@ -102,6 +104,10 @@ Run a single package's tests directly with `go test ./internal/registers/...`
 etc. — no special test runner beyond `go test`.
 
 ## Code Conventions Observed
+
+- **The evcc profile is shared** with go-keba2mqtt and go-zendure2mqtt
+  (`internal/evcc`, `docs/evcc.md`). Change its keys, units, signs or
+  battery-mode semantics only in all three projects together.
 
 - **License header** on every `.go` file: `SPDX-License-Identifier:
   LGPL-3.0-or-later` + `Copyright (C) 2026 SukramJ`.
