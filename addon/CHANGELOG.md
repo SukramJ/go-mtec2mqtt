@@ -1,3 +1,21 @@
+# Version 3.2.0 (2026-10-26)
+
+## What's Changed
+
+### Changed
+- **The web UI comes from go-bridgeui.** The dashboard is now the shared
+  [go-bridgeui](https://github.com/SukramJ/go-bridgeui) module (v0.1.0),
+  the same one go-keba2mqtt and go-zendure2mqtt embed. It looks and works
+  as before. Two things are new: the browser loads the new UI after an
+  update (content-hash ETag), and an empty evcc section and its menu entry
+  stay hidden.
+- **API.** `/api/registers` is replaced by `/api/items` (the writable
+  items with their controls); `/api/health`, `/api/status`, `/api/snapshot`
+  and `/api/config` now have go-bridgeui's shape, and `/api/ui` is new.
+  `POST /api/write` still takes `{"key","value"}`. An unknown key now
+  answers 400 instead of 404.
+- MQTT and Home Assistant are unchanged.
+
 # Version 3.1.0 (2026-10-26)
 
 ## What's Changed

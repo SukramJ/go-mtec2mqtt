@@ -5,276 +5,265 @@ package web
 
 import (
 	"context"
-	"crypto/subtle"
 	"embed"
 	"errors"
 	"fmt"
-	"io/fs"
 	"log/slog"
-	"mime"
-	"net"
-	"net/http"
-	"net/url"
+	"slices"
+	"strconv"
+	"strings"
 	"time"
+
+	"github.com/SukramJ/go-bridgeui"
+
+	"github.com/SukramJ/go-mtec2mqtt/internal/modbus"
+	"github.com/SukramJ/go-mtec2mqtt/internal/state"
 )
 
-// staticFS holds the compiled single-page app. It is hand-written
-// vanilla HTML/CSS/JS (no build step) so the asset tree is committed
-// as-is and embedded verbatim.
+// i18nFS holds this bridge's labels — sections, groups, status and
+// configuration tiles — merged over go-bridgeui's built-in bundles.
 //
-// Home-Assistant ingress: HA serves the add-on UI behind a path prefix
-// (…/api/hassio_ingress/<token>/). All asset and API URLs in the SPA are
-// kept relative (no leading slash) so the page works both when reached
-// directly and behind that prefix — no server-side rewriting needed.
-//
-//go:embed static
-var staticFS embed.FS
+//go:embed i18n
+var i18nFS embed.FS
 
 // Config parameterises the web server.
 type Config struct {
 	// Bind is the listen address "host:port".
 	Bind string
-	// User / Password enable HTTP Basic auth when both are non-empty.
+	// User / Password enable HTTP Basic auth when either is non-empty.
 	User     string
 	Password string
+	// Language is LANGUAGE: "de" or English.
+	Language string
 	// Logger is optional; nil → slog.Default().
 	Logger *slog.Logger
 }
 
-// Server is the embedded dashboard HTTP server.
-type Server struct {
-	cfg     Config
-	backend Backend
-	log     *slog.Logger
-	handler http.Handler
+// layout is the M-TEC page: the live groups, the day/total counters, and
+// the evcc profile while it is on; configuration and device info under
+// System.
+var layout = bridgeui.Layout{
+	Brand:   "mtec2mqtt",
+	Product: "M-TEC Energybutler",
+	Icon:    "⚡",
+	Sections: []bridgeui.Section{
+		{ID: "live", Title: "section.live", Nav: "nav.live", Groups: []string{
+			"now_base", "now_grid", "now_inverter", "now_backup", "now_battery", "now_pv",
+		}},
+		{ID: "energy", Title: "section.energy", Nav: "nav.energy", Groups: []string{"day", "total"}},
+		{ID: "evcc", Title: "section.evcc", Nav: "nav.evcc", Groups: []string{"evcc"}, Optional: true},
+	},
+	SystemGroups: []string{"config", "static"},
 }
 
-// New builds a Server. It does not bind a socket — call [Server.Run].
-func New(cfg Config, backend Backend) *Server {
-	log := cfg.Logger
-	if log == nil {
-		log = slog.Default()
-	}
-	s := &Server{cfg: cfg, backend: backend, log: log}
-	s.handler = s.withSecurityHeaders(s.withAuth(s.withWriteDeadline(s.routes())))
-	return s
-}
-
-// routes wires the REST API and the embedded SPA onto a ServeMux.
-func (s *Server) routes() *http.ServeMux {
-	mux := http.NewServeMux()
-
-	mux.HandleFunc("GET /api/health", s.handleHealth)
-	mux.HandleFunc("GET /api/status", s.handleStatus)
-	mux.HandleFunc("GET /api/registers", s.handleRegisters)
-	mux.HandleFunc("GET /api/config", s.handleConfig)
-	// POST /api/write mutates the inverter, so it alone gets the extra
-	// same-origin/Content-Type guard — the GET endpoints below are
-	// read-only and pose no CSRF risk.
-	mux.Handle("POST /api/write", s.requireSameOriginJSON(http.HandlerFunc(s.handleWrite)))
-	mux.HandleFunc("GET /api/events", s.handleEvents)
-
-	// The SPA: index.html + app.css + app.js. http.FileServerFS serves
-	// "/" as index.html and 404s unknown paths — there is no client-side
-	// routing to fall back for, so the default behaviour is exactly right.
-	sub, err := fs.Sub(staticFS, "static")
+// New builds the dashboard over backend. It does not bind a socket — call
+// Run on the result.
+func New(cfg Config, backend Backend) *bridgeui.Server {
+	tr, err := bridgeui.LoadTranslations(i18nFS, "i18n")
 	if err != nil {
-		// Embedded path is a compile-time constant; this cannot fail in a
-		// correctly built binary.
-		panic("web: embed sub fs: " + err.Error())
+		// The bundles are embedded and covered by a test.
+		panic("web: " + err.Error())
 	}
-	mux.Handle("GET /", http.FileServerFS(sub))
-
-	return mux
+	return bridgeui.New(bridgeui.Options{
+		Bind:         cfg.Bind,
+		User:         cfg.User,
+		Password:     cfg.Password,
+		Realm:        "mtec2mqtt",
+		Logger:       cfg.Logger,
+		Language:     cfg.Language,
+		Layout:       layout,
+		Translations: tr,
+	}, &adapter{b: backend})
 }
 
-// withAuth wraps next with HTTP Basic auth when credentials are
-// configured. With no credentials it returns next unchanged so there is
-// zero per-request overhead on an unauthenticated deployment.
-func (s *Server) withAuth(next http.Handler) http.Handler {
-	if s.cfg.User == "" && s.cfg.Password == "" {
-		return next
-	}
-	wantUser := []byte(s.cfg.User)
-	wantPass := []byte(s.cfg.Password)
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		user, pass, ok := r.BasicAuth()
-		// Constant-time compares so a timing side-channel can't probe the
-		// credentials. Both fields must match.
-		userOK := subtle.ConstantTimeCompare([]byte(user), wantUser) == 1
-		passOK := subtle.ConstantTimeCompare([]byte(pass), wantPass) == 1
-		if !ok || !userOK || !passOK {
-			w.Header().Set("WWW-Authenticate", `Basic realm="mtec2mqtt", charset="UTF-8"`)
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
+// adapter presents the coordinator's state as go-bridgeui's contract: one
+// device, the inverter.
+type adapter struct {
+	b Backend
 }
 
-// requireSameOriginJSON guards state-changing requests (currently only
-// POST /api/write) against cross-site submissions. A cross-site
-// <form>/fetch POST that skips CORS preflight can only ever carry a
-// "simple" Content-Type (e.g. text/plain) — never application/json —
-// and the browser attaches Basic-Auth credentials automatically, so
-// without this guard a foreign page could trigger a register write.
-// Two independent checks close that gap; both are scoped to this one
-// handler so the read-only GET endpoints stay overhead-free.
-func (s *Server) requireSameOriginJSON(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-		if err != nil || mediaType != "application/json" {
-			s.writeError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
-			return
-		}
+// deviceID names the inverter in the UI until its serial is known.
+const deviceID = "inverter"
 
-		// Sec-Fetch-Site is sent by modern browsers and is not
-		// spoofable from script; when present it is the most reliable
-		// signal. "same-origin" and "none" (browser-initiated, e.g. a
-		// bookmarklet or address-bar navigation) are fine.
-		site := r.Header.Get("Sec-Fetch-Site")
-		if site != "" && site != "same-origin" && site != "none" {
-			s.writeError(w, http.StatusForbidden, "cross-site request rejected")
-			return
-		}
+// registers indexes the catalog by the key snapshot values carry: the MQTT
+// suffix, or the name for a register without one.
+func (a *adapter) registers() map[string]state.RegisterInfo {
+	regs := a.b.Registers()
+	out := make(map[string]state.RegisterInfo, len(regs))
+	for i := range regs {
+		out[outputKey(&regs[i])] = regs[i]
+	}
+	return out
+}
 
-		// Origin is absent for many legitimate same-origin requests
-		// (older browsers, curl, some proxies) — only reject when it is
-		// present AND disagrees with the request's own Host. This also
-		// covers the Home Assistant Ingress case: the SPA only ever
-		// issues relative fetches, so under Ingress the browser's
-		// Origin (if sent at all) is the same host the request arrives
-		// on; X-Forwarded-Host is accepted as an alternative match for
-		// setups where a reverse proxy rewrites the Host header but
-		// preserves the original in X-Forwarded-Host. That header can't
-		// be forged by the very cross-site requests this guard defends
-		// against — setting a custom header forces a CORS preflight,
-		// which the browser blocks here since no
-		// Access-Control-Allow-Origin is ever returned.
-		//
-		// Sec-Fetch-Site: same-origin is a stronger, browser-guaranteed
-		// signal than the Origin/Host comparison below, so when it is
-		// present this comparison is skipped entirely. That matters
-		// behind the Home Assistant Ingress supervisor proxy, which may
-		// not set X-Forwarded-Host (or may set it to something that
-		// doesn't match the browser's Origin) — without this bypass a
-		// legitimate same-origin request would 403 in that setup.
-		if site != "same-origin" {
-			if origin := r.Header.Get("Origin"); origin != "" {
-				originURL, err := url.Parse(origin)
-				if err != nil || (originURL.Host != r.Host && originURL.Host != r.Header.Get("X-Forwarded-Host")) {
-					s.writeError(w, http.StatusForbidden, "cross-origin request rejected")
-					return
-				}
+func outputKey(r *state.RegisterInfo) string {
+	if r.MQTT != "" {
+		return r.MQTT
+	}
+	return r.Name
+}
+
+func (a *adapter) Snapshot() bridgeui.Snapshot {
+	snap := a.b.Snapshot()
+	regs := a.registers()
+	dev := bridgeui.Device{
+		ID:             firstNonEmpty(snap.Serial, deviceID),
+		Title:          "M-TEC Inverter",
+		Subtitle:       subtitle(snap.Serial, snap.Firmware),
+		GroupUpdatedAt: make(map[string]time.Time, len(snap.Groups)),
+		Entries:        []bridgeui.Entry{},
+	}
+	if snap.Equipment != "" {
+		dev.Title = "M-TEC " + snap.Equipment
+	}
+	for group, view := range snap.Groups {
+		dev.GroupUpdatedAt[group] = view.UpdatedAt
+		if view.UpdatedAt.After(dev.UpdatedAt) {
+			dev.UpdatedAt = view.UpdatedAt
+		}
+		for key, value := range view.Values {
+			reg := regs[key]
+			dev.Entries = append(dev.Entries, bridgeui.Entry{
+				Group: group, Key: key, Name: reg.Name, Unit: reg.Unit, Value: value, Tone: valueTone(value, reg),
+			})
+		}
+	}
+	return bridgeui.Snapshot{Devices: []bridgeui.Device{dev}}
+}
+
+// valueTone colours the inverter's status enums: "OK" green, any other
+// known state amber.
+func valueTone(value any, reg state.RegisterInfo) string {
+	s, ok := value.(string)
+	switch {
+	case !ok:
+		return ""
+	case s == "OK":
+		return "ok"
+	case len(reg.ValueItems) > 0 && s != "Unknown":
+		return "warn"
+	}
+	return ""
+}
+
+func (a *adapter) Health() bridgeui.Health {
+	h := a.b.Health()
+	modbusTile := bridgeui.Tile{Label: "health.modbus", Text: "val.disconnected", Tone: "err", Sub: h.ModbusAddr}
+	if h.ModbusConnected {
+		modbusTile.Text, modbusTile.Tone = "val.connected", "ok"
+	}
+	hass := bridgeui.Tile{Label: "health.hass", Text: "val.off"}
+	if h.HASSEnabled {
+		hass.Text, hass.Tone = "val.active", "ok"
+	}
+	return bridgeui.Health{
+		Status:    h.Status,
+		Version:   h.Version,
+		StartedAt: h.StartedAt,
+		Tiles: []bridgeui.Tile{
+			modbusTile,
+			{Label: "health.mqtt", Value: firstNonEmpty(h.MQTTServer, "—")},
+			{Label: "health.topic", Value: firstNonEmpty(h.MQTTTopic, "—")},
+			hass,
+			{Label: "health.serial", Value: firstNonEmpty(h.Serial, "—")},
+			{Label: "health.firmware", Value: firstNonEmpty(h.Firmware, "—")},
+		},
+	}
+}
+
+func (a *adapter) Config() []bridgeui.Tile {
+	c := a.b.Config()
+	seconds := func(label string, s int) bridgeui.Tile {
+		return bridgeui.Tile{Label: label, Value: strconv.Itoa(s) + " s"}
+	}
+	onOff := func(label string, on bool, text string) bridgeui.Tile {
+		if on {
+			return bridgeui.Tile{Label: label, Text: text}
+		}
+		return bridgeui.Tile{Label: label, Text: "val.off"}
+	}
+	hass := onOff("cfg.hass", c.HASSEnable, "val.active")
+	hass.Sub = c.HASSBaseTopic
+	return []bridgeui.Tile{
+		{Label: "cfg.modbus", Value: c.ModbusIP + ":" + strconv.Itoa(c.ModbusPort), Sub: "Slave " + strconv.Itoa(c.ModbusSlave)},
+		{Label: "cfg.mqtt", Value: c.MQTTServer + ":" + strconv.Itoa(c.MQTTPort), Sub: c.MQTTTopic},
+		hass,
+		seconds("cfg.refresh_now", c.RefreshNow),
+		seconds("cfg.refresh_config", c.RefreshConfig),
+		seconds("cfg.refresh_day", c.RefreshDay),
+		seconds("cfg.refresh_total", c.RefreshTotal),
+		seconds("cfg.refresh_static", c.RefreshStatic),
+		onOff("cfg.evcc", c.EVCCEnable, "val.active"),
+		onOff("cfg.debug", c.Debug, "val.on"),
+	}
+}
+
+// Items lists the writable registers and the virtual switches. A select
+// writes its label: the write path maps it back to the code.
+func (a *adapter) Items() []bridgeui.Item {
+	var out []bridgeui.Item
+	regs := a.b.Registers()
+	for i := range regs {
+		r := &regs[i]
+		if !r.Writable {
+			continue
+		}
+		it := bridgeui.Item{Key: outputKey(r), Name: r.Name, Unit: r.Unit, Component: r.Component}
+		if len(r.ValueItems) > 0 {
+			it.Component = "select"
+			codes := make([]int, 0, len(r.ValueItems))
+			for code := range r.ValueItems {
+				codes = append(codes, code)
 			}
+			slices.Sort(codes)
+			for _, code := range codes {
+				label := r.ValueItems[code]
+				it.Options = append(it.Options, bridgeui.Option{Value: label, Label: label})
+			}
+		} else if it.Component != "switch" {
+			it.Component = "number"
 		}
-
-		next.ServeHTTP(w, r)
-	})
-}
-
-// withSecurityHeaders sets a small set of hardening headers on every
-// response. Home Assistant serves this UI embedded in an iframe via
-// Ingress, so — unlike a typical hardened CSP — this deliberately does
-// NOT set X-Frame-Options or a frame-ancestors directive; either would
-// break that embedding.
-func (s *Server) withSecurityHeaders(next http.Handler) http.Handler {
-	const csp = "default-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'self'"
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		h := w.Header()
-		h.Set("X-Content-Type-Options", "nosniff")
-		h.Set("Referrer-Policy", "no-referrer")
-		h.Set("Content-Security-Policy", csp)
-		next.ServeHTTP(w, r)
-	})
-}
-
-// writeDeadline bounds how long the response write for a normal
-// (non-streaming) request may take, measured from the moment the request
-// enters withWriteDeadline. Without it, a client that stops reading mid
-// -response (a "slow-read" client) blocks the handler's write call
-// indefinitely — the server has no WriteTimeout (that would kill the SSE
-// stream, see [Server.Run]) — pinning the handler goroutine and its file
-// descriptor forever. A var, not a const, so tests can shorten it.
-var writeDeadline = 30 * time.Second
-
-// withWriteDeadline sets a per-request response write deadline via
-// [http.ResponseController] on every route except the SSE stream
-// (/api/events), which manages its own per-frame deadlines instead (see
-// handleEvents / sseWriteTimeout) — a single request-scoped deadline
-// would be far too short for a stream that is meant to stay open.
-func (s *Server) withWriteDeadline(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/events" {
-			next.ServeHTTP(w, r)
-			return
-		}
-		// Best-effort: not every ResponseWriter supports write deadlines,
-		// and a failure to set one just means the pre-existing behaviour.
-		_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(writeDeadline))
-		next.ServeHTTP(w, r)
-	})
-}
-
-// Run binds the socket and serves until ctx is cancelled, then shuts
-// down gracefully. Returns nil on a clean shutdown; a bind failure
-// surfaces as a non-nil error so the daemon's errgroup tears everything
-// down (a misconfigured port should be loud, not silently ignored).
-func (s *Server) Run(ctx context.Context) error {
-	srv := &http.Server{
-		Addr:              s.cfg.Bind,
-		Handler:           s.handler,
-		ReadHeaderTimeout: 10 * time.Second,
-		// Reap idle keep-alive connections so abandoned clients cannot pin
-		// goroutines and file descriptors forever. This applies only
-		// between requests, so the long-lived SSE stream at /api/events is
-		// unaffected — which is also why ReadTimeout/WriteTimeout must stay
-		// unset (either would kill that stream). The write-endpoint body
-		// read is bounded per-request in handleWrite instead.
-		IdleTimeout: 120 * time.Second,
-		// Tie every request context to the run context so long-lived
-		// handlers (the SSE stream) observe shutdown. Without this,
-		// Shutdown below would always burn its full deadline while a
-		// dashboard tab is connected, since Shutdown waits for active
-		// handlers but never cancels their request contexts.
-		BaseContext: func(net.Listener) context.Context { return ctx },
+		out = append(out, it)
 	}
+	return out
+}
 
-	// Bind synchronously so a failure (port in use, permission denied, …)
-	// surfaces as a returned error before anything is logged as
-	// listening — logging "web.listening" ahead of a successful bind
-	// would claim readiness that was never achieved. A ListenConfig (vs.
-	// the package-level net.Listen) ties the bind syscall to ctx too.
-	var lc net.ListenConfig
-	ln, err := lc.Listen(ctx, "tcp", s.cfg.Bind)
-	if err != nil {
-		return fmt.Errorf("web: listen on %s: %w", s.cfg.Bind, err)
-	}
-
-	s.log.Info("web.listening",
-		slog.String("bind", s.cfg.Bind),
-		slog.Bool("auth", s.cfg.User != ""))
-
-	errc := make(chan error, 1)
-	go func() { errc <- srv.Serve(ln) }()
-
-	select {
-	case <-ctx.Done():
-		// ctx is cancelled here; derive a non-cancelled child so the graceful
-		// shutdown still gets its full deadline without breaking the chain.
-		shutCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer cancel()
-		if err := srv.Shutdown(shutCtx); err != nil {
-			// Deadline expired with connections still active — close them
-			// hard rather than abandoning them to process exit.
-			_ = srv.Close()
-		}
-		s.log.Info("web.stopped")
+// Write ignores the device — there is one — and classes the transport's
+// errors for go-bridgeui.
+func (a *adapter) Write(ctx context.Context, _, key, value string) error {
+	err := a.b.Write(ctx, key, value)
+	switch {
+	case err == nil:
 		return nil
-	case err := <-errc:
-		if errors.Is(err, http.ErrServerClosed) {
-			return nil
-		}
-		return err
+	case errors.Is(err, modbus.ErrUnknownRegister), errors.Is(err, modbus.ErrNotWritable):
+		return fmt.Errorf("%w: %w", bridgeui.ErrNotWritable, err)
+	case errors.Is(err, modbus.ErrValueParse), errors.Is(err, modbus.ErrPseudoUnsupported):
+		return fmt.Errorf("%w: %w", bridgeui.ErrInvalidValue, err)
+	case errors.Is(err, modbus.ErrNotConnected):
+		return fmt.Errorf("%w: %w", bridgeui.ErrNotReady, err)
 	}
+	return err
+}
+
+func (a *adapter) Changes() (events <-chan struct{}, cancel func()) { return a.b.Changes() }
+
+// subtitle is "SN … · FW …" for what is known.
+func subtitle(serial, firmware string) string {
+	var parts []string
+	if serial != "" {
+		parts = append(parts, "SN "+serial)
+	}
+	if firmware != "" {
+		parts = append(parts, "FW "+firmware)
+	}
+	return strings.Join(parts, "  ·  ")
+}
+
+func firstNonEmpty(s ...string) string {
+	for _, v := range s {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
