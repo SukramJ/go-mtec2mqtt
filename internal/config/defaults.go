@@ -22,14 +22,16 @@ const (
 	DefaultMQTTLogin    = ""
 	DefaultMQTTPassword = ""
 
-	// DefaultMQTTSSL / DefaultMQTTSSLInsecure keep existing plain-TCP
-	// deployments unchanged on upgrade: TLS is opt-in, and even with TLS
-	// enabled, certificate verification stays on unless explicitly
-	// disabled. Both already equal the bool zero value, so applyDefaults
-	// does not assign them — the constants exist to document the
-	// MQTT_SSL / MQTT_SSL_INSECURE yaml keys' documented defaults.
-	DefaultMQTTSSL         = false
-	DefaultMQTTSSLInsecure = false
+	// DefaultMQTTTLS / DefaultMQTTTLSInsecure / DefaultMQTTTLSCA keep
+	// existing plain-TCP deployments unchanged on upgrade: TLS is opt-in,
+	// and even with TLS enabled, certificate verification stays on (against
+	// the system roots) unless explicitly changed. All three already equal
+	// their zero value, so applyDefaults does not assign them — the
+	// constants exist to document the MQTT_TLS / MQTT_TLS_INSECURE /
+	// MQTT_TLS_CA yaml keys' documented defaults.
+	DefaultMQTTTLS         = false
+	DefaultMQTTTLSInsecure = false
+	DefaultMQTTTLSCA       = ""
 
 	DefaultHASSEnable         = false
 	DefaultHASSBaseTopic      = "homeassistant"
@@ -99,6 +101,15 @@ func rawHasKey(raw map[string]any, key string) bool {
 func applyDefaults(c *Config, raw map[string]any) {
 	if c.MQTTTopic == "" {
 		c.MQTTTopic = DefaultMQTTTopic
+	}
+	if !rawHasKey(raw, "MQTT_PORT") {
+		// The scheme's IANA port: 8883 with MQTT_TLS, 1883 without. Only
+		// when the key is absent — an explicit value, even a wrong one,
+		// is the operator's and goes to Validate.
+		c.MQTTPort = mqttDefaultPlainPort
+		if c.MQTTTLS {
+			c.MQTTPort = mqttDefaultTLSPort
+		}
 	}
 	if !rawHasKey(raw, "MQTT_MAINTENANCE") {
 		// false is the bool zero value and a legal setting, so presence

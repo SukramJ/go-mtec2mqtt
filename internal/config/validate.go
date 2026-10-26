@@ -77,6 +77,11 @@ func Validate(c *Config) error {
 	if _, err := topic.NewSmartHomeMultiLevel(c.MQTTTopic); err != nil {
 		add("MQTT_TOPIC %q: %v", c.MQTTTopic, err)
 	}
+	if c.MQTTTLSCA != "" && c.MQTTTLSInsecure {
+		// A CA to verify against and "do not verify" contradict each
+		// other; refusing beats guessing which one the operator meant.
+		add("MQTT_TLS_CA and MQTT_TLS_INSECURE are mutually exclusive: set MQTT_TLS_CA to verify the broker against your CA, or MQTT_TLS_INSECURE to skip verification, not both")
+	}
 	if c.MQTTStatsInterval < 0 || c.MQTTStatsInterval > 86400 {
 		add("MQTT_STATS_INTERVAL must be 0..86400 seconds, got %d", c.MQTTStatsInterval)
 	}

@@ -48,6 +48,30 @@ else
   export MTEC_MQTT_SERVER="core-mosquitto"
   export MTEC_MQTT_PORT="1883"
 fi
+
+# --- MQTT TLS ---
+# mqtt_tls switches to tls:// for an explicit mqtt_server; the auto-detected
+# Home Assistant MQTT service turns it on by itself when it reports ssl.
+# mqtt_tls_ca / mqtt_tls_insecure apply to either broker. A CA file belongs in
+# /ssl or /share (both mapped read-only). Setting both is refused by the
+# daemon's config validation, so it is not second-guessed here.
+if bashio::config.true 'mqtt_tls'; then
+  export MTEC_MQTT_TLS=true
+elif ! bashio::config.has_value 'mqtt_server' \
+  && bashio::services.available 'mqtt' \
+  && [[ "$(bashio::services 'mqtt' 'ssl')" == "true" ]]; then
+  bashio::log.info "The Home Assistant MQTT service reports TLS; connecting via tls://."
+  export MTEC_MQTT_TLS=true
+fi
+if bashio::config.true 'mqtt_tls_insecure'; then
+  bashio::log.warning "mqtt_tls_insecure is on: the broker certificate is NOT verified. Prefer mqtt_tls_ca."
+  export MTEC_MQTT_TLS_INSECURE=true
+fi
+if bashio::config.has_value 'mqtt_tls_ca'; then
+  MTEC_MQTT_TLS_CA="$(bashio::config 'mqtt_tls_ca')"
+  export MTEC_MQTT_TLS_CA
+fi
+
 MTEC_MQTT_TOPIC="$(bashio::config 'mqtt_topic')"
 export MTEC_MQTT_TOPIC
 
@@ -99,7 +123,7 @@ MTEC_WEB_ENABLE="$(bashio::config 'web_enable')"
 export MTEC_WEB_ENABLE
 export MTEC_WEB_BIND="0.0.0.0:8080"
 
-bashio::log.info "Configuration prepared; MQTT server: ${MTEC_MQTT_SERVER}:${MTEC_MQTT_PORT}, Modbus: ${MTEC_MODBUS_IP}:${MTEC_MODBUS_PORT}"
+bashio::log.info "Configuration prepared; MQTT server: ${MTEC_MQTT_SERVER}:${MTEC_MQTT_PORT} (TLS: ${MTEC_MQTT_TLS:-false}), Modbus: ${MTEC_MODBUS_IP}:${MTEC_MODBUS_PORT}"
 bashio::log.info "Web UI bound to ${MTEC_WEB_BIND} (served via Ingress)."
 
 # Hand off to the daemon (becomes PID 1). registers.yaml sits in the WORKDIR

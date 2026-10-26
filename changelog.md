@@ -1,3 +1,30 @@
+# Unreleased
+
+## What's Changed
+
+### Breaking
+- **`MQTT_SSL` / `MQTT_SSL_INSECURE` are renamed to `MQTT_TLS` /
+  `MQTT_TLS_INSECURE`.** Migration: rename the keys (env
+  `MTEC_MQTT_SSL*` → `MTEC_MQTT_TLS*`). A configuration that still sets
+  an old key — in the file or the environment, even set to `false` — is
+  refused at start with `MQTT_SSL was renamed to MQTT_TLS`, because a
+  silently ignored `MQTT_SSL: true` would fall back to plain TCP.
+
+### Added
+- **Private CA for the broker: `MQTT_TLS_CA`.** A PEM CA bundle the
+  broker certificate is verified against instead of the system roots.
+  An unusable file stops the daemon at start with the file named.
+  `MQTT_TLS_CA` together with `MQTT_TLS_INSECURE` is a configuration
+  error; either one without `MQTT_TLS` has no effect and is warned about.
+  `MQTT_TLS_INSECURE` now logs a warning at start.
+- **`MQTT_PORT` may be omitted**; it defaults to 1883, or 8883 with
+  `MQTT_TLS` — what config-template.yaml already promised.
+- **Add-on: TLS options.** `mqtt_tls`, `mqtt_tls_ca` and
+  `mqtt_tls_insecure`; `/ssl` and `/share` are mapped read-only for the
+  CA file. With `mqtt_server` empty, the auto-detected Home Assistant
+  MQTT service switches TLS on when it reports it.
+- go-mqtt 1.7.0.
+
 # Version 3.2.0 (2026-10-26)
 
 ## What's Changed

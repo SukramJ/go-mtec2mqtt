@@ -41,6 +41,12 @@ ports:
 ports_description:
   8080/tcp: "Diagnostic web UI (normally reached via Ingress)"
 
+# /ssl and /share, read-only, so mqtt_tls_ca can point at a CA bundle the user
+# keeps there (e.g. /ssl/ca.crt).
+map:
+  - ssl:ro
+  - share:ro
+
 # Soft dependency: use the Supervisor's MQTT broker (core-mosquitto) when present.
 services:
   - mqtt:want
@@ -54,6 +60,9 @@ options:
   mqtt_port: 1883
   mqtt_login: ""
   mqtt_password: ""
+  mqtt_tls: false
+  mqtt_tls_insecure: false
+  mqtt_tls_ca: ""
   mqtt_topic: MTEC
   mqtt_maintenance: true
   mqtt_stats_interval: 60
@@ -77,6 +86,9 @@ schema:
   mqtt_port: int(1,65535)
   mqtt_login: "str?"
   mqtt_password: "password?"
+  mqtt_tls: bool
+  mqtt_tls_insecure: bool
+  mqtt_tls_ca: "str?"
   mqtt_topic: str
   mqtt_maintenance: bool
   mqtt_stats_interval: int(0,86400)

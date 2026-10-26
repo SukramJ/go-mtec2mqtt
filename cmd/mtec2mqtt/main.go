@@ -15,7 +15,6 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
@@ -112,6 +111,26 @@ func run(configPath, registersPath string, logger *slog.Logger, level *slog.Leve
 			slog.String("removed_in", "3.0.0"),
 			slog.String("action", "ignored; remove the key from the configuration"))
 	}
+	// TLS is opt-in via MQTT_TLS. Built here, at start-up, so an unusable
+	// MQTT_TLS_CA stops the daemon with the file named instead of failing
+	// every handshake in the reconnect loop. The server name is always
+	// set (tls.Client does not infer it from the dialed address), and
+	// verification is only disabled when the operator explicitly set
+	// MQTT_TLS_INSECURE — never by default.
+	tlsConfig, err := cfg.MQTTTLSConfig()
+	if err != nil {
+		return err
+	}
+	if cfg.MQTTTLS && cfg.MQTTTLSInsecure {
+		logger.Warn("mtec2mqtt.mqtt_tls_insecure",
+			slog.String("effect", "broker certificate NOT verified; anyone on the path can impersonate the broker"),
+			slog.String("action", "set MQTT_TLS_CA to your broker's CA instead"))
+	}
+	for _, key := range cfg.IgnoredTLSKeys() {
+		logger.Warn("mtec2mqtt.config_key_ignored",
+			slog.String("key", key),
+			slog.String("reason", "has no effect while MQTT_TLS is false"))
+	}
 	if layout := hass.NewLayout(cfg.MQTTTopic); !layout.Conformant() {
 		// Kept verbatim — refusing it would break the installation on
 		// upgrade — but said once, because a tool scanning `+/info` for
@@ -196,14 +215,6 @@ func run(configPath, registersPath string, logger *slog.Logger, level *slog.Leve
 	// --- mqtt ---
 	clientID := clientIDBase + cfg.MQTTTopic
 
-	// TLS is opt-in via MQTT_SSL; NewClientTLSConfig always sets
-	// ServerName (tls.Client does not infer it from the dialed address)
-	// and only disables certificate verification when the operator has
-	// explicitly set MQTT_SSL_INSECURE — never by default.
-	var tlsConfig *tls.Config
-	if cfg.MQTTSSL {
-		tlsConfig = mqtt.NewClientTLSConfig(cfg.MQTTServer, cfg.MQTTSSLInsecure)
-	}
 	mqttClient := mqtt.NewTCPClient(mqtt.TCPConfig{
 		BrokerURL:  cfg.MQTTBrokerURL(),
 		ClientID:   clientID,

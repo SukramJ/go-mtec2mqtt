@@ -10,8 +10,11 @@
 package config
 
 import (
+	"crypto/tls"
 	"fmt"
 	"time"
+
+	"github.com/SukramJ/go-mqtt"
 )
 
 // Daemon-wide constants: the env-var prefix and the config file lookup.
@@ -61,18 +64,25 @@ type Config struct {
 	// MQTTStatsInterval is the period of `<name>/maintenance/stats` in
 	// seconds. Default 60; 0 switches the topic off.
 	MQTTStatsInterval int `yaml:"MQTT_STATS_INTERVAL"`
-	// MQTTSSL enables TLS for the broker connection: the daemon dials
+	// MQTTTLS enables TLS for the broker connection: the daemon dials
 	// tls:// instead of tcp:// (default port 8883 instead of 1883, see
 	// [Config.MQTTBrokerURL]). Off by default so existing plain-TCP
 	// deployments keep working unchanged — credentials otherwise cross
-	// the wire in clear text.
-	MQTTSSL bool `yaml:"MQTT_SSL"`
-	// MQTTSSLInsecure, when true AND MQTTSSL is true, disables broker
+	// the wire in clear text. Releases up to 3.2.0 called it MQTT_SSL;
+	// see [renamedKeys].
+	MQTTTLS bool `yaml:"MQTT_TLS"`
+	// MQTTTLSInsecure, when true AND MQTTTLS is true, disables broker
 	// certificate verification (TLS InsecureSkipVerify). This is an
 	// explicit, dangerous opt-in meant only for self-signed certificates
 	// on a broker the operator controls — it must never be the default,
-	// since it removes protection against a man-in-the-middle.
-	MQTTSSLInsecure bool `yaml:"MQTT_SSL_INSECURE"`
+	// since it removes protection against a man-in-the-middle. Prefer
+	// [Config.MQTTTLSCA]; the two are mutually exclusive.
+	MQTTTLSInsecure bool `yaml:"MQTT_TLS_INSECURE"`
+	// MQTTTLSCA is the path of a PEM CA bundle the broker certificate is
+	// verified against, replacing the system roots — for a broker whose
+	// certificate a private CA issued. Empty (default) verifies against
+	// the system roots. Only takes effect when MQTTTLS is true.
+	MQTTTLSCA string `yaml:"MQTT_TLS_CA"`
 
 	// --- Home Assistant ---
 	HASSEnable         bool   `yaml:"HASS_ENABLE"`
@@ -176,6 +186,51 @@ var removedKeys = []string{"MODBUS_FRAMER", "MODBUS_RETRIES", "MQTT_FLOAT_FORMAT
 // Removed returns the removed keys this configuration still sets.
 func (c *Config) Removed() []string { return c.removed }
 
+// renamedKeys were renamed after 3.2.0, old key → new key. Unlike
+// [removedKeys] a configuration that still sets one is REFUSED: the old
+// key would otherwise be silently ignored, and an ignored MQTT_SSL: true
+// falls back to plain TCP — credentials in clear text — without anyone
+// noticing. Order is the order the errors are reported in.
+var renamedKeys = [][2]string{
+	{"MQTT_SSL", "MQTT_TLS"},
+	{"MQTT_SSL_INSECURE", "MQTT_TLS_INSECURE"},
+}
+
+// IgnoredTLSKeys returns the TLS-only keys this configuration sets while
+// MQTT_TLS is off, where they have no effect. The daemon warns about
+// each; it does not refuse them, because a plain-TCP configuration with
+// a prepared CA path is a legitimate intermediate state.
+func (c *Config) IgnoredTLSKeys() []string {
+	if c.MQTTTLS {
+		return nil
+	}
+	var keys []string
+	if c.MQTTTLSInsecure {
+		keys = append(keys, "MQTT_TLS_INSECURE")
+	}
+	if c.MQTTTLSCA != "" {
+		keys = append(keys, "MQTT_TLS_CA")
+	}
+	return keys
+}
+
+// MQTTTLSConfig builds the tls.Config for the broker connection, or
+// returns nil when MQTT_TLS is off. The server name is MQTT_SERVER, the
+// bare broker host (it is also the host part of [Config.MQTTBrokerURL]).
+// An unusable MQTT_TLS_CA — missing, unreadable, no certificate in it —
+// is an error naming the file, so the daemon stops at start-up instead
+// of failing every handshake later.
+func (c *Config) MQTTTLSConfig() (*tls.Config, error) {
+	if !c.MQTTTLS {
+		return nil, nil //nolint:nilnil // nil config = plain TCP, not an error
+	}
+	tlsConfig, err := mqtt.NewClientTLSConfigWithCA(c.MQTTServer, c.MQTTTLSCA, c.MQTTTLSInsecure)
+	if err != nil {
+		return nil, fmt.Errorf("config: MQTT_TLS_CA: %w", err)
+	}
+	return tlsConfig, nil
+}
+
 // mqttDefaultPlainPort / mqttDefaultTLSPort are the IANA-registered
 // default ports for plain and TLS MQTT, mirrored by [Config.MQTTBrokerURL]
 // so an explicit MQTT_PORT matching the scheme's default stays elidable
@@ -187,15 +242,15 @@ const (
 )
 
 // MQTTBrokerURL derives the broker URL the go-mqtt transport
-// dials from MQTTServer / MQTTPort / MQTTSSL. The scheme is "tls" when
-// MQTTSSL is set, "tcp" otherwise. The port is only appended when it
+// dials from MQTTServer / MQTTPort / MQTTTLS. The scheme is "tls" when
+// MQTTTLS is set, "tcp" otherwise. The port is only appended when it
 // differs from the scheme's default (1883 plain / 8883 TLS); this keeps
 // the common case's URL minimal and matches how [Config.MQTTPort] is
 // documented in config-template.yaml.
 func (c *Config) MQTTBrokerURL() string {
 	scheme := "tcp"
 	defaultPort := mqttDefaultPlainPort
-	if c.MQTTSSL {
+	if c.MQTTTLS {
 		scheme = "tls"
 		defaultPort = mqttDefaultTLSPort
 	}
