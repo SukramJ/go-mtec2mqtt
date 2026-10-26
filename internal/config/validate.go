@@ -4,10 +4,8 @@
 package config
 
 import (
-	"errors"
 	"fmt"
 	"net"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -17,8 +15,7 @@ import (
 // ValidationError is returned by [Validate] when the loaded config
 // fails one or more range or shape checks. The Issues slice contains
 // human-readable problem descriptions in declaration order so the
-// caller can log them all in one shot — matches the Pydantic
-// "aggregate" behaviour the Python schema relies on.
+// caller can log them all in one shot.
 type ValidationError struct {
 	Issues []string
 }
@@ -32,27 +29,12 @@ func (e *ValidationError) Error() string {
 		len(e.Issues), strings.Join(e.Issues, "\n  - "))
 }
 
-// allowedFramers mirrors the whitelist from ConfigSchema in Python.
-var allowedFramers = map[string]bool{
-	"rtu":    true,
-	"socket": true,
-	"ascii":  true,
-	"tls":    true,
-}
-
 // allowedLanguages is the set of UI / HA display languages the daemon
 // ships translations for. English is the canonical fallback.
 var allowedLanguages = map[string]bool{
 	"en": true,
 	"de": true,
 }
-
-// floatFormatPattern accepts the Python format specs the daemon
-// actually uses for MQTT_FLOAT_FORMAT: optional width, optional
-// precision, one of the float verbs (e/f/g/E/F/G). Anything fancier
-// (thousands separators, sign flags, padding chars) is rejected with a
-// clear error rather than silently ignored.
-var floatFormatPattern = regexp.MustCompile(`^(?:\d+)?(?:\.\d+)?[efgEFG]$`)
 
 // Validate checks the post-defaults config and returns a
 // [*ValidationError] aggregating every problem. On success, it also
@@ -75,16 +57,9 @@ func Validate(c *Config) error {
 	// range is a legal Modbus-TCP unit id. The serial slave-id cap of
 	// 247 does not apply over TCP, where 255 (0xFF) is the spec's "unit
 	// id not significant" value (issue #68). 0 is "broadcast": allowed
-	// (the Python schema does too), though writes in broadcast mode are
-	// silent.
+	// though writes in broadcast mode are silent.
 	if c.ModbusTimeout < 1 || c.ModbusTimeout > 600 {
 		add("MODBUS_TIMEOUT must be 1..600 seconds, got %d", c.ModbusTimeout)
-	}
-	if !allowedFramers[c.ModbusFramer] {
-		add("MODBUS_FRAMER must be one of [ascii rtu socket tls], got %q", c.ModbusFramer)
-	}
-	if c.ModbusRetries < 0 || c.ModbusRetries > 20 {
-		add("MODBUS_RETRIES must be 0..20, got %d", c.ModbusRetries)
 	}
 
 	// --- MQTT ---
@@ -104,12 +79,6 @@ func Validate(c *Config) error {
 	}
 	if c.MQTTStatsInterval < 0 || c.MQTTStatsInterval > 86400 {
 		add("MQTT_STATS_INTERVAL must be 0..86400 seconds, got %d", c.MQTTStatsInterval)
-	}
-	verb, err := translateFloatFormat(c.MQTTFloatFormat)
-	if err != nil {
-		add("MQTT_FLOAT_FORMAT %q: %v", c.MQTTFloatFormat, err)
-	} else {
-		c.goFloatVerb = verb
 	}
 
 	// --- HASS ---
@@ -178,57 +147,3 @@ func Validate(c *Config) error {
 	}
 	return nil
 }
-
-// translateFloatFormat turns a Python-style float format spec into a
-// Go fmt verb. Accepts the three shapes the Python project actually
-// produces — `"{:.3f}"`, `":.3f"`, `".3f"` — plus the underlying
-// `[width][.prec]<e|f|g>` body.
-//
-// Returns an error for anything the regex does not match; better to
-// fail loudly at startup than to silently render values with a
-// degenerate format at runtime.
-func translateFloatFormat(spec string) (string, error) {
-	if spec == "" {
-		return "", errors.New("empty format spec")
-	}
-	body := strings.TrimSuffix(strings.TrimPrefix(spec, "{"), "}")
-	body = strings.TrimPrefix(body, ":")
-	if !floatFormatPattern.MatchString(body) {
-		return "", fmt.Errorf("unsupported format %q (allowed: [width][.prec]<e|f|g>)", body)
-	}
-	return "%" + body, nil
-}
-
-// FormatFloat renders v through the validated MQTT_FLOAT_FORMAT spec.
-// Panics if called before Validate has succeeded — call sites should
-// only ever see a fully validated Config.
-func (c *Config) FormatFloat(v float64) string {
-	if c.goFloatVerb == "" {
-		panic("config: FormatFloat called before Validate")
-	}
-	return fmt.Sprintf(c.goFloatVerb, v)
-}
-
-// RoundFloat rounds v to the precision the validated MQTT_FLOAT_FORMAT
-// spec prints, and returns it as a number.
-//
-// Up to 1.x the spec formatted every float into a string payload
-// ("230.100"). Since 2.0.0 values are JSON numbers, so the option keeps
-// only what it meant for the value: ".3f" still rounds to three decimals,
-// ".4g" to four significant digits. Rounding through the formatter rather
-// than through math.Round keeps the result identical to the number the old
-// string spelled, whatever verb the operator chose.
-func (c *Config) RoundFloat(v float64) float64 {
-	r, err := strconv.ParseFloat(strings.TrimSpace(c.FormatFloat(v)), 64)
-	if err != nil {
-		// Unreachable for the verbs Validate admits (e, f, g in either
-		// case); an unparsable rendering keeps the unrounded value rather
-		// than inventing one.
-		return v
-	}
-	return r
-}
-
-// GoFloatVerb exposes the translated fmt verb for diagnostics and
-// tests. Do not use it in hot paths — call [Config.FormatFloat].
-func (c *Config) GoFloatVerb() string { return c.goFloatVerb }

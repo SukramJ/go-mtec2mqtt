@@ -23,8 +23,6 @@ MTEC_MODBUS_IP="$(bashio::config 'modbus_ip')"
 MTEC_MODBUS_PORT="$(bashio::config 'modbus_port')"
 MTEC_MODBUS_SLAVE="$(bashio::config 'modbus_slave')"
 MTEC_MODBUS_TIMEOUT="$(bashio::config 'modbus_timeout')"
-# modbus_retries / modbus_framer are deprecated and not passed on: the
-# daemon never read them.
 export MTEC_MODBUS_IP MTEC_MODBUS_PORT MTEC_MODBUS_SLAVE MTEC_MODBUS_TIMEOUT
 
 # --- MQTT ---

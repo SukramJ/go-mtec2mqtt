@@ -24,15 +24,6 @@ func discardLogger() *slog.Logger {
 	return slog.New(slog.DiscardHandler)
 }
 
-// failingPublisher always reports a broker-side failure so the breaker
-// counts every publish against its threshold.
-type failingPublisher struct{ calls int }
-
-func (p *failingPublisher) Publish(context.Context, string, []byte, mqtt.QoS, bool, ...mqtt.PublishOption) error {
-	p.calls++
-	return mqtt.ErrNotConnected
-}
-
 // flakyStarter fails the first `failures` Start attempts, then
 // succeeds — a broker that is still booting when the daemon starts.
 type flakyStarter struct {
@@ -105,20 +96,6 @@ func TestFatalErr(t *testing.T) {
 	}
 }
 
-// recordingPublisher captures the last publish for assertion.
-type recordingPublisher struct {
-	calls   int
-	topic   string
-	payload string
-	retain  bool
-}
-
-func (p *recordingPublisher) Publish(_ context.Context, topic string, payload []byte, _ mqtt.QoS, retain bool, _ ...mqtt.PublishOption) error {
-	p.calls++
-	p.topic, p.payload, p.retain = topic, string(payload), retain
-	return nil
-}
-
 // TestWillIsTheRuntimesOwnStatement is what replaces the two
 // announceAvailability tests this daemon used to carry.
 //
@@ -176,34 +153,8 @@ func TestWillIsTheRuntimesOwnStatement(t *testing.T) {
 	}
 }
 
-// TestLegacyFormsNamesTheMeasuredForm proves the composition root states
-// the per-entity topic form this fleet is actually on.
-//
-// publisher.Config.LegacyEntityTopics REPLACES the library's five-segment
-// default rather than adding to it, so saying nothing is a statement too —
-// and the wrong one here. Step 3 measured the four-segment
-// LegacyTopicByUniqueID reproducing 100 of 100 pinned config topics while
-// the five-segment default reproduced 0. Getting it wrong in step 6 is
-// silent and total: the bundle publishes, this module logs nothing, and
-// Home Assistant refuses the document with one WARNING.
-func TestLegacyFormsNamesTheMeasuredForm(t *testing.T) {
-	t.Parallel()
-
-	rt := publisher.New(nopTransport{}, publisher.Config{
-		Prefix:             "homeassistant",
-		Layout:             hass.NewLayout("MTEC"),
-		QoS:                coordinator.DiscoveryQoS,
-		LegacyEntityTopics: hass.LegacyConfigTopicForms(),
-		Logger:             discardLogger(),
-	})
-	forms := rt.LegacyForms()
-	if len(forms) != 1 || forms[0] != hass.LegacyConfigTopicForm {
-		t.Fatalf("LegacyForms() = %v, want exactly [%s]", forms, hass.LegacyConfigTopicForm)
-	}
-}
-
-// nopTransport is a publisher.Transport that reaches no broker. The two
-// tests above read configuration back out of a Runtime; neither publishes.
+// nopTransport is a publisher.Transport that reaches no broker. The test
+// above reads configuration back out of a Runtime; it publishes nothing.
 type nopTransport struct{}
 
 func (nopTransport) Publish(context.Context, string, []byte, byte, bool) error { return nil }
@@ -228,7 +179,7 @@ func TestConnectedTopicIsNotInTheDiscoveryTree(t *testing.T) {
 	if got != "MTEC/connected" {
 		t.Errorf("ConnectedTopic(%q) = %q, want MTEC/connected", mqttRoot, got)
 	}
-	if got == hass.LegacyAvailabilityTopic(hassBase) || got == hass.LegacyBridgeStatusTopic(mqttRoot) {
+	if got == hassBase+"/status/lwt" || got == mqttRoot+"/bridge/status" {
 		t.Error("the status topic is still one of the pre-2.0 ones")
 	}
 	if strings.HasPrefix(got, hassBase+"/") {
@@ -248,67 +199,5 @@ func TestInstanceInfoCarriesTheProjectFields(t *testing.T) {
 	got := instanceInfo(cfg)
 	if got["modbus"] != "192.168.1.5:5743" || got["ha_discovery"] != true || len(got) != 2 {
 		t.Errorf("instanceInfo = %v", got)
-	}
-}
-
-// TestRetractLegacyAvailabilityClearsTheOldTopic proves the upgrade path:
-// the retained "online" this daemon wrote to the old topic in every
-// release up to 1.9.0 is cleared with an empty retained payload — MQTT's
-// retraction — instead of being left to claim forever that a daemon which
-// no longer publishes there is up.
-func TestRetractLegacyAvailabilityClearsTheOldTopic(t *testing.T) {
-	t.Parallel()
-
-	// The topic comes from PRODUCTION, not from this test. It used to be
-	// passed in as a literal and asserted against the same literal, which
-	// tested argument forwarding and nothing else: mutating cmd's spelling
-	// to "/status/LWT" left this suite green, and the retraction would have
-	// cleared a topic no release ever wrote while the real stale "online"
-	// sat there forever.
-	// The PREFIX goes in and the topic is derived by production code. The
-	// literal below is the one every release up to 1.9.0 actually wrote,
-	// and it is the only literal this test states.
-	cfg := &config.Config{HASSBaseTopic: "homeassistant"}
-	const topic = "homeassistant/status/lwt"
-
-	pub := &recordingPublisher{}
-	retractLegacyAvailability(pub, cfg.HASSBaseTopic, discardLogger())(t.Context())
-
-	if pub.calls != 1 {
-		t.Fatalf("publisher saw %d calls, want 1", pub.calls)
-	}
-	if pub.topic != topic {
-		t.Errorf("retracted %q, want %q", pub.topic, topic)
-	}
-	if pub.payload != "" {
-		t.Errorf("payload = %q, want empty — only an empty payload retracts", pub.payload)
-	}
-	if !pub.retain {
-		t.Error("retain = false — a non-retained empty payload leaves the stored message in place")
-	}
-}
-
-// TestRetractLegacyAvailabilitySwallowsPublishError: like the birth
-// publish, the retraction is best-effort and must never take the daemon
-// down or stall a reconnect hook.
-func TestRetractLegacyAvailabilitySwallowsPublishError(t *testing.T) {
-	t.Parallel()
-
-	retractLegacyAvailability(&failingPublisher{}, "homeassistant", discardLogger())(t.Context())
-}
-
-// TestTheLegacyAvailabilityTopicIsTrimmedLikeHomeAssistantTrimsIt is the
-// same trailing-slash defect as the birth subscription's, on the other
-// topic the discovery prefix is appended to. A HASS_BASE_TOPIC written
-// "homeassistant/" must clear the topic the old release actually wrote,
-// not a double-slashed sibling of it that holds nothing.
-func TestTheLegacyAvailabilityTopicIsTrimmedLikeHomeAssistantTrimsIt(t *testing.T) {
-	t.Parallel()
-
-	for _, base := range []string{"homeassistant", "homeassistant/", "ha/disc/"} {
-		want := strings.TrimRight(base, "/") + "/status/lwt"
-		if got := hass.LegacyAvailabilityTopic(base); got != want {
-			t.Errorf("LegacyAvailabilityTopic(%q) = %q, want %q", base, got, want)
-		}
 	}
 }

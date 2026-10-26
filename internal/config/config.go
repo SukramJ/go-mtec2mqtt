@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Copyright (C) 2026 SukramJ
 
-// Package config holds the daemon's runtime settings. The shape mirrors
-// the YAML schema used by aiomtec2mqtt so existing config.yaml files
-// can be reused unchanged.
+// Package config holds the daemon's runtime settings: one flat YAML
+// document whose keys are the field tags below.
 //
 // Values flow: YAML file → env overrides (MTEC_* prefix) → defaults →
 // validation. The result is a single typed [Config] the rest of the
@@ -15,13 +14,17 @@ import (
 	"time"
 )
 
-// Daemon-wide constants. These match the Python project so MQTT topic
-// paths, env-var prefix, and config-file lookup stay compatible.
+// Daemon-wide constants: the env-var prefix and the config file lookup.
+//
+// LegacyAppDirName is the directory releases up to 2.x (and the Python
+// aiomtec2mqtt) used; [Locate] still searches it after [AppDirName], so an
+// existing installation keeps its config. It goes away in a later major
+// release.
 const (
-	ClientID   = "M-TEC-MQTT"
-	EnvPrefix  = "MTEC_"
-	AppDirName = "aiomtec2mqtt"
-	ConfigFile = "config.yaml"
+	EnvPrefix        = "MTEC_"
+	AppDirName       = "mtec2mqtt"
+	LegacyAppDirName = "aiomtec2mqtt"
+	ConfigFile       = "config.yaml"
 )
 
 // Config is the validated daemon configuration. Fields are flat to
@@ -37,8 +40,6 @@ type Config struct {
 	ModbusPort    int    `yaml:"MODBUS_PORT"`
 	ModbusSlave   byte   `yaml:"MODBUS_SLAVE"`
 	ModbusTimeout int    `yaml:"MODBUS_TIMEOUT"` // seconds
-	ModbusFramer  string `yaml:"MODBUS_FRAMER"`
-	ModbusRetries int    `yaml:"MODBUS_RETRIES"`
 
 	// --- MQTT ---
 	MQTTServer   string `yaml:"MQTT_SERVER"`
@@ -51,12 +52,6 @@ type Config struct {
 	// explicitly configured value is kept verbatim. It is the ONLY thing
 	// that keeps two instances on one broker apart, and nothing checks it.
 	MQTTTopic string `yaml:"MQTT_TOPIC"`
-	// MQTTFloatFormat is the original Python-style format spec from
-	// the YAML (e.g. "{:.3f}" or ".3f"). Since 2.0.0 values are JSON
-	// numbers on the wire, so only its precision still matters: a float
-	// is rounded to what the spec would have printed. Consumers call
-	// [Config.RoundFloat] rather than interpret it directly.
-	MQTTFloatFormat string `yaml:"MQTT_FLOAT_FORMAT"`
 	// MQTTMaintenance enables the mqtt-smarthome maintenance topics
 	// (`<name>/maintenance/set/loglevel`, `…/set/restart`,
 	// `<name>/maintenance/stats`). On by default; anyone who may publish
@@ -88,8 +83,8 @@ type Config struct {
 	// generic "MTEC EnergyButler") and is slugged into each entity's
 	// entity_id seed, so HA seeds fresh entity_ids like
 	// sensor.<device_name>_grid_power instead of the generic ones. The seed
-	// is the slugified English register name (matching the Python
-	// aiomtec2mqtt entity_ids), never the localised display name, so
+	// is the slugified English register name, never the localised display
+	// name, so
 	// entity_ids stay language-independent; only the display name follows
 	// LANGUAGE. The entity unique_id is deliberately left unchanged, so
 	// enabling this on an existing install does not orphan established
@@ -165,25 +160,21 @@ type Config struct {
 	// --- Misc ---
 	Debug bool `yaml:"DEBUG"`
 
-	// goFloatVerb caches the translated [MQTTFloatFormat], populated
-	// in Validate. Never set by callers; ignored by yaml.v3.
-	goFloatVerb string `yaml:"-"`
-
-	// deprecated lists the [deprecatedKeys] the file or the environment
-	// set, populated in Load. See [Config.Deprecated].
-	deprecated []string `yaml:"-"`
+	// removed lists the [removedKeys] the file or the environment set,
+	// populated in Load. See [Config.Removed].
+	removed []string `yaml:"-"`
 }
 
-// deprecatedKeys are accepted until 3.0.0 and removed then.
-// MODBUS_FRAMER and MODBUS_RETRIES are validated but never read: the
-// Modbus client speaks Modbus TCP and does not retry a transaction.
-// MQTT_FLOAT_FORMAT is a Python format spec of which only the precision
-// still matters since values are JSON numbers.
-var deprecatedKeys = []string{"MODBUS_FRAMER", "MODBUS_RETRIES", "MQTT_FLOAT_FORMAT"}
+// removedKeys were removed in 3.0.0. A configuration that still sets one
+// loads — the key is ignored — and the daemon warns, so an upgrade does
+// not stop on a key that never did anything: MODBUS_FRAMER and
+// MODBUS_RETRIES were never read (the bridge speaks Modbus TCP and does
+// not retry a transaction), and MQTT_FLOAT_FORMAT is replaced by the
+// per-register `precision` in registers.yaml.
+var removedKeys = []string{"MODBUS_FRAMER", "MODBUS_RETRIES", "MQTT_FLOAT_FORMAT"}
 
-// Deprecated returns the deprecated keys this configuration sets, so the
-// daemon can warn about them before 3.0.0 removes them.
-func (c *Config) Deprecated() []string { return c.deprecated }
+// Removed returns the removed keys this configuration still sets.
+func (c *Config) Removed() []string { return c.removed }
 
 // mqttDefaultPlainPort / mqttDefaultTLSPort are the IANA-registered
 // default ports for plain and TLS MQTT, mirrored by [Config.MQTTBrokerURL]

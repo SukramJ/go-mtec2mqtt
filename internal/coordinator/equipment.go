@@ -11,8 +11,8 @@ import "github.com/SukramJ/go-mtec2mqtt/internal/registers"
 // low byte — exactly the layout produced by registers.Decode's
 // BYTE-length-1 formatter.
 //
-// Mirrors the EQUIPMENT table in aiomtec2mqtt/const.py so reported
-// model strings stay identical across the two implementations.
+// The table comes from the EQUIPMENT table of aiomtec2mqtt (const.py);
+// the model strings are what Home Assistant shows as the device model.
 var equipment = map[int]map[int]string{
 	30: {
 		0: "4.0K-25A-3P",
@@ -49,7 +49,7 @@ var equipment = map[int]map[int]string{
 
 // equipmentLookup resolves a "HH LL" pair (decimal, space-separated)
 // into the model string. Returns "unknown" when either byte is out of
-// range — matches the Python coordinator's fallback.
+// range.
 func equipmentLookup(high, low int) string {
 	if inner, ok := equipment[high]; ok {
 		if model, ok := inner[low]; ok {

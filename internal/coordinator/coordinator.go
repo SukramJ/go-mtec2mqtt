@@ -111,12 +111,11 @@ type Deps struct {
 	Virtual []hass.VirtualSwitch
 
 	// NewHARuntime builds this daemon's Home Assistant plane: the retained
-	// discovery configs it has published, the bridge availability marker
-	// its Last Will clears, and the orphan sweep. Required.
+	// device document it publishes and the bridge availability marker its
+	// Last Will clears. Required.
 	//
-	// It is a FACTORY rather than an instance, and that is the whole of the
-	// fix for the ordering defect this migration rested on. See
-	// [Coordinator.resetHAPlane].
+	// It is a FACTORY rather than an instance, so a runtime never outlives
+	// the broker connection it describes. See [Coordinator.resetHAPlane].
 	//
 	// It is built at the composition root rather than here for a reason
 	// that cannot be worked around: [publisher.Runtime.Will] has to be read
@@ -163,9 +162,8 @@ type Deps struct {
 //
 // QoS 0, unchanged: every release of this bridge has published its state
 // plane at QoS 0 (poll.go's publish call, pinned by
-// TestPublishQoSAndRetain), and a migration step whose purpose is
-// de-duplication is not the place to change the delivery guarantee of an
-// installed base on the wire.
+// TestPublishQoSAndRetain), and changing the delivery guarantee of an
+// installed base on the wire is its own release.
 //
 // It has to be SAID, and that is the trap this constant exists to close.
 // [publisher.QoS]'s zero value is QoSUnset, which resolves to QoS 1 —
@@ -189,21 +187,9 @@ const StateQoS = publisher.QoSAtMostOnce
 const CommandQoS = publisher.QoSAtLeastOnce
 
 // HARuntimeConfig is the publisher.Config this daemon's Home Assistant
-// plane runs on, in ONE place.
-//
-// It exists because the composition root and the test fixtures each used
-// to spell it out, and a mutation pass found the consequence: dropping
-// [publisher.Config.LegacyEntityTopics] from the composition root was
-// caught by nothing at all, while every test went on exercising a runtime
-// that still had it. That field is not a detail — omitting it makes the
-// library retract the five-segment form this fleet is not on, which
-// retracts nothing, publishes the device document into a tree still
-// holding all 100 per-entity configs, and produces the silent refusal this
-// whole release exists to avoid. Now there is one spelling and the tests
-// run on it.
-//
-// The logger is a parameter because the daemon and the fixtures want
-// different ones; everything else is derived.
+// plane runs on, in ONE place: the composition root and the test fixtures
+// both build their runtimes from it, so a test cannot exercise a runtime
+// production does not have.
 func HARuntimeConfig(cfg *config.Config, logger *slog.Logger) publisher.Config {
 	return publisher.Config{
 		Prefix: cfg.HASSBaseTopic,
@@ -211,57 +197,19 @@ func HARuntimeConfig(cfg *config.Config, logger *slog.Logger) publisher.Config {
 		// AnnounceOnline the level SetConnected last set.
 		Layout: hass.NewLayout(cfg.MQTTTopic),
 		QoS:    DiscoveryQoS,
-		// The per-entity topic form this fleet's installed base is on,
-		// stated rather than defaulted. publisher.Runtime.PublishBundle
-		// reads it to decide which retained configs the device document
-		// supersedes; naming a form REPLACES the library's five-segment
-		// default rather than adding to it, which is the intent — 100 of
-		// 100 of this fleet's retained configs are on the four-segment
-		// form and the default matches 0.
-		LegacyEntityTopics: hass.LegacyConfigTopicForms(),
-		// Retract a superseded per-entity config only where the broker
-		// still retains one. The blind round re-sent all 100 empty
-		// retractions on every connect, long after the migration had
-		// completed, and Home Assistant logged each one that reached an
-		// entity the device document owns as "Received a conflicting MQTT
-		// discovery message". The snapshot window delays the first document
-		// of a connection by the sweep window; a topic the broker cannot
-		// show in time is retracted as before.
+		// A superseded per-entity config is retracted only where the broker
+		// still retains one, so a connect costs no empty retractions (each
+		// of which Home Assistant would log as a conflicting discovery
+		// message). The migration from per-entity configs ran in 2.x.
 		SupersedeObserved: true,
 		// Home Assistant refuses a device document whole only over its
 		// device/origin blocks and a component's platform/unique_id; any
 		// other bad component costs that one entity. Containment withholds
-		// exactly those components (and keeps the sweep off their old
-		// per-entity configs) instead of the whole document.
+		// exactly those components instead of the whole document.
 		Contain: &discovery.ContainOptions{},
 		Logger:  logger,
 	}
 }
-
-// wantLegacyForms is what [publisher.Runtime.LegacyForms] must report for
-// a runtime this package will drive. The library exports that accessor
-// "for a consumer's own assertion"; this is the consumer making it.
-//
-// Derived from [HARuntimeConfig] rather than written out as a literal, so
-// the guard and the thing it guards cannot drift apart. That the form it
-// resolves to is the one this fleet's 100 retained configs are actually on
-// is asserted in internal/hass, against the pins.
-func wantLegacyForms() []string {
-	cfg := HARuntimeConfig(&config.Config{}, slog.New(slog.DiscardHandler))
-	probe := publisher.New(nopTransport{}, cfg)
-	defer probe.Close()
-	return probe.LegacyForms()
-}
-
-// nopTransport satisfies publisher.Transport for the probe above, which
-// never publishes, subscribes or unsubscribes.
-type nopTransport struct{}
-
-func (nopTransport) Publish(context.Context, string, []byte, byte, bool) error { return nil }
-
-func (nopTransport) Subscribe(context.Context, string, byte, publisher.Handler) error { return nil }
-
-func (nopTransport) Unsubscribe(context.Context, string) error { return nil }
 
 // DiscoveryQoS is the delivery guarantee of every retained discovery
 // config publish and of the bridge availability marker.
@@ -298,22 +246,13 @@ type Coordinator struct {
 	// [Coordinator.resetHAPlane]; read through [Coordinator.ha].
 	haRuntime atomic.Pointer[publisher.Runtime]
 
-	// haBundlePublished records that the device document actually reached
-	// the broker on this connection — not that it was built. The orphan
-	// sweep reads it, because after this release the daemon publishes no
-	// four-segment per-entity config at all and a sweep that ran without a
-	// document in place would delete the working entities of the release
-	// being upgraded from and put nothing there instead.
-	haBundlePublished atomic.Bool
-
 	// haBundle is the one retained device document this daemon publishes,
 	// rendered once after the STATIC read that supplies the serial the
 	// node id and the device block are keyed on. Nil means the document
 	// could not be built or did not validate, and publishDiscovery then
 	// publishes NOTHING — see buildBundle.
 	haBundle *discovery.Bundle
-	// haBundleTopic caches haBundle's config topic so the orphan sweep's
-	// claim set does not have to re-derive it.
+	// haBundleTopic caches haBundle's config topic.
 	haBundleTopic string
 	// discoveryGen counts Home Assistant birth announcements.
 	// publishDiscovery samples it before its first publish and only marks
@@ -348,12 +287,6 @@ type Coordinator struct {
 	unmappedMu   sync.Mutex
 	unmappedSeen map[string]struct{}
 
-	// reconcileGate is a try-locked gate so only one discovery orphan
-	// reconcile runs at a time; a re-entrant call while one is in flight
-	// is skipped (discovery changes are infrequent). The zero value is
-	// ready to use, so it needs no initialisation in New.
-	reconcileGate sync.Mutex
-
 	// commands routes inbound /set publishes. It is built here rather than
 	// at the composition root because the handler it dispatches to is a
 	// method of this type; what the composition root would otherwise own —
@@ -364,10 +297,6 @@ type Coordinator struct {
 	// Modbus link — which `<name>/connected` (2 while true, 1 while false)
 	// and the device's `online` item report. See [Coordinator.updateUpstream].
 	upstreamUp atomic.Bool
-
-	// legacySweepGate runs the start-up sweep of the pre-2.0 topic layout
-	// at most once per process.
-	legacySweepGate sync.Once
 
 	// evcc is the battery mode commanded through the evcc profile.
 	evcc evccState
@@ -417,31 +346,9 @@ func New(d Deps) *Coordinator {
 	if d.NewHARuntime == nil {
 		panic("coordinator: Deps.NewHARuntime is required; build it at the composition root so Will() can be read before CONNECT")
 	}
-	// The runtime must state the per-entity topic form this fleet is on,
-	// and it is checked here rather than trusted because getting it wrong
-	// is total, silent, and invisible from every direction: a runtime built
-	// without publisher.Config.LegacyEntityTopics retracts the five-segment
-	// form nothing in this fleet uses, so the device document is published
-	// while all 100 per-entity configs are still retained, Home Assistant
-	// refuses it with a single WARNING in its own log, and the entities
-	// simply do not appear. Nothing on the wire says so and nothing here
-	// would have.
-	//
-	// A panic, because it is a composition-root mistake and not a runtime
-	// condition — the same reason the nil check above is one.
-	// [HARuntimeConfig] is the answer; this is what makes bypassing it
-	// loud.
 	runtime := d.NewHARuntime()
 	if runtime == nil {
 		panic("coordinator: Deps.NewHARuntime returned nil")
-	}
-	want := wantLegacyForms()
-	if forms := runtime.LegacyForms(); !slices.Equal(forms, want) {
-		panic("coordinator: Deps.HARuntime states legacy config topic forms " +
-			fmt.Sprint(forms) + ", want " + fmt.Sprint(want) +
-			"; build it with HARuntimeConfig, or the device bundle is published " +
-			"while the per-entity configs are still retained and Home Assistant " +
-			"refuses it in silence")
 	}
 	if d.StatePlane == nil {
 		panic("coordinator: Deps.StatePlane is required; build it at the composition root so the state QoS is stated there")
@@ -523,10 +430,9 @@ func (c *Coordinator) Run(ctx context.Context) error {
 		return err
 	}
 
-	// HA birth gracetime — the Python coordinator subscribes to
-	// homeassistant/status, sleeps HASS_BIRTH_GRACETIME, then sends
-	// discovery. We do the same so HA picks up the entities even if
-	// the daemon starts before HA finishes booting.
+	// HA birth gracetime: wait HASS_BIRTH_GRACETIME before the first
+	// discovery publish, so HA picks up the entities even if the daemon
+	// starts before HA finishes booting.
 	if c.deps.HASS != nil {
 		c.waitForHASSBirth(ctx)
 	}
@@ -545,8 +451,6 @@ func (c *Coordinator) Run(ctx context.Context) error {
 	// The inverter's online item, now that its topic is known.
 	c.updateUpstream(ctx)
 	c.publishBatteryMode(ctx)
-	// Clear what the pre-2.0 topic layout left retained for this serial.
-	c.sweepLegacyTopics(ctx)
 
 	if c.deps.HASS != nil {
 		c.deps.HASS.Initialize(c.serialNo, c.firmware, c.equipmentInfo)
@@ -557,13 +461,7 @@ func (c *Coordinator) Run(ctx context.Context) error {
 			c.deps.Logger.Warn("coordinator.discovery_diag", slog.String("note", diag))
 		}
 		c.buildBundle()
-		published := c.publishDiscovery(ctx)
-		// Clear any of our own retained discovery configs that we no longer
-		// publish (entities removed, renamed or re-platformed across catalog
-		// or daemon versions), so they don't linger as unavailable entities
-		// in Home Assistant.
-		//
-		c.reconcileOrphans(ctx, published)
+		c.publishDiscovery(ctx)
 	}
 
 	g, runCtx := errgroup.WithContext(ctx)
@@ -605,16 +503,11 @@ func (c *Coordinator) Run(ctx context.Context) error {
 //	<name>/set/+/+/+         → the command plane
 //	<name>/maintenance/set/# → the mqtt-smarthome maintenance commands
 //
-// The command half moved onto the library's router in ADR 0070 phase 6
-// step 5. What that buys, beyond one fewer hand-rolled dispatch: the
-// route's '+' levels arrive already split ([publisher.Command.Wildcards])
-// instead of being recovered by index arithmetic — two of the measured
-// consumer's confirmed defects were exactly that — handlers run on a
+// The commands go through go-hamqtt's router: the route's '+' levels
+// arrive already split ([publisher.Command.Wildcards]), handlers run on a
 // router worker rather than the transport's read loop, retained commands
-// are dropped by policy rather than by a hand-written check, and the
-// subscription carries MQTT 5.0's No Local so this process cannot echo
-// its own publishes back into its own handler. The QoS is unchanged;
-// the topic shape is mqtt-smarthome 2.0's since 2.0.0.
+// are dropped by policy, and the subscription carries MQTT 5.0's No Local
+// so this process cannot echo its own publishes back into its own handler.
 //
 // A failing subscribe is retried with the same bounded backoff the Modbus
 // connect uses instead of killing the daemon: a broker that is still
@@ -669,12 +562,8 @@ func (c *Coordinator) installInboundHandler(ctx context.Context) error {
 // publishes would land inside its own command subscription and be echoed
 // straight back into [Coordinator.onCommand].
 //
-// This daemon had no equivalent guard. Checked by hand in the phase-6
-// measurement and clean then — a five-segment state topic ending `state`
-// against a five-segment filter ending `set`, a three-segment bridge
-// topic, four-segment configs — but clean-by-inspection is what it was,
-// and the inspection had to be redone every time a topic moved. It runs
-// after the STATIC read because every state topic is keyed on the serial.
+// It runs after the STATIC read because every state topic is keyed on the
+// serial.
 //
 // It is a boot failure rather than a warning: a self-echo turns a state
 // publish into a command, and the least diagnosable shape of that is a
@@ -934,9 +823,8 @@ func (c *Coordinator) connectModbus(ctx context.Context) error {
 }
 
 // waitForStatic blocks until the STATIC group yields a usable serial
-// number or the context is cancelled. The Python coordinator retries
-// indefinitely; we do the same but cap the per-retry wait so test
-// teardown isn't dragged out for full backoff cycles.
+// number or the context is cancelled. It retries indefinitely, with a
+// fixed wait between attempts.
 func (c *Coordinator) waitForStatic(ctx context.Context) error {
 	log := c.deps.Logger
 	const retry = 10 * time.Second
@@ -1028,25 +916,14 @@ func (c *Coordinator) loadTopicParts() (topicParts, bool) {
 //
 // It runs once, after [hass.Discovery.Initialize], because the node id and
 // the device block are both keyed on the serial the STATIC read supplies.
+// discovery.Contain is asked here: a document-level error, or a document
+// with no component left, withholds the document (Home Assistant would
+// discard it in silence); a single bad component costs only that entity,
+// as it does in Home Assistant itself.
 //
-// # Why a failure here withholds the whole migration
-//
-// Publishing the document retracts the 100 per-entity configs first, and
-// that retraction is not reversible by this process: between the two the
-// entities are ABSENT rather than unavailable. So the one outcome worse
-// than not migrating is migrating into a document Home Assistant then
-// discards — which it does in silence, with no line on the wire and one
-// WARNING in its own log. Leaving haBundle nil means publishDiscovery
-// publishes nothing, nothing is retracted, and the installed base keeps
-// the per-entity configs it already has and goes on working.
-//
-// discovery.Contain is therefore asked here, before any retraction. A
-// document-level error, or a document with no component left, withholds the
-// whole migration; a single bad component costs only that entity, as it
-// does in Home Assistant itself.
-//
-// The failure is deterministic (the catalogue is compiled in), so
-// discoverySent is left true and discoveryRepublisher does not spin on it.
+// The failure is deterministic (the catalogue does not change at run
+// time), so discoverySent is left true and discoveryRepublisher does not
+// spin on it.
 func (c *Coordinator) buildBundle() {
 	log := c.deps.Logger
 	bundle, err := hass.RenderBundle(c.deps.HASS, hass.BundleOrigin(version.Version))
@@ -1056,9 +933,7 @@ func (c *Coordinator) buildBundle() {
 		return
 	}
 	// Contain is what the publish path applies (publisher.Config.Contain);
-	// asking it here keeps the all-or-nothing decision before any retraction:
-	// a document with a document-level error, or with nothing left, is
-	// refused outright, while a bad component costs only itself.
+	// asking it here logs what it withholds once, at build time.
 	contained := discovery.Contain(bundle, discovery.ContainOptions{})
 	if err := contained.Err(); err != nil {
 		log.Error("coordinator.discovery_bundle_invalid",
@@ -1080,136 +955,56 @@ func (c *Coordinator) buildBundle() {
 }
 
 // publishDiscovery writes the retained device document — ONE message
-// carrying all 100 entities — and returns the set of config topics this
-// daemon claims, for the orphan sweep.
+// carrying every entity.
 //
-// # The ordering this function exists to get right
-//
-// Home Assistant refuses a device document while a per-entity config for
-// one of its components' unique_ids is still retained, and it refuses the
-// per-entity config while the document is retained: the refusal is
-// symmetric, silent on the wire, and shows up as exactly one line —
-// "WARNING [mqtt.entity] Received a conflicting MQTT discovery message".
-// The entities simply do not appear. Measured on Home Assistant 2026.9 on
-// 2026-09-10/11.
-//
-// So the order is always retract first, publish second, and the retraction
-// must be COMPLETE before the document goes out. publisher.Runtime's
-// PublishBundle does both in that order: it renders the superseded topics
-// from the document's own components through the form stated in
-// publisher.Config.LegacyEntityTopics (hass.LegacyConfigTopicForms, the
-// four-segment shape 100 of 100 of this fleet's configs are on), publishes
-// a retained empty payload to each, and ABORTS before the document if one
-// of them fails.
-//
-// "Complete" at [DiscoveryQoS] — QoS 0 — means the bytes have been written
-// and flushed to the broker's socket, in order, ahead of the document's.
-// There is no acknowledgement at QoS 0 and this code does not pretend there
-// is one; what it relies on is MQTT's ordering guarantee for equal-QoS
-// publishes on one connection, which is the property that actually matters:
-// the document cannot reach the broker down a path its retractions did not
-// already travel. TestRetractionsPrecedeTheBundle and
-// TestAFailedRetractionWithholdsTheBundle pin both halves.
-//
-// # And that argument is only sound WITHIN one connection
-//
-// It used to say "a connection that dies in between loses both, and the
-// next connect rebuilds from scratch". The first half is true; the second
-// was not. publisher.Runtime's `superseded` memo is per PROCESS, while a
-// QoS 0 success is per CONNECTION, so an in-process retry after a
-// connection loss skipped the retractions the broker never applied and
-// published the document anyway. Measured on a harness: retractions
-// re-sent 0, document published true, per-entity configs still retained.
-// [Coordinator.resetHAPlane] is the fix — the runtime, and therefore the
-// memo, does not outlive its connection — and
-// TestAReconnectReSendsTheRetractionsBeforeTheDocument is the pin.
-//
-// # The preflight, and why it is before rather than after
-//
-// A document too large for the broker is refused by go-mqtt with
-// ErrPacketTooLarge — AFTER supersede has cleared all 100 per-entity
-// configs, which leaves the device with no discovery config at all. This
-// fleet's document is ~50 KB on the wire and every surveyed broker default
-// accommodates it (mosquitto unlimited, EMQX 1 MB, AWS IoT 128 KB), but a
-// hardened `max_packet_size 65535` does not, and the failure is exactly
-// the one this whole function is built to avoid. So the size is checked
-// against the broker's own advertised maximum before the irreversible
-// step, and a document that does not fit withholds the migration the same
-// way an invalid one does.
-//
-// The document is written even when it is byte-identical to the retained
-// one only on the first publish of a connection: the runtime dedups, and
-// on a birth-triggered republish of an unchanged fleet that costs zero
-// broker writes and zero retractions.
-func (c *Coordinator) publishDiscovery(ctx context.Context) map[string]bool {
+// The runtime dedups: on a birth-triggered republish of an unchanged
+// document it writes nothing. A birth that arrives while the publish is in
+// flight is not lost: the generation sampled before the publish must be
+// unchanged afterwards, or discoverySent stays false and the republisher
+// runs again.
+func (c *Coordinator) publishDiscovery(ctx context.Context) {
 	if c.deps.HASS == nil || c.haBundle == nil {
-		return nil
+		return
 	}
 	log := c.deps.Logger
 	gen := c.discoveryGen.Load()
 	if !c.bundleFitsBroker() {
-		return nil
+		return
 	}
-
-	// The claim set the sweep subtracts. It names the document even when
-	// the publish below fails, so a transient broker error never makes the
-	// sweep clear a config this daemon still intends to publish.
-	published := map[string]bool{c.haBundleTopic: true}
-
 	written, err := c.ha().PublishBundle(ctx, c.haBundle)
 	if err != nil {
 		log.Warn("coordinator.discovery_publish",
 			slog.String("topic", c.haBundleTopic),
 			slog.String("err", err.Error()))
 		c.discoverySent.Store(false)
-		log.Warn("coordinator.discovery_incomplete",
-			slog.Int("entries", len(c.haBundle.Components)),
-			slog.Int("failed", 1),
-			slog.Bool("birth_raced", false))
-		return published
+		return
 	}
-	// The document is on the socket. The sweep may run.
-	c.haBundlePublished.Store(true)
-	birthRaced := c.discoveryGen.Load() != gen
-	c.discoverySent.Store(!birthRaced)
-	if birthRaced {
-		log.Warn("coordinator.discovery_incomplete",
-			slog.Int("entries", len(c.haBundle.Components)),
-			slog.Int("failed", 0),
-			slog.Bool("birth_raced", true))
-		return published
+	if c.discoveryGen.Load() != gen {
+		// A birth raced the publish; the republisher sends it again.
+		log.Warn("coordinator.discovery_incomplete", slog.Bool("birth_raced", true))
+		c.discoverySent.Store(false)
+		return
 	}
-	// written is reported because the gap between it and the component
-	// count is the measurable effect of the dedup gate: a birth-triggered
-	// republish of an unchanged fleet should show written=false.
+	c.discoverySent.Store(true)
+	// written=false is the dedup gate at work: an unchanged document costs
+	// nothing on the wire.
 	log.Info("coordinator.discovery_sent",
 		slog.Int("entries", len(c.haBundle.Components)),
 		slog.Bool("written", written))
-	return published
 }
 
 // bundleFitsBroker reports whether the device document can reach the
-// broker at all, and it is asked BEFORE the retraction that cannot be
-// undone rather than discovered by the publish that comes after it.
+// broker at all, asked before the publish rather than found out by it.
 //
 // go-mqtt enforces the CONNACK Maximum Packet Size the broker advertised
-// and returns ErrPacketTooLarge locally — which by then is a device whose
-// 100 per-entity configs are already cleared and whose document was never
-// written: no discovery config at all, entities absent rather than
-// unavailable. (That limit is the BROKER's, advertised inbound-to-it. It
-// is not TCPConfig.MaximumPacketSize, which is this client's own 1 MiB cap
-// on what it will ACCEPT, and the two were conflated in the step-6 notes.)
+// and refuses a larger publish locally. The document is ~100 KB and every
+// surveyed broker default accommodates it (mosquitto unlimited, EMQX 1 MB,
+// AWS IoT 128 KB), but a hardened `max_packet_size 65535` does not, and
+// the operator should read why rather than find the entities missing.
 //
 // A broker that advertises no limit, an MQTT 3.1.1 link, and a composition
-// root that wires no hook all answer "unknown", and an unknown limit is not
-// a small one: the check is skipped and behaviour is exactly what it was.
-//
-// The margin covers the fixed PUBLISH overhead the payload does not: the
-// two-byte topic length, the topic itself, the fixed header and its
-// remaining-length varint, and the v5 property block. 64 bytes is far more
-// than any of that, and being wrong in this direction withholds a
-// migration that would have worked — recoverable, and loud — instead of
-// performing half of one.
+// root that wires no hook all answer "unknown", which skips the check. The
+// margin covers the fixed PUBLISH overhead the payload does not.
 func (c *Coordinator) bundleFitsBroker() bool {
 	if c.deps.BrokerMaxPacketSize == nil {
 		return true
@@ -1237,44 +1032,23 @@ func (c *Coordinator) bundleFitsBroker() bool {
 		slog.Uint64("bytes", size),
 		slog.Uint64("broker_maximum", uint64(maxPacket)),
 		slog.String("consequence",
-			"the device document is withheld and the per-entity configs are left in place; "+
-				"raise the broker's maximum packet size"))
+			"the device document is withheld; raise the broker's maximum packet size"))
 	// Deterministic for this connection, so the republisher must not spin
 	// on it. A reconnect renegotiates the limit and clears this.
 	c.discoverySent.Store(true)
 	return false
 }
 
-// discoveryRepublisher re-sends the HA discovery configs after
-// onMessage clears discoverySent on a Home Assistant birth message —
-// the Python coordinator does the same so entities reappear even when
-// the broker lost its retained config topics. publishDiscovery is
-// idempotent (same retained payloads to the same topics), so an extra
-// pass is harmless.
+// discoveryRepublisher re-sends the device document while discoverySent
+// is false: after a Home Assistant birth (onMessage clears it), so entities
+// reappear even when the broker lost its retained configs, and after a
+// failed publish (an open circuit breaker at startup). publishDiscovery is
+// idempotent, so an extra pass is harmless.
 //
-// This is deliberately NOT replaced by publisher.Runtime.WatchBirth,
-// which the phase-6 measurement's step 5 offered as a candidate. Three
-// reasons, all of which point the same way:
-//
-//   - WatchBirth subscribes at the runtime's own QoS, which here is
-//     [DiscoveryQoS] (0). This daemon subscribes <hass_base>/status at
-//     QoS 1 and has since its first release, pinned by TestSubscribeQoS;
-//     downgrading a birth subscription inside a step whose claim is that
-//     nothing moved is exactly the trade this programme keeps refusing.
-//   - The generation counter. publishDiscovery samples discoveryGen
-//     before its first publish and only marks the batch sent when it is
-//     unchanged afterwards, so a birth arriving mid-publish is not
-//     swallowed by the final Store(true). WatchBirth has no equivalent
-//     and no seam to add one.
-//   - This loop retries a FAILED batch every 5 s, not only on a birth. An
-//     open circuit breaker at startup publishes nothing at all, and
-//     WatchBirth would then leave Home Assistant without entities until
-//     the next birth — which, if Home Assistant was already up, never
-//     comes.
-//
-// What did move onto the library is the writer underneath
-// (publishDiscovery publishes through publisher.Runtime), so the replay
-// still feeds the claim set the sweep reads.
+// Not publisher.Runtime.WatchBirth: that subscribes at the runtime's QoS
+// (0) where this daemon subscribes the birth topic at QoS 1, it has no
+// generation counter to keep a mid-publish birth, and it does not retry a
+// failed publish.
 func (c *Coordinator) discoveryRepublisher(ctx context.Context) error {
 	const tick = 5 * time.Second
 	for {
@@ -1458,45 +1232,18 @@ func (c *Coordinator) ha() *publisher.Runtime { return c.haRuntime.Load() }
 // resetHAPlane replaces the Home Assistant runtime with a fresh one, so
 // everything it remembers is scoped to the connection that earned it.
 //
-// # Why the whole runtime, and not a field
+// publisher.Runtime remembers what it has declared (the document's bytes,
+// which gate the republish), what it has superseded and what it has
+// announced — statements about a broker, not about this process. A broker
+// that came back without its retained store holds no document while the
+// memo says it does, so the device would never be re-announced. Replacing
+// the whole runtime instead of resetting fields keeps that structural: a
+// field the library adds later is covered the day it is added.
 //
-// publisher.Runtime remembers three things across a connection loss, and
-// every one of them is a statement about a broker, not about this process:
-//
-//   - `superseded` — the 100 per-entity config topics it has retracted.
-//     Retracted ONCE PER PROCESS, deliberately, because a second retraction
-//     of an already-cleared topic is a message for nothing. But a QoS 0
-//     retraction is only "complete" in the sense of bytes flushed to one
-//     socket, which makes the success PER CONNECTION. A connection that
-//     died between the retractions and the document loses both — and the
-//     in-process retry then SKIPPED the retractions the broker never
-//     applied and published the document anyway, straight into a tree still
-//     holding all 100 configs. Home Assistant refuses that with one
-//     "WARNING [mqtt.entity] Received a conflicting MQTT discovery message"
-//     in its own log; the entities do not appear, nothing is on the wire,
-//     and nothing is in this daemon's log. Measured: retractions re-sent 0,
-//     document published true, configs still retained 1.
-//   - `declared` — the document's own bytes, which gate the republish. A
-//     broker that came back without its retained store holds no document,
-//     while this map says it does, so the device is never re-announced.
-//     That is a regression against 1.9.x, where the per-entity replay had
-//     no such gate; [Coordinator.PublishOnline] already reset the STATE
-//     plane for precisely this reason and the discovery plane was left out.
-//   - `announced` — in-flight claims for a connection that is gone.
-//
-// Resetting a field at a time is how the sibling project (openccu-loom)
-// found itself fixing the same class twice — `hubStatus` and `configCache`
-// gates that no reconnect hook reset. The invariant is structural instead:
-// a runtime never outlives the connection it describes, so there is no
-// per-field question to get wrong, and a field the library adds later is
-// covered the day it is added.
-//
-// The old runtime is closed rather than left for the garbage collector,
-// and the swap is atomic because the republisher goroutine may be reading
-// it. A publish already in flight on the old runtime cannot mark discovery
-// sent for the new connection: [Coordinator.PublishOnline] bumps
-// discoveryGen, and publishDiscovery refuses to set discoverySent when the
-// generation it sampled has moved.
+// The old runtime is closed, and the swap is atomic because the
+// republisher goroutine may be reading it. A publish in flight on the old
+// runtime cannot mark discovery sent for the new connection:
+// [Coordinator.PublishOnline] bumps discoveryGen.
 func (c *Coordinator) resetHAPlane() {
 	fresh := c.deps.NewHARuntime()
 	if fresh == nil {
@@ -1507,7 +1254,6 @@ func (c *Coordinator) resetHAPlane() {
 	if old := c.haRuntime.Swap(fresh); old != nil {
 		old.Close()
 	}
-	c.haBundlePublished.Store(false)
 }
 
 // PublishOnline (re)announces this daemon on a broker connection. Wired to

@@ -1,3 +1,59 @@
+# Version 3.0.0 (2026-10-26)
+
+## Upgrade note
+
+**Installations older than 2.0.0 must run 2.2.0 once before upgrading to
+3.0.0.** 3.0.0 no longer clears the retained topics of the pre-2.0 layout
+or retracts the per-entity discovery configs of releases before 1.10, and
+Home Assistant refuses the device document while a per-entity config for
+one of its entities is still retained. From any 2.x release the upgrade
+needs nothing beyond the configuration clean-up below (#76).
+
+## What's Changed
+
+### Breaking Changes
+
+- **`MQTT_FLOAT_FORMAT`, `MODBUS_FRAMER` and `MODBUS_RETRIES` are removed.**
+  A configuration that still sets one starts normally; the key is ignored
+  and logged once as `mtec2mqtt.config_key_removed`. Floats are now rounded
+  to three decimals, or to the new per-register `precision` field in
+  registers.yaml (`precision: 1`). An `MQTT_FLOAT_FORMAT` other than the
+  default `.3f` no longer takes effect; set `precision` instead.
+- **Hyphenated groups in registers.yaml are refused.** A customised
+  catalogue that still spells a group the pre-2.0 way (`now-base`, …) stops
+  the daemon at start with the rename to make (`now_base`). 2.x accepted it
+  with a warning.
+- **The config directory is `mtec2mqtt`.** The daemon looks for
+  `$XDG_CONFIG_HOME/mtec2mqtt/config.yaml` (`/config/mtec2mqtt/config.yaml`
+  in the container) and `~/.config/mtec2mqtt/config.yaml` first. The old
+  `aiomtec2mqtt` directory is still searched after it, so existing
+  installations and Docker mounts keep working; it will be dropped in a
+  later major release.
+- The add-on drops the ignored `modbus_retries` and `modbus_framer`
+  options.
+
+### Removed
+
+- The start-up sweep of the pre-2.0 topic layout, the orphan sweep of
+  per-entity discovery configs, the explicit four-segment supersede form
+  and the clean-up of `<hass_base>/status/lwt` on every connect. Superseded
+  configs are still retracted where the broker retains one
+  (`SupersedeObserved`), so a forgotten one cannot block the document.
+- The frozen pre-2.0 per-entity discovery builder and its goldens. The
+  device document (`internal/hass/testdata/bundle_{en,de}.json`) and the
+  identity plane (`identity.json`: document topic, node id, device
+  identifiers, every component's `unique_id` and `default_entity_id`) stay
+  pinned; every identity is unchanged.
+- The ADR 0070 measurement notes (`notes/adr0070-*`); they remain in the git
+  history.
+- Comments and docs that justified behaviour by parity with the Python
+  `aiomtec2mqtt`, which is no longer the reference.
+
+### Fixed
+
+- `CLAUDE.md` named LGPL-3.0 as the licence of the code. The program is
+  MIT; only `registers.yaml` is LGPL-3.0-or-later (`LICENSE.registers`).
+
 # Version 2.2.0 (2026-10-26)
 
 ## What's Changed

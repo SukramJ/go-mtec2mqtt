@@ -3,8 +3,6 @@ MODBUS_IP: 0.0.0.0 # IP address / hostname of "espressif" modbus server
 MODBUS_PORT: 502 # Port (usually no change required)
 MODBUS_SLAVE: 247 # Modbus slave / unit id (usually no change required; the other common default is 252)
 MODBUS_TIMEOUT: 5 # Timeout for Modbus server (s)
-# MODBUS_RETRIES and MODBUS_FRAMER are deprecated: never read, accepted with
-# a warning until 3.0.0. Remove them from your config.
 
 # MQTT settings
 # Credentials can also be provided via the MTEC_MQTT_LOGIN /
@@ -16,7 +14,6 @@ MQTT_PASSWORD: "" # MQTT Password (override: env MTEC_MQTT_PASSWORD)
 MQTT_TOPIC: mtec # Instance name, the first level of every topic (default: mtec).
 #                  The ONLY thing that keeps two instances on one broker apart:
 #                  two instances of this bridge (two inverters) need two names.
-# MQTT_FLOAT_FORMAT: "{:.3f}" # Deprecated (removed in 3.0.0): rounding precision of published floats
 # MQTT_MAINTENANCE: true     # mqtt-smarthome maintenance topics: <name>/maintenance/set/loglevel,
 #                            # .../set/restart and <name>/maintenance/stats. Anyone who may publish
 #                            # on the broker can use them; secure the broker with ACLs or set false.
@@ -61,8 +58,8 @@ HASS_BIRTH_GRACETIME: 15 # Give HASS some time to get ready after the birth mess
 # (instead of the generic "MTEC EnergyButler") and is slugged into every
 # entity's entity_id seed, so HA seeds fresh entity_ids like
 # sensor.<device_name>_grid_power. Handy to tell multiple inverters apart.
-# The seed is the slugified English register name (matching the Python
-# aiomtec2mqtt entity_ids), never the localised display name, so entity_ids
+# The seed is the slugified English register name, never the localised
+# display name, so entity_ids
 # stay language-independent; only the display name follows
 # LANGUAGE. The entity unique_id is left unchanged, so enabling this on an
 # existing install does not orphan established entities — only newly created

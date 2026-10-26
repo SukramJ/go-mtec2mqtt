@@ -27,8 +27,7 @@ needs to be exposed.
 - M-TEC firmware **V27.52.4.0 and newer** speak Modbus TCP on port **502** —
   the add-on default.
 - **Older firmware** uses Modbus RTU framing on port 5743, which the add-on
-  does not speak; update the inverter firmware. (`modbus_framer` never
-  changed that, is ignored and goes away in 3.0.0.)
+  does not speak; update the inverter firmware.
 
 ## Image build paths
 

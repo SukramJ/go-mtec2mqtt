@@ -68,7 +68,9 @@ func (c *Coordinator) publishEVCC(ctx context.Context, log *slog.Logger, tp topi
 		return
 	}
 	for item, v := range evcc.Derive(processed) {
-		c.publishEVCCValue(ctx, log, tp, item, c.deps.Cfg.RoundFloat(v), now)
+		// Rounded like the source register's own value.
+		reg := c.deps.Catalog.FindByMQTT(evcc.SourceKey(item))
+		c.publishEVCCValue(ctx, log, tp, item, reg.Round(v), now)
 	}
 }
 

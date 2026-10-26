@@ -176,7 +176,7 @@ func TestRenderRefusesAnAvailabilityTopicThisDaemonDoesNotPublish(t *testing.T) 
 	if !publishes(ConnectedTopic(root)) || !publishes(onlineTopic) {
 		t.Error("the predicate rejects a topic this daemon does publish")
 	}
-	for _, other := range []string{"", LegacyBridgeStatusTopic(root), "MTEC/" + goldenSerial + "/availability"} {
+	for _, other := range []string{"", "MTEC/bridge/status", "MTEC/" + goldenSerial + "/availability"} {
 		if publishes(other) {
 			t.Errorf("the predicate accepts %q, which nothing publishes", other)
 		}

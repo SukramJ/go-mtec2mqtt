@@ -325,7 +325,7 @@ LANGUAGE: `+lang+`
 	link.connected.Store(true)
 	reader := newStubReader()
 	virtual := hass.DefaultVirtualSwitches(cfg.ChargeActiveValue, cfg.DischargeActiveValue)
-	discovery := hass.New(cfg.HASSBaseTopic, cfg.MQTTTopic, catalog, cfg.Language, virtual, cfg.DeviceName)
+	discovery := hass.New(cfg.MQTTTopic, catalog, cfg.Language, virtual, cfg.DeviceName)
 	discovery.Initialize(goldenSerial, goldenFirmware, goldenEquipment)
 	tick := time.Date(2026, 5, 25, 14, 30, 45, 0, time.UTC)
 	deps := Deps{
@@ -751,7 +751,7 @@ func (c contractComponent) checkCommand(coord *Coordinator, reader *stubReader, 
 			return
 		}
 		for _, code := range enumCodes(reg) {
-			token := wireValue(reg, code, nil, coord.deps.Cfg.RoundFloat)
+			token := wireValue(reg, code, nil)
 			obj, _ := json.Marshal(map[string]any{"val": token})
 			option, err := c.render("value_template", obj)
 			if err != nil || !slices.Contains(c.options(), option) {

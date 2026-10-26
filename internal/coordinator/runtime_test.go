@@ -21,11 +21,10 @@ import (
 	"github.com/SukramJ/go-mtec2mqtt/internal/registers"
 )
 
-// This file covers what ADR 0070 phase 6 steps 4 and 5 moved onto
-// go-hamqtt: the state plane's de-duplication and its delivery guarantee,
-// the bridge availability announcements, and the command router. The
-// topic tree itself is pinned next door, in topics_golden_test.go, and
-// nothing here may move a byte of it.
+// This file covers what runs on go-hamqtt: the state plane's
+// de-duplication and its delivery guarantee, the bridge availability
+// announcements, and the command router. The topic tree itself is pinned
+// next door, in topics_golden_test.go.
 
 // --- step 4: the state plane ------------------------------------------------
 
@@ -431,136 +430,8 @@ func TestCommandRouteAndFilterAreOneString(t *testing.T) {
 	}
 }
 
-// TestTwoInstancesShareEveryConfigTopicAndClaimNoneOfEachOthers is the
-// #52-era test, rewritten, because #53 falsified the conclusion it was
-// written with and nothing revisited it.
-//
-// # What it used to say, and why that went stale
-//
-// It recorded that the ownership predicates overlap COMPLETELY and that
-// this "is not a regression": with the shipped defaults a unique_id
-// carries no serial, so two instances render the same 100 config topics
-// with the same unique_ids, "their published sets are therefore identical,
-// which is why neither judges the other's configs orphaned".
-//
-// That last clause stopped being true one PR later. An upgraded instance
-// publishes ONE device document and no per-entity config at all, so its
-// published set no longer names those 100 topics — and every one of the
-// not-yet-upgraded sibling's retained configs became an orphan by the
-// upgraded instance's own rule. A staggered upgrade of two instances,
-// which is what upgrading two containers, two add-ons or two systemd units
-// IS, therefore had the first one to restart delete the second one's
-// entire fleet, permanently: the sibling has no reason to republish.
-//
-// The test could not see it because it only asked the predicates; it never
-// drove the sweep or the supersede list. TestAStaggeredUpgradeDoesNotDelete
-// TheSiblingsFleet does, next door, and is the one that would have failed.
-//
-// # What it asserts now
-//
-//   - The TOPICS still collide, completely, with the shipped defaults.
-//     That is unchanged, real, and the reason HASS_UNIQUE_ID_INCLUDE_SERIAL
-//     must be set on BOTH instances before upgrading (README, changelog).
-//   - The OWNERSHIP predicates do not: each instance declines the other's
-//     payload in both configurations, because Discovery.IsOwnConfig now
-//     requires the state topic to sit under this inverter's own serial
-//     unconditionally rather than only under the serial-scoped opt-in.
-//   - Only the reverse direction is safe by itself and is asserted to
-//     stay so: 1.9.x's sweep filter does match the new bundle topic, but a
-//     bundle payload carries no top-level unique_id, so the old release's
-//     IsOwnConfig declines it. Old never deletes new.
-func TestTwoInstancesShareEveryConfigTopicAndClaimNoneOfEachOthers(t *testing.T) {
-	catalog, _, err := registers.LoadFromString(testCatalogYAML)
-	if err != nil {
-		t.Fatal(err)
-	}
-	build := func(serial string, scoped bool) *hass.Discovery {
-		d := hass.New("homeassistant", "MTEC", catalog, "en", nil, "")
-		d.IncludeSerialInUniqueIDs(scoped)
-		d.Initialize(serial, "V1", "model")
-		return d
-	}
-	topicsOf := func(d *hass.Discovery) map[string]bool {
-		out := map[string]bool{}
-		for _, e := range d.Entries() {
-			out[e.ConfigTopic] = true
-		}
-		return out
-	}
-
-	// Default configuration: identical topics — still true, still the
-	// operator-visible hazard.
-	a, b := build("SN-A", false), build("SN-B", false)
-	ta, tb := topicsOf(a), topicsOf(b)
-	if len(ta) == 0 || len(ta) != len(tb) {
-		t.Fatalf("entry counts differ: %d vs %d", len(ta), len(tb))
-	}
-	for topic := range ta {
-		if !tb[topic] {
-			t.Fatalf("%q is published by one instance only; the default is meant to be identical", topic)
-		}
-	}
-
-	// …and neither claims the other's, in either configuration. This is
-	// the assertion that replaces the falsified comment.
-	for _, scoped := range []bool{false, true} {
-		x, y := build("SN-A", scoped), build("SN-B", scoped)
-		for _, e := range y.Entries() {
-			if x.IsOwnConfig(e.Payload) {
-				t.Errorf("scoped=%v: instance A claims instance B's %q — its sweep would "+
-					"retract a live sibling's entity, and after the move to the device "+
-					"document it would retract ALL of them", scoped, e.ConfigTopic)
-			}
-		}
-		if !scoped {
-			continue
-		}
-		for _, e := range y.Entries() {
-			if topicsOf(x)[e.ConfigTopic] {
-				t.Errorf("serial-scoped instances still share the config topic %q", e.ConfigTopic)
-			}
-		}
-	}
-}
-
-// TestAStaggeredUpgradeDoesNotDeleteTheSiblingsFleet drives the sweep the
-// rewritten test above only reasons about, in exactly the shape an
-// operator produces by upgrading one of two instances first.
-//
-// The upgraded instance has published its device document, so its claim
-// set names one bundle topic and no per-entity config at all. The window
-// then offers it the not-yet-upgraded sibling's 100 retained configs: same
-// discovery prefix, same "MTEC_" namespace, same MQTT root, same config
-// topics — everything but the serial in the state topic.
-//
-// Not one of them may be retracted. The sibling is live, it has no reason
-// to republish, and Home Assistant simply loses its entities.
-func TestAStaggeredUpgradeDoesNotDeleteTheSiblingsFleet(t *testing.T) {
-	old := reconcileCollectWindow
-	reconcileCollectWindow = 150 * time.Millisecond
-	t.Cleanup(func() { reconcileCollectWindow = old })
-
-	// The sibling instance: another inverter, shipped defaults, therefore
-	// the very same config topics this instance used to publish.
-	const (
-		siblingSerial = "MTEC-TEST-002"
-		siblingCfg    = "homeassistant/select/MTEC_mode/config"
-		siblingCfg2   = "homeassistant/sensor/MTEC_grid_power/config"
-	)
-	retracted := sweepFixture(t, map[string][]byte{
-		siblingCfg: []byte(`{"unique_id":"MTEC_mode","state_topic":"MTEC/` +
-			siblingSerial + `/config/mode/state"}`),
-		siblingCfg2: []byte(`{"unique_id":"MTEC_grid_power","state_topic":"MTEC/` +
-			siblingSerial + `/now-base/grid_power/state"}`),
-	})
-	if len(retracted) != 0 {
-		t.Fatalf("a staggered upgrade retracted %v — that is the not-yet-upgraded "+
-			"sibling instance's entire fleet, and it will not republish", retracted)
-	}
-}
-
 // TestEmptyStatePayloadIsRefusedByBothLayers records why the poll loop's
-// own empty-payload guard (F8) is now belt AND braces, and asserts the
+// own empty-payload guard is now belt AND braces, and asserts the
 // braces.
 //
 // On the retained state plane an empty payload is MQTT's retraction: it
@@ -602,8 +473,7 @@ func TestEmptyStatePayloadIsRefusedByBothLayers(t *testing.T) {
 // them. Measured before the fix: republished 0 times, discoverySent true.
 //
 // Home Assistant would then show no entities for this device until the
-// DAEMON was restarted, with nothing in either log. 1.9.x had no such gate
-// — its per-entity replay re-sent all 100 configs on every birth.
+// DAEMON was restarted, with nothing in either log.
 //
 // resetHAPlane plus the discoverySent clear is the fix, and both halves are
 // asserted: the republisher must be armed, and the write must actually go

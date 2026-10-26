@@ -21,6 +21,7 @@
 #  type: STR
 #  unit: "%"
 #  scale: 10
+#  precision: 1          # decimals a float is rounded to on the wire (default 3)
 #  writable: True
 #  mqtt: serial_no
 #  group: config

@@ -29,8 +29,7 @@ func LoadFromString(s string) (*Map, []string, error) {
 
 // Load parses registers.yaml from path and returns a populated Map.
 //
-// Entries with missing or empty `name` are skipped with no error —
-// matches the lenient behaviour of init_register_map in Python so a
+// Entries with missing or empty `name` are skipped with no error, so a
 // half-edited YAML file does not bring the daemon down. Diagnostics
 // for skipped entries are returned via the second result; the caller
 // can log them.
@@ -149,6 +148,9 @@ func validateEntry(reg *Register, isModbus bool, addr uint16) string {
 	}
 	if reg.Scale < 1 {
 		return fmt.Sprintf("field 'scale' %d must be >= 1", reg.Scale)
+	}
+	if reg.Precision != nil && (*reg.Precision < 0 || *reg.Precision > maxPrecision) {
+		return fmt.Sprintf("field 'precision' %d out of range 0..%d", *reg.Precision, maxPrecision)
 	}
 	if !knownDataTypes[reg.Type] {
 		return fmt.Sprintf("unknown data type %q", reg.Type)
@@ -308,13 +310,11 @@ func parse(r io.Reader, source string) (*Map, []string, error) {
 		// A catalog written for a release before 2.0.0 names the six live
 		// groups with a hyphen. The poll loops ask for the snake_case
 		// constants, so such a group would be polled by nobody and its
-		// registers would silently stop publishing; accept the old
-		// spelling and say so instead.
-		if g, ok := groupFromLegacy(reg.Group); ok {
-			diagnostics = append(diagnostics,
-				fmt.Sprintf("keep %q: group %q is the pre-2.0.0 spelling of %q; "+
-					"update registers.yaml", key, reg.Group, g))
-			reg.Group = g
+		// registers would silently stop publishing.
+		if g, ok := renamedGroups[reg.Group]; ok {
+			return nil, nil, fmt.Errorf("registers: %s: register %q uses group %q, the spelling "+
+				"before 2.0.0; rename it to %q (or use the registers.yaml this release ships)",
+				source, key, reg.Group, g)
 		}
 
 		// The mqtt suffix (or, when it is empty, the register name) and

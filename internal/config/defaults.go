@@ -5,14 +5,9 @@ package config
 
 import "strings"
 
-// Default values applied when the YAML omits a field. These mirror
-// ConfigSchema in aiomtec2mqtt/config_schema.py — the daemon must keep
-// the same defaults so existing config.yaml files behave the same way
-// when loaded by the Go port.
+// Default values applied when the YAML omits a field. Changing one changes
+// the behaviour of every configuration that omits it.
 const (
-	DefaultModbusFramer  = "rtu"
-	DefaultModbusRetries = 3
-
 	// DefaultMQTTTopic is the instance name when MQTT_TOPIC is unset
 	// (openccu-loom ADR 0083). Releases before 2.0.0 had no default and
 	// required the key, so every existing installation configured a value
@@ -24,9 +19,8 @@ const (
 	DefaultMQTTMaintenance   = true
 	DefaultMQTTStatsInterval = 60
 
-	DefaultMQTTLogin       = ""
-	DefaultMQTTPassword    = ""
-	DefaultMQTTFloatFormat = ".3f"
+	DefaultMQTTLogin    = ""
+	DefaultMQTTPassword = ""
 
 	// DefaultMQTTSSL / DefaultMQTTSSLInsecure keep existing plain-TCP
 	// deployments unchanged on upgrade: TLS is opt-in, and even with TLS
@@ -73,8 +67,8 @@ const (
 
 // rawHasKey reports whether raw contains key, compared case-
 // insensitively. yaml.v3 binds struct fields against their yaml tag
-// case-insensitively (e.g. "modbus_retries: 0" decodes into
-// Config.ModbusRetries exactly like "MODBUS_RETRIES: 0" does), but raw
+// case-insensitively (e.g. "refresh_now: 0" decodes into
+// Config.RefreshNow exactly like "REFRESH_NOW: 0" does), but raw
 // is a plain map[string]any decoded straight from the document, so its
 // keys keep whatever case the YAML author (or an MTEC_* env var) used.
 // A presence check that only tries the canonical upper-case tag would
@@ -91,7 +85,7 @@ func rawHasKey(raw map[string]any, key string) bool {
 
 // applyDefaults fills in any field whose YAML+env round left it at its
 // zero value with the documented default. For fields where the zero
-// value is itself a legal, documented setting — MODBUS_RETRIES,
+// value is itself a legal, documented setting —
 // MQTT_MAINTENANCE, MQTT_STATS_INTERVAL, HASS_BIRTH_GRACETIME, REFRESH_NOW/CONFIG/DAY/STATIC/TOTAL,
 // CHARGE_ACTIVE_VALUE, DISCHARGE_ACTIVE_VALUE (see [Validate]) — key
 // presence in raw, not the zero value, decides whether the default
@@ -103,14 +97,6 @@ func rawHasKey(raw map[string]any, key string) bool {
 // Fields without a default — the mandatory connection parameters —
 // are left at zero and caught by [Validate].
 func applyDefaults(c *Config, raw map[string]any) {
-	if c.ModbusFramer == "" {
-		c.ModbusFramer = DefaultModbusFramer
-	}
-	if !rawHasKey(raw, "MODBUS_RETRIES") {
-		// DefaultModbusRetries is 3, so an explicit MODBUS_RETRIES: 0
-		// must survive — only default when the key is truly absent.
-		c.ModbusRetries = DefaultModbusRetries
-	}
 	if c.MQTTTopic == "" {
 		c.MQTTTopic = DefaultMQTTTopic
 	}
@@ -122,9 +108,6 @@ func applyDefaults(c *Config, raw map[string]any) {
 	if !rawHasKey(raw, "MQTT_STATS_INTERVAL") {
 		// An explicit 0 switches the stats off and must survive.
 		c.MQTTStatsInterval = DefaultMQTTStatsInterval
-	}
-	if c.MQTTFloatFormat == "" {
-		c.MQTTFloatFormat = DefaultMQTTFloatFormat
 	}
 	// Normalised, not merely defaulted. HASS_BASE_TOPIC is a topic PREFIX
 	// and every consumer of it appends "/<something>", so a value written

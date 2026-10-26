@@ -105,3 +105,13 @@ func TestStatusItemsAreUnique(t *testing.T) {
 		t.Error("batterymode status missing")
 	}
 }
+
+func TestSourceKey(t *testing.T) {
+	t.Parallel()
+	if got := SourceKey(Item{RoleGrid, KeyPower}); got != "grid_power" {
+		t.Errorf("grid power source = %q", got)
+	}
+	if got := SourceKey(BatteryMode); got != "" {
+		t.Errorf("batterymode source = %q, want none", got)
+	}
+}

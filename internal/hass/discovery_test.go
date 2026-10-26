@@ -4,784 +4,193 @@
 package hass
 
 import (
-	"encoding/json"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/SukramJ/go-mtec2mqtt/internal/registers"
 )
 
-// catalogYAML covers one register per supported HA platform plus a
-// register without any HA hints (must be skipped). Keeping the
-// fixture inline so a refactor of registers.yaml does not silently
-// break the discovery tests.
-const catalogYAML = `
-"11000":
-  name: Grid power
-  length: 2
-  type: I32
-  unit: W
-  mqtt: grid_power
-  group: now_base
-  hass_device_class: power
-  hass_value_template: "{{ value | round(0) }}"
-  hass_state_class: measurement
-
-"10112":
-  name: Fault flag
-  length: 2
-  type: BIT
-  mqtt: fault_flag
-  group: now_base
-  hass_device_class: enum
-  hass_value_items:
-    1: "Mains Lost"
-    2: "Grid Voltage Fault"
-
-"52000":
-  name: Operation mode
-  length: 1
-  type: U16
-  writable: true
-  mqtt: mode
-  group: config
-  hass_component_type: select
-  hass_value_items:
-    0: "General"
-    1: "Eco"
-    2: "Backup"
-
-"52001":
-  name: Inject limit
-  length: 1
-  type: U16
-  scale: 10
-  writable: true
-  mqtt: grid_inject_limit
-  group: config
-  unit: "W"
-  hass_component_type: number
-  hass_device_class: power
-
-"52002":
-  name: Grid inject enable
-  length: 1
-  type: U16
-  writable: true
-  mqtt: grid_inject_switch
-  group: config
-  hass_component_type: switch
-  hass_payload_on: "1"
-  hass_payload_off: "0"
-
-"99999":
-  name: No HA hints
-  length: 1
-  type: U16
-  mqtt: opaque
-  group: config
-`
-
-func loadCatalog(t *testing.T) *registers.Map {
+// components renders d's document and returns its components as decoded
+// JSON, keyed by component key ("<platform>.<mqtt key>").
+func components(t *testing.T, d *Discovery) map[string]map[string]any {
 	t.Helper()
-	m, _, err := registers.LoadFromString(catalogYAML)
+	b, err := RenderBundle(d, BundleOrigin(goldenOriginSW))
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("RenderBundle: %v", err)
 	}
-	return m
+	out := map[string]map[string]any{}
+	for k, v := range bundleBody(t, b)["components"].(map[string]any) {
+		out[k] = v.(map[string]any)
+	}
+	return out
 }
 
-func newDiscovery(t *testing.T) *Discovery {
+func component(t *testing.T, comps map[string]map[string]any, key string) map[string]any {
 	t.Helper()
-	d := New("homeassistant", "MTEC", loadCatalog(t), "en", nil, "")
-	d.Initialize("SN12345", "V27.52.4.0", "8.0K-25A-3P")
-	return d
-}
-
-// findEntry returns the first entry whose ConfigTopic contains the
-// substring needle, or fails the test.
-func findEntry(t *testing.T, d *Discovery, needle string) Entry {
-	t.Helper()
-	for _, e := range d.Entries() {
-		if strings.Contains(e.ConfigTopic, needle) {
-			return e
-		}
+	c, ok := comps[key]
+	if !ok {
+		t.Fatalf("no component %s", key)
 	}
-	t.Fatalf("no entry whose ConfigTopic contains %q\nentries: %s", needle, dumpTopics(d))
-	return Entry{}
-}
-
-func dumpTopics(d *Discovery) string {
-	parts := make([]string, len(d.Entries()))
-	for i, e := range d.Entries() {
-		parts[i] = e.ConfigTopic
-	}
-	return strings.Join(parts, "\n  ")
-}
-
-// unmarshalEntry parses the JSON Payload back into a map for
-// field-level assertions.
-func unmarshalEntry(t *testing.T, e Entry) map[string]any {
-	t.Helper()
-	var m map[string]any
-	if err := json.Unmarshal(e.Payload, &m); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	return m
-}
-
-// --- entry-set assertions --------------------------------------------------
-
-func TestDiscoveryEntryCountAndSkipping(t *testing.T) {
-	d := newDiscovery(t)
-	// 11000 → sensor (1), 10112 → sensor (1), 52000 → select + sensor
-	// (2), 52001 → number + sensor (2), 52002 → switch + binary_sensor
-	// (2). Total = 8. The register without any hass_ field must be
-	// skipped — that's the silent contract HasHassHints encodes.
-	if got, want := len(d.Entries()), 8; got != want {
-		t.Fatalf("entries: got %d, want %d\nentries:\n  %s",
-			got, want, dumpTopics(d))
-	}
+	return c
 }
 
 func TestDiscoveryIsInitialized(t *testing.T) {
-	d := New("homeassistant", "MTEC", loadCatalog(t), "en", nil, "")
+	d := New("MTEC", realCatalog(t), "en", nil, "")
 	if d.IsInitialized() {
-		t.Fatal("must report uninitialised before Initialize")
+		t.Fatal("initialized before Initialize")
 	}
-	d.Initialize("SN", "V1", "model")
+	d.Initialize(goldenSerial, goldenFirmware, goldenEquipment)
 	if !d.IsInitialized() {
-		t.Fatal("must report initialised after Initialize")
+		t.Fatal("not initialized after Initialize")
 	}
 }
 
-func TestDiscoveryRebuildOnReinitialize(t *testing.T) {
-	d := newDiscovery(t)
-	first := len(d.Entries())
-	// Re-init with a different serial — entries must rebuild, not append.
-	d.Initialize("OTHER", "V2", "other-model")
-	if got := len(d.Entries()); got != first {
-		t.Fatalf("re-init changed entry count: %d → %d", first, got)
-	}
-	// State topic must reflect the new serial.
-	e := findEntry(t, d, "MTEC_grid_power")
-	p := unmarshalEntry(t, e)
-	if !strings.Contains(p["state_topic"].(string), "/OTHER/") {
-		t.Errorf("state_topic not updated for new serial: %v", p["state_topic"])
-	}
-}
-
-// --- per-platform shape ----------------------------------------------------
-
-func TestSensorEntryShape(t *testing.T) {
-	d := newDiscovery(t)
-	e := findEntry(t, d, "sensor/MTEC_grid_power/config")
-	if e.CommandTopic != "" {
-		t.Errorf("sensor must have no command topic, got %q", e.CommandTopic)
-	}
-	p := unmarshalEntry(t, e)
-	want := map[string]any{
-		"name":                "Grid power",
-		"state_topic":         "MTEC/SN12345/now-base/grid_power/state",
-		"unique_id":           "MTEC_grid_power",
-		"unit_of_measurement": "W",
-		"device_class":        "power",
-		"value_template":      "{{ value | round(0) }}",
-		"state_class":         "measurement",
-		"enabled_by_default":  true,
-	}
-	assertSubset(t, p, want)
-	if _, ok := p["device"].(map[string]any); !ok {
-		t.Errorf("sensor missing device block")
-	}
-}
-
-func TestBinarySensorOmitsUnit(t *testing.T) {
-	d := newDiscovery(t)
-	// 10112 is a BIT register without explicit component_type — defaults
-	// to sensor. We still want to assert the platform routing path
-	// works for binary_sensor. Use the SWITCH register's binary view
-	// instead: switch creates a switch + a binary_sensor.
-	e := findEntry(t, d, "binary_sensor/MTEC_grid_inject_switch/config")
-	p := unmarshalEntry(t, e)
-	if _, has := p["unit_of_measurement"]; has {
-		t.Error("binary_sensor must not carry unit_of_measurement")
-	}
-	if got := p["payload_on"]; got != "1" {
-		t.Errorf("payload_on: got %v, want \"1\"", got)
-	}
-	if got := p["payload_off"]; got != "0" {
-		t.Errorf("payload_off: got %v, want \"0\"", got)
-	}
-}
-
-func TestNumberEntryEmitsCommandTopic(t *testing.T) {
-	d := newDiscovery(t)
-	e := findEntry(t, d, "number/MTEC_grid_inject_limit/config")
-	if e.CommandTopic != "MTEC/SN12345/config/grid_inject_limit/set" {
-		t.Errorf("number command topic: got %q", e.CommandTopic)
-	}
-	p := unmarshalEntry(t, e)
-	if p["mode"] != "box" {
-		t.Errorf("number mode: got %v, want \"box\"", p["mode"])
-	}
-	// Numbers must be disabled by default — matches Python so they
-	// don't clutter the UI for users who never push values.
-	if p["enabled_by_default"] != false {
-		t.Errorf("number must default to disabled, got %v", p["enabled_by_default"])
-	}
-	// A sensor view must also exist for the same register.
-	if _, found := findEntryOK(d, "sensor/MTEC_grid_inject_limit/config"); !found {
-		t.Error("number must also publish a sensor view")
-	}
-}
-
-func TestSelectEntryOptionsAreSortedByCode(t *testing.T) {
-	d := newDiscovery(t)
-	e := findEntry(t, d, "select/MTEC_mode/config")
-	p := unmarshalEntry(t, e)
-	got, _ := p["options"].([]any)
-	want := []string{"General", "Eco", "Backup"}
-	if len(got) != len(want) {
-		t.Fatalf("options length: got %d, want %d", len(got), len(want))
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("options[%d]: got %v, want %q", i, got[i], want[i])
+// A writable register yields its control and a read-only view; a switch
+// also a binary sensor. Only the controls carry a command topic.
+func TestControlsAndTheirReadOnlyViews(t *testing.T) {
+	comps := components(t, realDiscovery(t, "en"))
+	for _, key := range []string{"number.charge_limit", "select.mode", "switch.grid_inject_switch"} {
+		if _, ok := component(t, comps, key)["command_topic"].(string); !ok {
+			t.Errorf("%s has no command_topic", key)
 		}
 	}
-}
-
-func TestSwitchAlsoPublishesBinarySensor(t *testing.T) {
-	d := newDiscovery(t)
-	if _, ok := findEntryOK(d, "switch/MTEC_grid_inject_switch/config"); !ok {
-		t.Error("switch entry missing")
-	}
-	if _, ok := findEntryOK(d, "binary_sensor/MTEC_grid_inject_switch/config"); !ok {
-		t.Error("switch did not also publish its binary_sensor view")
-	}
-}
-
-// --- deterministic output --------------------------------------------------
-
-func TestDiscoveryEntryOrderFollowsYAML(t *testing.T) {
-	d := newDiscovery(t)
-	// First two entries must be the sensors for the first two YAML
-	// registers (11000, 10112), in YAML order. The remaining entries'
-	// internal ordering varies by component type, but the *first*
-	// entry for each register must follow the catalog.
-	got := []string{
-		d.Entries()[0].ConfigTopic,
-		d.Entries()[1].ConfigTopic,
-	}
-	want := []string{
-		"homeassistant/sensor/MTEC_grid_power/config",
-		"homeassistant/sensor/MTEC_fault_flag/config",
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("entry[%d]: got %q, want %q", i, got[i], want[i])
+	for _, key := range []string{"sensor.charge_limit", "sensor.mode", "binary_sensor.grid_inject_switch"} {
+		if _, ok := component(t, comps, key)["command_topic"]; ok {
+			t.Errorf("read-only view %s carries a command_topic", key)
 		}
 	}
-}
-
-// --- smoke test against the real catalog -----------------------------------
-
-func TestDiscoveryAgainstRealCatalog(t *testing.T) {
-	m, _, err := registers.Load("../../registers.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	d := New("homeassistant", "MTEC", m, "en", nil, "")
-	d.Initialize("SN12345", "V27.52.4.0", "8.0K-25A-3P")
-
-	if len(d.Entries()) < 50 {
-		t.Fatalf("real catalog produced suspiciously few entries: %d", len(d.Entries()))
-	}
-	// Every entry's JSON must round-trip cleanly — no half-formed
-	// payloads slipping through.
-	for i, e := range d.Entries() {
-		var m map[string]any
-		if err := json.Unmarshal(e.Payload, &m); err != nil {
-			t.Fatalf("entry %d (%s): invalid json: %v", i, e.ConfigTopic, err)
-		}
-		if _, has := m["unique_id"]; !has {
-			t.Errorf("entry %d (%s) missing unique_id", i, e.ConfigTopic)
-		}
+	if got := component(t, comps, "number.charge_limit")["command_topic"]; got != "MTEC/set/MT1234567890/config/charge_limit" {
+		t.Errorf("number command_topic = %v", got)
 	}
 }
 
-// --- default_entity_id + localisation + virtual switches -------------------
-
-// localisedCatalog carries German names + enum labels so the de-language
-// assertions have something to translate.
-const localisedCatalogYAML = `
-"11000":
-  name: Grid power
-  name_de: "Netzleistung"
-  length: 2
-  type: I32
-  unit: W
-  mqtt: grid_power
-  group: now_base
-  hass_device_class: power
-
-"52000":
-  name: Operation mode
-  name_de: "Betriebsmodus"
-  length: 1
-  type: U16
-  writable: true
-  mqtt: mode
-  group: config
-  hass_component_type: select
-  hass_value_items:
-    0: "General"
-    1: "Eco"
-  hass_value_items_de:
-    0: "Allgemein"
-    1: "Sparmodus"
-`
-
-func TestEntriesCarryStableEntityID(t *testing.T) {
-	d := newDiscovery(t)
-	// The entity_id seeds derive from the English register *name*
-	// (slug("Inject limit") = "inject_limit"), NOT the mqtt topic key
-	// ("grid_inject_limit") — this matches the Python aiomtec2mqtt entity
-	// ids. The unique_id / config topic still key on the mqtt suffix. We
-	// default_entity_id ("<domain>.<id>") is the only seed we publish;
-	// the removed object_id option is dropped by HA's discovery schema.
-	e := findEntry(t, d, "number/MTEC_grid_inject_limit/config")
-	p := unmarshalEntry(t, e)
-	if _, ok := p["object_id"]; ok {
-		t.Error("object_id must not be published: HA drops it unread")
+// Enum options: the select offers the labels in code order, the enum
+// sensor the same plus "Unknown"; in German the labels are German.
+func TestEnumOptions(t *testing.T) {
+	en := components(t, realDiscovery(t, "en"))
+	if got := component(t, en, "select.mode")["options"]; !equalStrings(got, "General mode", "Economic mode", "UPS mode", "Off grid") {
+		t.Errorf("select options = %v", got)
 	}
-	if p["default_entity_id"] != "number.inject_limit" {
-		t.Errorf("default_entity_id = %v, want number.inject_limit", p["default_entity_id"])
+	if got := component(t, en, "sensor.mode")["options"]; !equalStrings(got, "General mode", "Economic mode", "UPS mode", "Off grid", "Unknown") {
+		t.Errorf("enum sensor options = %v", got)
+	}
+	if _, ok := component(t, en, "sensor.grid_power")["options"]; ok {
+		t.Error("a non-enum sensor carries options")
+	}
+	de := components(t, realDiscovery(t, "de"))
+	if got := component(t, de, "select.mode")["options"]; !equalStrings(got, "Allgemeiner Modus", "Sparmodus", "USV-Modus", "Inselbetrieb") {
+		t.Errorf("German select options = %v", got)
+	}
+	// The wire carries the English token; the German select translates it.
+	if tmpl, _ := component(t, de, "select.mode")["command_template"].(string); !strings.Contains(tmpl, "'Sparmodus': 'Economic mode'") {
+		t.Errorf("German select command_template does not map labels to tokens: %q", tmpl)
 	}
 }
 
-// The entity_id seeds must stay English even when LANGUAGE selects a
-// translated friendly name — only "name" is localised.
+// Names follow LANGUAGE; entity ids and unique_ids do not.
 func TestEntityIDSeedsStayEnglishUnderTranslation(t *testing.T) {
-	m, _, err := registers.LoadFromString(localisedCatalogYAML)
-	if err != nil {
-		t.Fatal(err)
+	en := components(t, realDiscovery(t, "en"))
+	de := components(t, realDiscovery(t, "de"))
+	if got := component(t, de, "sensor.grid_power")["name"]; got != "Netzleistung" {
+		t.Errorf("German name = %v", got)
 	}
-	d := New("homeassistant", "MTEC", m, "de", nil, "")
-	d.Initialize("SN", "V1", "model")
-
-	p := unmarshalEntry(t, findEntry(t, d, "sensor/MTEC_grid_power/config"))
-	if p["name"] != "Netzleistung" {
-		t.Errorf("name must be localised, got %v", p["name"])
+	if got := component(t, en, "sensor.grid_power")["name"]; got != "Grid power" {
+		t.Errorf("English name = %v", got)
 	}
-	if p["default_entity_id"] != "sensor.grid_power" {
-		t.Errorf("default_entity_id must stay English, got %v", p["default_entity_id"])
+	for key, c := range en {
+		for _, field := range []string{"unique_id", "default_entity_id"} {
+			if c[field] != de[key][field] {
+				t.Errorf("%s: %s differs by language: %v vs %v", key, field, c[field], de[key][field])
+			}
+		}
 	}
-}
-
-func TestGermanNamesAndOptions(t *testing.T) {
-	m, _, err := registers.LoadFromString(localisedCatalogYAML)
-	if err != nil {
-		t.Fatal(err)
-	}
-	d := New("homeassistant", "MTEC", m, "de", nil, "")
-	d.Initialize("SN", "V1", "model")
-
-	sensor := unmarshalEntry(t, findEntry(t, d, "sensor/MTEC_grid_power/config"))
-	if sensor["name"] != "Netzleistung" {
-		t.Errorf("de sensor name = %v, want Netzleistung", sensor["name"])
-	}
-	if sensor["default_entity_id"] != "sensor.grid_power" {
-		t.Errorf("default_entity_id = %v, want sensor.grid_power", sensor["default_entity_id"])
-	}
-	sel := unmarshalEntry(t, findEntry(t, d, "select/MTEC_mode/config"))
-	if sel["name"] != "Betriebsmodus" {
-		t.Errorf("de select name = %v, want Betriebsmodus", sel["name"])
-	}
-	opts, _ := sel["options"].([]any)
-	want := []any{"Allgemein", "Sparmodus"}
-	if len(opts) != 2 || opts[0] != want[0] || opts[1] != want[1] {
-		t.Errorf("de options = %v, want %v", opts, want)
+	if got := component(t, en, "select.mode")["default_entity_id"]; got != "select.inverter_operation_mode" {
+		t.Errorf("entity id seed = %v, want the slugged English name", got)
 	}
 }
 
+// The synthetic switches: localised name, enabled by default (unlike the
+// real controls), and a command topic under their group.
 func TestVirtualSwitchEntities(t *testing.T) {
-	vs := DefaultVirtualSwitches(50, 40)
-	d := New("homeassistant", "MTEC", loadCatalog(t), "de", vs, "")
-	d.Initialize("SN12345", "V1", "model")
-
-	e, ok := findEntryOK(d, "switch/MTEC_charge_active/config")
-	if !ok {
-		t.Fatalf("charge_active switch entry missing\n%s", dumpTopics(d))
+	en := components(t, realDiscovery(t, "en"))
+	de := components(t, realDiscovery(t, "de"))
+	for _, key := range []string{"charge_active", "discharge_active"} {
+		c := component(t, en, "switch."+key)
+		if c["unique_id"] != "MTEC_"+key || c["enabled_by_default"] != true {
+			t.Errorf("%s: unique_id %v enabled %v", key, c["unique_id"], c["enabled_by_default"])
+		}
+		if c["command_topic"] != "MTEC/set/MT1234567890/config/"+key {
+			t.Errorf("%s: command_topic %v", key, c["command_topic"])
+		}
 	}
-	if e.CommandTopic != "MTEC/SN12345/config/charge_active/set" {
-		t.Errorf("command topic = %q", e.CommandTopic)
+	if got := component(t, de, "switch.charge_active")["name"]; got != "Laden aktiv" {
+		t.Errorf("German name = %v", got)
 	}
-	p := unmarshalEntry(t, e)
-	if p["name"] != "Laden aktiv" {
-		t.Errorf("de name = %v, want 'Laden aktiv'", p["name"])
-	}
-	if p["default_entity_id"] != "switch.charge_active" {
-		t.Errorf("default_entity_id = %v, want switch.charge_active", p["default_entity_id"])
-	}
-	if p["payload_on"] != "1" || p["payload_off"] != "0" {
-		t.Errorf("payloads = %v/%v, want 1/0", p["payload_on"], p["payload_off"])
-	}
-	if p["state_topic"] != "MTEC/SN12345/config/charge_active/state" {
-		t.Errorf("state topic = %v", p["state_topic"])
-	}
-	if _, ok := findEntryOK(d, "switch/MTEC_discharge_active/config"); !ok {
-		t.Error("discharge_active switch entry missing")
+	if got := component(t, en, "number.charge_limit")["enabled_by_default"]; got != false {
+		t.Errorf("a real control is enabled by default: %v", got)
 	}
 }
-
-// --- orphan-cleanup guards -------------------------------------------------
-
-func TestIsOwnConfig(t *testing.T) {
-	d := New("homeassistant", "MTEC", loadCatalog(t), "en", nil, "")
-	cases := []struct {
-		name    string
-		payload string
-		want    bool
-	}{
-		{
-			name:    "ours",
-			payload: `{"unique_id":"MTEC_grid_power","state_topic":"MTEC/SN12345/now-base/grid_power/state"}`,
-			want:    true,
-		},
-		{
-			// A sibling instance against a SECOND inverter on the same
-			// broker, with the shipped defaults: same namespace, same MQTT
-			// root, a different serial. Declined — its entities are not
-			// this daemon's to retract. See TestAStaggeredUpgradeDoesNotDelete
-			// TheSiblingsFleet in internal/coordinator.
-			name:    "a sibling inverter's config",
-			payload: `{"unique_id":"MTEC_grid_power","state_topic":"MTEC/SN99999/now-base/grid_power/state"}`,
-			want:    false,
-		},
-		{
-			// Ownership that cannot be proven is not claimed. No config
-			// this daemon publishes lacks a state topic — all 100 carry
-			// one, asserted by TestEveryPublishedConfigIsClaimedByItsOwn
-			// Instance — so declining costs nothing and is the safe
-			// direction for a predicate whose only use is deletion.
-			name:    "no state topic at all",
-			payload: `{"unique_id":"MTEC_charge_active"}`,
-			want:    false,
-		},
-		{
-			name:    "foreign unique_id",
-			payload: `{"unique_id":"zigbee2mqtt_0x123","state_topic":"zigbee2mqtt/x"}`,
-			want:    false,
-		},
-		{
-			name:    "MTEC uid but foreign state root",
-			payload: `{"unique_id":"MTEC_grid_power","state_topic":"other/x"}`,
-			want:    false,
-		},
-		{
-			name:    "not json",
-			payload: `not json`,
-			want:    false,
-		},
-	}
-	d.Initialize("SN12345", "V1", "model")
-	for _, tc := range cases {
-		if got := d.IsOwnConfig([]byte(tc.payload)); got != tc.want {
-			t.Errorf("%s: IsOwnConfig = %v, want %v", tc.name, got, tc.want)
-		}
-	}
-}
-
-// TestIsOwnConfigClaimsNothingBeforeTheSerialIsKnown pins the other half
-// of the serial requirement: until the STATIC read supplies the serial
-// there is no way to tell this inverter's config from a sibling's, and an
-// ownership predicate whose only consumer is a retraction must answer "no"
-// when it cannot answer "yes".
-func TestIsOwnConfigClaimsNothingBeforeTheSerialIsKnown(t *testing.T) {
-	d := New("homeassistant", "MTEC", loadCatalog(t), "en", nil, "")
-	const ours = `{"unique_id":"MTEC_grid_power","state_topic":"MTEC/SN12345/now-base/grid_power/state"}`
-	if d.IsOwnConfig([]byte(ours)) {
-		t.Error("an uninitialised Discovery claimed a config; the sweep would retract " +
-			"on a serial it does not have")
-	}
-}
-
-// TestEveryPublishedConfigIsClaimedByItsOwnInstance is what makes the
-// serial requirement free rather than a narrowing that loses something.
-//
-// Every per-entity config this daemon has ever published carries a
-// state_topic under "<root>/<serial>/" — in both unique_id formats — so
-// requiring it declines exactly the sibling instance's configs and nothing
-// of this instance's own. Asserted over the real catalog rather than
-// argued, and in both formats, because the claim is about all of them.
-func TestEveryPublishedConfigIsClaimedByItsOwnInstance(t *testing.T) {
-	for _, scoped := range []bool{false, true} {
-		d := New("homeassistant", "MTEC", loadCatalog(t), "en",
-			DefaultVirtualSwitches(1000, 1000), "")
-		d.IncludeSerialInUniqueIDs(scoped)
-		d.Initialize("SN12345", "V1", "model")
-		entries := d.Entries()
-		if len(entries) == 0 {
-			t.Fatalf("scoped=%v: the builder produced no entries", scoped)
-		}
-		for _, e := range entries {
-			if !d.IsOwnConfig(e.Payload) {
-				t.Errorf("scoped=%v: this daemon declines its own config %q; the sweep "+
-					"would never clear its own orphans", scoped, e.ConfigTopic)
-			}
-		}
-		// And a second instance declines every one of them.
-		sib := New("homeassistant", "MTEC", loadCatalog(t), "en",
-			DefaultVirtualSwitches(1000, 1000), "")
-		sib.IncludeSerialInUniqueIDs(scoped)
-		sib.Initialize("SN99999", "V1", "model")
-		for _, e := range entries {
-			if sib.IsOwnConfig(e.Payload) {
-				t.Errorf("scoped=%v: a sibling instance claims %q; its sweep would retract "+
-					"a live inverter's entity", scoped, e.ConfigTopic)
-			}
-		}
-	}
-}
-
-// --- helpers ---------------------------------------------------------------
-
-func findEntryOK(d *Discovery, needle string) (Entry, bool) {
-	for _, e := range d.Entries() {
-		if strings.Contains(e.ConfigTopic, needle) {
-			return e, true
-		}
-	}
-	return Entry{}, false
-}
-
-// assertSubset checks that every key/value in want is present in got
-// with the same value. Used so tests pin down meaningful fields
-// without having to enumerate the whole payload — additions to
-// device{} etc. shouldn't break unrelated tests.
-func assertSubset(t *testing.T, got, want map[string]any) {
-	t.Helper()
-	for k, v := range want {
-		gv, ok := got[k]
-		if !ok {
-			t.Errorf("missing key %q", k)
-			continue
-		}
-		if !equalAny(gv, v) {
-			t.Errorf("%q: got %v (%T), want %v (%T)", k, gv, gv, v, v)
-		}
-	}
-}
-
-// --- device name / identity --------------------------------------------------
 
 func TestSlugify(t *testing.T) {
-	cases := map[string]string{
-		"Wohnzimmer":          "wohnzimmer",
-		"Wohnzimmer Inverter": "wohnzimmer_inverter",
-		"  PV-Dach #2  ":      "pv_dach_2",
-		"ÜÄÖ":                 "", // no ASCII alnum → no usable slug
-		"":                    "",
-		"__a__":               "a",
-		"a.b.c":               "a_b_c",
-	}
-	for in, want := range cases {
+	for in, want := range map[string]string{
+		"Grid power phase A": "grid_power_phase_a",
+		"  MrBurns  ":        "mrburns",
+		"Wohnzimmer-Süd":     "wohnzimmer_s_d",
+		"PV-1 (W)":           "pv_1_w",
+		"___":                "",
+		"":                   "",
+	} {
 		if got := slugify(in); got != want {
-			t.Errorf("slugify(%q): got %q, want %q", in, got, want)
+			t.Errorf("slugify(%q) = %q, want %q", in, got, want)
 		}
 	}
 }
 
-// Without a device name the identity stays exactly as before: bare
-// entity_id seed (default_entity_id "<domain>.<key>"),
-// "MTEC_" unique_id, generic device name. This is the backward-compat guard.
-func TestDeviceNameUnsetKeepsGenericIdentity(t *testing.T) {
-	d := New("homeassistant", "MTEC", loadCatalog(t), "en", nil, "")
-	d.Initialize("SN12345", "V1", "model")
-
-	e := findEntry(t, d, "sensor/MTEC_grid_power/config")
-	p := unmarshalEntry(t, e)
-	if got := p["default_entity_id"]; got != "sensor.grid_power" {
-		t.Errorf("default_entity_id: got %v, want %q", got, "sensor.grid_power")
+// DEVICE_NAME renames the device and seeds the entity ids; unique_ids and
+// the node id stay.
+func TestDeviceNameRewritesNameAndEntityIDsOnly(t *testing.T) {
+	plain := components(t, realDiscovery(t, "en"))
+	named := New("MTEC", realCatalog(t), "en", DefaultVirtualSwitches(50, 50), " Mr Burns ")
+	named.Initialize(goldenSerial, goldenFirmware, goldenEquipment)
+	got := components(t, named)
+	c := component(t, got, "sensor.grid_power")
+	if c["default_entity_id"] != "sensor.mr_burns_grid_power" {
+		t.Errorf("default_entity_id = %v", c["default_entity_id"])
 	}
-	if got := p["unique_id"]; got != "MTEC_grid_power" {
-		t.Errorf("unique_id: got %v, want %q", got, "MTEC_grid_power")
-	}
-	dev := p["device"].(map[string]any)
-	if got := dev["name"]; got != deviceName {
-		t.Errorf("device name: got %v, want %q", got, deviceName)
-	}
-}
-
-// With a device name set, it becomes the HA device name and is slugged
-// into default_entity_id (the fresh entity_id seed). Crucially, unique_id
-// — and therefore the discovery config topic — must stay stable so Home
-// Assistant does not orphan established entities. The MQTT state/command
-// topics must also stay keyed on the serial, unchanged.
-func TestDeviceNameSetRewritesEntityIdentity(t *testing.T) {
-	d := New("homeassistant", "MTEC", loadCatalog(t), "en", nil, "Wohnzimmer Inverter")
-	d.Initialize("SN12345", "V1", "model")
-
-	// Config topic (built from unique_id) is unchanged from the no-name case.
-	e := findEntry(t, d, "sensor/MTEC_grid_power/config")
-	p := unmarshalEntry(t, e)
-	// The seed carries the slug so a fresh entity_id reflects the name.
-	if got := p["default_entity_id"]; got != "sensor.wohnzimmer_inverter_grid_power" {
-		t.Errorf("default_entity_id: got %v, want slugged form", got)
-	}
-	// unique_id must be the stable historic value — never slugged.
-	if got := p["unique_id"]; got != "MTEC_grid_power" {
-		t.Errorf("unique_id must stay stable, got %v", got)
-	}
-	dev := p["device"].(map[string]any)
-	if got := dev["name"]; got != "Wohnzimmer Inverter" {
-		t.Errorf("device name: got %v, want raw configured name", got)
-	}
-	// Identity in the device registry stays the serial, not the name.
-	if got := dev["serial_number"]; got != "SN12345" {
-		t.Errorf("serial_number: got %v, want %q", got, "SN12345")
-	}
-	// Topics remain serial-keyed — no MQTT topic move.
-	if got := p["state_topic"].(string); got != "MTEC/SN12345/now-base/grid_power/state" {
-		t.Errorf("state_topic must stay serial-keyed, got %q", got)
-	}
-	// IsOwnConfig must still recognise the payload as ours.
-	if !d.IsOwnConfig(e.Payload) {
-		t.Error("IsOwnConfig must still match the stable unique_id")
-	}
-}
-
-func equalAny(a, b any) bool {
-	switch av := a.(type) {
-	case string:
-		bv, ok := b.(string)
-		return ok && av == bv
-	case bool:
-		bv, ok := b.(bool)
-		return ok && av == bv
-	case float64:
-		bv, ok := b.(float64)
-		return ok && av == bv
-	case int:
-		bv, ok := b.(int)
-		return ok && av == bv
-	}
-	return false
-}
-
-// --- enum options ------------------------------------------------------------
-
-func TestEnumSensorCarriesOptions(t *testing.T) {
-	d := newDiscovery(t)
-	payload := unmarshalEntry(t, findEntry(t, d, "MTEC_fault_flag"))
-	raw, ok := payload["options"].([]any)
-	if !ok {
-		t.Fatalf("enum sensor payload has no options list: %v", payload)
-	}
-	got := make([]string, len(raw))
-	for i, v := range raw {
-		got[i], _ = v.(string)
-	}
-	want := []string{"Mains Lost", "Grid Voltage Fault", "Unknown"}
-	if len(got) != len(want) {
-		t.Fatalf("options = %v, want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("options[%d] = %q, want %q (full: %v)", i, got[i], want[i], got)
+	for key, p := range plain {
+		if p["unique_id"] != got[key]["unique_id"] {
+			t.Errorf("%s: DEVICE_NAME changed unique_id %v → %v", key, p["unique_id"], got[key]["unique_id"])
 		}
 	}
-	// options excludes unit_of_measurement; the empty unit key must be gone.
-	if _, has := payload["unit_of_measurement"]; has {
-		t.Fatalf("enum sensor payload still carries unit_of_measurement: %v", payload)
+	b, err := RenderBundle(named, BundleOrigin(goldenOriginSW))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dev, _ := bundleBody(t, b)["device"].(map[string]any); dev["name"] != "Mr Burns" {
+		t.Errorf("device name = %v", dev["name"])
 	}
 }
-
-func TestNonEnumSensorHasNoOptions(t *testing.T) {
-	d := newDiscovery(t)
-	payload := unmarshalEntry(t, findEntry(t, d, "MTEC_grid_power"))
-	if _, has := payload["options"]; has {
-		t.Fatalf("non-enum sensor payload unexpectedly carries options: %v", payload)
-	}
-}
-
-// --- serial-scoped unique_ids ------------------------------------------------
 
 func TestSerialScopedUniqueIDsOptIn(t *testing.T) {
-	d := New("homeassistant", "MTEC", loadCatalog(t), "en", nil, "")
+	d := New("MTEC", realCatalog(t), "en", DefaultVirtualSwitches(50, 50), "")
 	d.IncludeSerialInUniqueIDs(true)
-	d.Initialize("SN12345", "V27.52.4.0", "8.0K-25A-3P")
-
-	e := findEntry(t, d, "MTEC_SN12345_grid_power")
-	payload := unmarshalEntry(t, e)
-	if got := payload["unique_id"]; got != "MTEC_SN12345_grid_power" {
-		t.Fatalf("unique_id = %v, want MTEC_SN12345_grid_power", got)
+	d.Initialize(goldenSerial, goldenFirmware, goldenEquipment)
+	comps := components(t, d)
+	if got := component(t, comps, "sensor.grid_power")["unique_id"]; got != "MTEC_MT1234567890_grid_power" {
+		t.Errorf("unique_id = %v", got)
 	}
-	if want := "homeassistant/sensor/MTEC_SN12345_grid_power/config"; e.ConfigTopic != want {
-		t.Fatalf("ConfigTopic = %q, want %q", e.ConfigTopic, want)
+	if got := component(t, comps, "switch.charge_active")["unique_id"]; got != "MTEC_MT1234567890_charge_active" {
+		t.Errorf("virtual switch unique_id = %v", got)
 	}
-}
-
-func TestSerialScopingDefaultsOff(t *testing.T) {
-	d := newDiscovery(t)
-	e := findEntry(t, d, "MTEC_grid_power")
-	payload := unmarshalEntry(t, e)
-	if got := payload["unique_id"]; got != "MTEC_grid_power" {
-		t.Fatalf("unique_id = %v, want legacy MTEC_grid_power", got)
+	if got := component(t, components(t, realDiscovery(t, "en")), "sensor.grid_power")["unique_id"]; got != "MTEC_grid_power" {
+		t.Errorf("default unique_id = %v", got)
 	}
 }
 
-func TestIsOwnConfigSerialScoped(t *testing.T) {
-	d := New("homeassistant", "MTEC", loadCatalog(t), "en", nil, "")
-	d.IncludeSerialInUniqueIDs(true)
-	d.Initialize("SN12345", "V27.52.4.0", "8.0K-25A-3P")
-
-	cases := []struct {
-		name    string
-		payload string
-		want    bool
-	}{
-		{
-			name:    "own scoped id",
-			payload: `{"unique_id":"MTEC_SN12345_grid_power","state_topic":"MTEC/SN12345/now-base/grid_power/state"}`,
-			want:    true,
-		},
-		{
-			name: "own legacy id, our serial in state topic",
-			// Retained leftover from before the opt-in was enabled —
-			// still ours, must be reconcilable.
-			payload: `{"unique_id":"MTEC_grid_power","state_topic":"MTEC/SN12345/now-base/grid_power/state"}`,
-			want:    true,
-		},
-		{
-			name:    "sibling instance, different serial",
-			payload: `{"unique_id":"MTEC_grid_power","state_topic":"MTEC/OTHER99/now-base/grid_power/state"}`,
-			want:    false,
-		},
-		{
-			name:    "foreign integration",
-			payload: `{"unique_id":"zigbee_thing","state_topic":"MTEC/SN12345/x/state"}`,
-			want:    false,
-		},
-		{
-			name:    "no state topic is not claimable when scoped",
-			payload: `{"unique_id":"MTEC_grid_power"}`,
-			want:    false,
-		},
-	}
-	for _, tc := range cases {
-		if got := d.IsOwnConfig([]byte(tc.payload)); got != tc.want {
-			t.Errorf("%s: IsOwnConfig = %v, want %v", tc.name, got, tc.want)
-		}
-	}
-}
-
-// unsupportedPlatformYAML declares two registers whose
-// hass_component_type this builder cannot emit: `button`, which used to be
-// a declared Platform dispatched to an empty case, and a typo, which is
-// the same class of mistake spelled differently.
+// unsupportedPlatformYAML declares two registers whose hass_component_type
+// this builder cannot emit: `button` and a typo.
 const unsupportedPlatformYAML = `
 "52010":
   name: Restart inverter
@@ -811,34 +220,20 @@ const unsupportedPlatformYAML = `
   hass_device_class: power
 `
 
-// TestUnsupportedComponentTypeIsLoud closes F6. `button` was a declared
-// platform with an empty dispatch case: a register asking for one was
-// polled, had its state published, and produced no entity — and no
-// diagnostic. Zero catalog entries declare it, so it was a trap for the
-// next person editing registers.yaml rather than a live defect.
-//
-// The fixed contract is not "button works" but "a platform this builder
-// cannot emit says so". Silently producing nothing is the behaviour under
-// test, and a Home Assistant that rejects a `button` body with no
-// `command_topic` would have been the only other way to find out.
+// A platform this builder cannot emit says so instead of producing nothing,
+// and a second Initialize does not accumulate.
 func TestUnsupportedComponentTypeIsLoud(t *testing.T) {
 	m, _, err := registers.LoadFromString(unsupportedPlatformYAML)
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := New("homeassistant", "MTEC", m, "en", nil, "")
+	d := New("MTEC", m, "en", nil, "")
 	d.Initialize("SER", "1.0", "EB")
 
-	// The supported register still builds; the two unsupported ones do not.
-	for _, e := range d.Entries() {
-		if strings.Contains(e.ConfigTopic, "restart") || strings.Contains(e.ConfigTopic, "typo") {
-			t.Errorf("%s was published for an unsupported hass_component_type", e.ConfigTopic)
-		}
+	comps := components(t, d)
+	if len(comps) != 1 || comps["sensor.grid_power"] == nil {
+		t.Fatalf("components %v, want the plain sensor alone", slices.Collect(maps.Keys(comps)))
 	}
-	if len(d.Entries()) != 1 {
-		t.Fatalf("built %d entries, want 1 (the plain sensor)", len(d.Entries()))
-	}
-
 	diags := d.Diagnostics()
 	if len(diags) != 2 {
 		t.Fatalf("diagnostics = %v, want one per unsupported register", diags)
@@ -849,27 +244,28 @@ func TestUnsupportedComponentTypeIsLoud(t *testing.T) {
 			t.Errorf("diagnostics do not name %s:\n%s", want, joined)
 		}
 	}
-
-	// Re-Initialize must not accumulate: the coordinator calls it again on
-	// every reconnect, and a diagnostic list that grew each time would turn
-	// one catalog mistake into an unbounded log.
 	d.Initialize("SER", "1.0", "EB")
 	if got := len(d.Diagnostics()); got != 2 {
 		t.Errorf("after a second Initialize: %d diagnostics, want 2", got)
 	}
 }
 
-// TestSupportedCatalogProducesNoDiagnostics is the other half: the real
-// shipped catalog must be silent, or the warning above is noise an
-// operator learns to ignore.
+// The shipped catalog must be silent, or the warning is noise.
 func TestSupportedCatalogProducesNoDiagnostics(t *testing.T) {
-	m, _, err := registers.Load("../../registers.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	d := New("homeassistant", "MTEC", m, "en", DefaultVirtualSwitches(50, 50), "")
-	d.Initialize("SER", "1.0", "EB")
-	if diags := d.Diagnostics(); len(diags) != 0 {
+	if diags := realDiscovery(t, "en").Diagnostics(); len(diags) != 0 {
 		t.Errorf("the shipped catalog produced diagnostics: %v", diags)
 	}
+}
+
+func equalStrings(v any, want ...string) bool {
+	list, ok := v.([]any)
+	if !ok || len(list) != len(want) {
+		return false
+	}
+	for i, w := range want {
+		if list[i] != w {
+			return false
+		}
+	}
+	return true
 }

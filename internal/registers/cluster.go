@@ -7,7 +7,7 @@ import "sort"
 
 // gapThreshold is the maximum number of address-word holes the
 // clusterer will tolerate before starting a new Modbus read. The value
-// (10) is inherited from the Python coordinator and reflects the
+// (10) reflects the
 // real-world trade-off between wasted bytes-on-the-wire and the
 // overhead of a separate request — anything bigger hurts the inverter
 // (which serialises requests internally), anything smaller fragments
@@ -41,9 +41,7 @@ type Cluster struct {
 //
 // Pseudo-registers (Address == 0 and key != "0") are silently dropped
 // — they are computed by the coordinator, not read from the device.
-// Duplicate addresses keep only the first definition (matches the
-// Python behaviour where the register-map dict overwrites on collision
-// but the iteration order keeps the first hit).
+// Duplicate addresses keep only the first definition.
 func Clusterize(regs []*Register) []Cluster {
 	type entry struct {
 		reg    *Register

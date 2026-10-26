@@ -12,8 +12,8 @@ import (
 	"github.com/SukramJ/go-mtec2mqtt/internal/registers"
 )
 
-// processValues replays every coordinator-side transformation the
-// Python `_process_register_value` applies before publishing:
+// processValues applies every coordinator-side transformation before
+// publishing:
 //
 //   - register 10011 (firmware_version): split on the BYTE-decoder's
 //     double space and reformat as "Vx.x.x.x-Vy.y.y.y"
@@ -91,13 +91,8 @@ func formatFirmware(s string) (string, bool) {
 
 // stripLeadingZeros drops leading zeros from each space-separated
 // numeric token so "01 27 52 20" reads as "1.27.52.20" not
-// "01.27.52.20" — matches the Python behaviour where `.replace(' ', '.')`
-// runs on the already-decimal byte strings without zero padding cleanup.
-//
-// In practice the Python output reads e.g. "01.27.52.20" too (BYTE
-// decoder formats with %02d). We deliberately diverge here because
-// "V01.27.52.20" looks broken and the upstream HA dashboards display
-// V-strings raw. Document this if/when the divergence ever causes a
+// "01.27.52.20" (the BYTE decoder formats with %02d), because
+// "V01.27.52.20" looks broken and HA dashboards display V-strings raw. Document this if/when the divergence ever causes a
 // surprise.
 func stripLeadingZeros(s string) string {
 	parts := strings.Split(s, " ")
@@ -128,8 +123,7 @@ func parseEquipmentBytes(s string) (hi, lo int, ok bool) {
 }
 
 // convertCode maps a register value to a human-readable label using
-// the catalog's hass_value_items map. Two cases mirror Python's
-// _convert_code:
+// the catalog's hass_value_items map. Two cases:
 //
 //   - integer value → single label (or "Unknown" when the code is
 //     missing)
@@ -183,10 +177,9 @@ func decodeCode(val any, items map[int]string) (label, unmapped string) {
 	if bits == 0 {
 		return "OK", ""
 	}
-	// Sort by mask value so the output is deterministic — Python's dict
-	// iteration order is insertion-ordered (YAML order); Go's is
-	// randomised. Ascending masks means lowest bits first, matching the
-	// catalog order.
+	// Sort by mask value so the output is deterministic (Go's map order
+	// is randomised). Ascending masks means lowest bits first, matching
+	// the catalog order.
 	codes := make([]int, 0, len(items))
 	for c := range items {
 		codes = append(codes, c)
@@ -273,12 +266,13 @@ func findRegisterByOutputKey(catalog *registers.Map, key string) *registers.Regi
 //     register holds its hass_payload_on value ("1"), or any non-zero
 //     value when the catalog names none. Up to 1.x the payload was the
 //     raw "1"/"0".
-//   - A float is rounded and stays a number; a Go bool (the synthetic
+//   - A float is rounded to the register's precision (registers.yaml
+//     `precision`, default 3 decimals) and stays a number; a Go bool (the synthetic
 //     switches) stays a bool; everything else is published as it is.
 //
 // A nil value yields nil, which the caller skips: an empty payload on a
 // retained topic would clear it.
-func wireValue(reg *registers.Register, raw, processed any, round func(float64) float64) any {
+func wireValue(reg *registers.Register, raw, processed any) any {
 	if reg != nil && raw != nil {
 		if reg.HassValueItems != nil {
 			return convertCode(raw, reg.HassValueItems)
@@ -292,7 +286,7 @@ func wireValue(reg *registers.Register, raw, processed any, round func(float64) 
 		}
 	}
 	if f, ok := processed.(float64); ok {
-		return round(f)
+		return reg.Round(f)
 	}
 	return processed
 }
