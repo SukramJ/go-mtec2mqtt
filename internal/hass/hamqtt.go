@@ -834,6 +834,33 @@ func CommandFilter(root string) string {
 	return NewLayout(root).Name() + "/" + topic.FunctionSet + "/+/+/+"
 }
 
+// EVCCStateTopic is the status topic of one value of the shared evcc
+// profile: "<name>/status/<serial>/evcc/<role>/<key>".
+func EVCCStateTopic(root, serial, role, key string) string {
+	return NewLayout(root).State(evccSlot(serial, role, key))
+}
+
+// EVCCCommandTopic is the inbound twin of [EVCCStateTopic]:
+// "<name>/set/<serial>/evcc/<role>/<key>".
+func EVCCCommandTopic(root, serial, role, key string) string {
+	return NewLayout(root).Command(evccSlot(serial, role, key))
+}
+
+// EVCCCommandFilter is the filter for the evcc profile's commands:
+// "<name>/set/+/evcc/+/+" (serial, role, key). One level deeper than
+// [CommandFilter], so the two routes never overlap.
+func EVCCCommandFilter(root string) string {
+	return NewLayout(root).Name() + "/" + topic.FunctionSet + "/+/" + evccGroup + "/+/+"
+}
+
+// evccGroup is evcc.Group, spelled here so this package does not import
+// the profile.
+const evccGroup = "evcc"
+
+func evccSlot(serial, role, key string) hamodel.Slot {
+	return hamodel.Slot{Address: serial, Path: []string{evccGroup, role, key}}
+}
+
 // ConnectedTopic is `<name>/connected`, the daemon's own 0/1/2 marker:
 // 0 from the Last Will and on a graceful stop, 1 while the broker is
 // reachable and the inverter is not, 2 while both are. Every entity's

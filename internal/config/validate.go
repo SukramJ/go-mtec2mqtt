@@ -169,6 +169,9 @@ func Validate(c *Config) error {
 	if c.DischargeActiveValue < 1 || c.DischargeActiveValue > 6000 {
 		add("DISCHARGE_ACTIVE_VALUE must be 1..6000, got %d", c.DischargeActiveValue)
 	}
+	if c.EVCCBatteryModeTimeout < 0 || c.EVCCBatteryModeTimeout > 86400 {
+		add("EVCC_BATTERYMODE_TIMEOUT must be 0..86400 (0 = off), got %d", c.EVCCBatteryModeTimeout)
+	}
 
 	if len(issues) > 0 {
 		return &ValidationError{Issues: issues}

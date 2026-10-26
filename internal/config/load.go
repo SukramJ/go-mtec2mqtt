@@ -79,6 +79,11 @@ func Load(r io.Reader, env Env) (*Config, error) {
 		return nil, fmt.Errorf("config: decode merged config: %w", err)
 	}
 
+	for _, key := range deprecatedKeys {
+		if rawHasKey(raw, key) {
+			cfg.deprecated = append(cfg.deprecated, key)
+		}
+	}
 	applyDefaults(&cfg, raw)
 	if err := Validate(&cfg); err != nil {
 		return nil, err

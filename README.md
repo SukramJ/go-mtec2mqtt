@@ -133,7 +133,7 @@ At a minimum you need:
 
 ```yaml
 MODBUS_IP: 192.168.1.50      # inverter / espressif gateway address
-MODBUS_PORT: 502             # 502 for firmware ≥ V27.52.4.0, 5743 below
+MODBUS_PORT: 502             # firmware ≥ V27.52.4.0
 MODBUS_SLAVE: 247            # the other common default is 252
 MODBUS_TIMEOUT: 5
 
@@ -194,6 +194,22 @@ MQTT discovery has no `unique_id` migration.
 wire: since 2.0.0 values are JSON numbers, and the option survives as
 their **rounding precision** — `.3f` rounds to three decimals, `.4g` to
 four significant digits, exactly the number the old string payload spelled.
+
+**Deprecated, removed in 3.0.0:** `MQTT_FLOAT_FORMAT`, `MODBUS_FRAMER` and
+`MODBUS_RETRIES`. The daemon logs `mtec2mqtt.config_deprecated` for each one
+it finds; `MODBUS_FRAMER` and `MODBUS_RETRIES` were never read (the bridge
+speaks Modbus TCP and does not retry a transaction). Remove them from your
+configuration.
+
+### evcc
+
+`EVCC_ENABLE: true` publishes the shared evcc profile — the inverter as
+three evcc meters (grid, PV, battery) with evcc's units and signs, under
+`<name>/status/<serial>/evcc/<role>/<key>`, plus the battery mode command
+(`normal` / `hold` / `charge`). The same MQTT surface as
+[go-keba2mqtt](https://github.com/SukramJ/go-keba2mqtt) and
+[go-zendure2mqtt](https://github.com/SukramJ/go-zendure2mqtt); the
+`evcc.yaml` snippet and the details are in [`docs/evcc.md`](./docs/evcc.md).
 
 ### Maintenance topics
 
@@ -479,7 +495,7 @@ welcome under the [AI contribution policy](./AI_POLICY.md).
 | Component  | Status                                                          |
 |------------|-----------------------------------------------------------------|
 | Inverter   | M-TEC Energybutler GEN3. Potentially Wattsonic / Sunways / Daxtromn. |
-| Firmware   | V27.52.4.0 and newer use port **502**; older firmware needs **5743** + a `MODBUS_FRAMER: rtu` switch. |
+| Firmware   | V27.52.4.0 and newer (Modbus TCP on port **502**). Older firmware speaks Modbus RTU framing on port 5743, which this bridge does not. |
 | MQTT       | MQTT 5.0 by default (3.1.1 selectable via `TCPConfig.ProtocolVersion` for brokers that don't speak 5.0 yet), plain TCP (port 1883) or TLS (port 8883, `MQTT_SSL: true`). |
 | Go         | 1.27+                                                           |
 

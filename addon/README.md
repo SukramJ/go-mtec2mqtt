@@ -22,12 +22,13 @@ The diagnostic dashboard is served through Home Assistant **Ingress** — open
 it from the add-on's **Open Web UI** button or the sidebar panel; no port
 needs to be exposed.
 
-## Firmware note (Modbus port / framer)
+## Firmware note (Modbus port)
 
-- M-TEC firmware **V27.52.4.0 and newer** use Modbus port **502** with the
-  `socket` framer — the add-on defaults.
-- **Older firmware** listens on port **5743** and needs `modbus_framer: rtu`.
-  Set `modbus_port: 5743` and `modbus_framer: rtu` in that case.
+- M-TEC firmware **V27.52.4.0 and newer** speak Modbus TCP on port **502** —
+  the add-on default.
+- **Older firmware** uses Modbus RTU framing on port 5743, which the add-on
+  does not speak; update the inverter firmware. (`modbus_framer` never
+  changed that, is ignored and goes away in 3.0.0.)
 
 ## Image build paths
 

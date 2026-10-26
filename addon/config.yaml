@@ -3,7 +3,7 @@
 # version MUST equal the published image tag (ghcr.io/sukramj/go-mtec2mqtt-addon-{arch})
 # and is bumped in the release commit that cuts the matching git tag.
 name: go-mtec2mqtt
-version: "2.1.1"
+version: "2.2.0"
 slug: go-mtec2mqtt
 description: >-
   Bridges an M-TEC Energybutler (hybrid PV / battery inverter) to MQTT over
@@ -50,8 +50,6 @@ options:
   modbus_port: 502
   modbus_slave: 247
   modbus_timeout: 5
-  modbus_retries: 3
-  modbus_framer: socket
   mqtt_server: ""
   mqtt_port: 1883
   mqtt_login: ""
@@ -66,6 +64,8 @@ options:
   web_enable: true
   charge_active_value: 50
   discharge_active_value: 50
+  evcc_enable: false
+  evcc_batterymode_timeout: 0
   debug: false
 
 schema:
@@ -73,8 +73,9 @@ schema:
   modbus_port: int(1,65535)
   modbus_slave: int(0,255)
   modbus_timeout: int(1,600)
-  modbus_retries: int(0,20)
-  modbus_framer: "list(ascii|rtu|socket|tls)"
+  # Deprecated, ignored, removed in 3.0.0; optional so saved options load.
+  modbus_retries: "int(0,20)?"
+  modbus_framer: "list(ascii|rtu|socket|tls)?"
   mqtt_server: "str?"
   mqtt_port: int(1,65535)
   mqtt_login: "str?"
@@ -89,4 +90,6 @@ schema:
   web_enable: bool
   charge_active_value: int(1,6000)
   discharge_active_value: int(1,6000)
+  evcc_enable: "bool?"
+  evcc_batterymode_timeout: "int(0,86400)?"
   debug: bool

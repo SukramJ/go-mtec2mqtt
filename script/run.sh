@@ -23,9 +23,9 @@ MTEC_MODBUS_IP="$(bashio::config 'modbus_ip')"
 MTEC_MODBUS_PORT="$(bashio::config 'modbus_port')"
 MTEC_MODBUS_SLAVE="$(bashio::config 'modbus_slave')"
 MTEC_MODBUS_TIMEOUT="$(bashio::config 'modbus_timeout')"
-MTEC_MODBUS_RETRIES="$(bashio::config 'modbus_retries')"
-MTEC_MODBUS_FRAMER="$(bashio::config 'modbus_framer')"
-export MTEC_MODBUS_IP MTEC_MODBUS_PORT MTEC_MODBUS_SLAVE MTEC_MODBUS_TIMEOUT MTEC_MODBUS_RETRIES MTEC_MODBUS_FRAMER
+# modbus_retries / modbus_framer are deprecated and not passed on: the
+# daemon never read them.
+export MTEC_MODBUS_IP MTEC_MODBUS_PORT MTEC_MODBUS_SLAVE MTEC_MODBUS_TIMEOUT
 
 # --- MQTT ---
 # Zero-config: when mqtt_server is left empty, borrow the broker the
@@ -78,6 +78,15 @@ fi
 MTEC_CHARGE_ACTIVE_VALUE="$(bashio::config 'charge_active_value')"
 MTEC_DISCHARGE_ACTIVE_VALUE="$(bashio::config 'discharge_active_value')"
 export MTEC_CHARGE_ACTIVE_VALUE MTEC_DISCHARGE_ACTIVE_VALUE
+
+# --- evcc profile (docs/evcc.md) ---
+if bashio::config.true 'evcc_enable'; then
+  export MTEC_EVCC_ENABLE=true
+fi
+if bashio::config.has_value 'evcc_batterymode_timeout'; then
+  MTEC_EVCC_BATTERYMODE_TIMEOUT="$(bashio::config 'evcc_batterymode_timeout')"
+  export MTEC_EVCC_BATTERYMODE_TIMEOUT
+fi
 
 # --- Misc ---
 MTEC_LANGUAGE="$(bashio::config 'language')"

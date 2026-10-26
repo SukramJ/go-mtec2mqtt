@@ -1,3 +1,49 @@
+# Version 2.2.0 (2026-10-26)
+
+## What's Changed
+
+### Added
+
+- **evcc profile** (#75). `EVCC_ENABLE: true` (add-on option
+  `evcc_enable`) publishes the inverter as three evcc meters under
+  `<name>/status/<serial>/evcc/<role>/<key>`, with evcc's units and signs:
+  `grid` (power positive while importing, phase powers, imported and
+  exported energy), `pv` (power, energy) and `battery` (power positive
+  while discharging, state of charge, discharged and charged energy). The
+  battery mode command `evcc/battery/batterymode` (`normal`, `hold`,
+  `charge`, or evcc's `1`/`2`/`3`) switches the inverter to Economic mode
+  (hold) or UPS mode (charge from the grid), as evcc's own template does,
+  and `normal` restores the operation mode the inverter had before. An
+  unchanged mode writes nothing. `EVCC_BATTERYMODE_TIMEOUT` returns the
+  battery to normal when evcc stops re-sending hold or charge. The same MQTT
+  surface as go-keba2mqtt and go-zendure2mqtt; `docs/evcc.md` has the
+  `evcc.yaml`, and a test keeps its topics in line with what the bridge
+  publishes.
+
+### Changed
+
+- **No more retractions on every connect.** The bridge now retracts a
+  superseded per-entity discovery config only where the broker still
+  retains one (go-hamqtt `SupersedeObserved`). Until now it re-sent 100
+  empty retractions on every connect, long after the migration to the
+  device document, and Home Assistant logged each as "Received a
+  conflicting MQTT discovery message". The first discovery publish of a
+  connection now waits for a two-second snapshot of the broker.
+
+### Deprecated
+
+- `MODBUS_FRAMER`, `MODBUS_RETRIES` and `MQTT_FLOAT_FORMAT` are removed in
+  3.0.0 and logged as `mtec2mqtt.config_deprecated` when set (#76).
+  `MODBUS_FRAMER` and `MODBUS_RETRIES` were never read: the bridge speaks
+  Modbus TCP and does not retry a transaction, so firmware older than
+  V27.52.4.0 (RTU framing on port 5743) was never supported, whatever the
+  docs said. The add-on no longer passes `modbus_framer` / `modbus_retries`
+  on and keeps them only as optional, ignored options.
+- **3.0.0 removes the migration code of 1.10 and 2.0** (#76): the pre-2.0
+  topic sweep, the per-entity discovery retraction and orphan sweep, and the
+  `<hass_base>/status/lwt` clean-up. An installation older than 2.0 must run
+  2.2.0 once before upgrading to 3.0.0.
+
 # Version 2.1.1 (2026-10-12)
 
 ## What's Changed

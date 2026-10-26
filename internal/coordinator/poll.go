@@ -144,6 +144,7 @@ func (c *Coordinator) publishGroupOnce(ctx context.Context, log *slog.Logger, gr
 	// the freshly processed limits so they ride the same store + MQTT
 	// publish path as a real register.
 	c.applyVirtualSwitches(string(group), processed)
+	c.publishEVCC(ctx, log, topicBase, processed, now)
 	// Mirror the processed values into the web cache (if enabled) before
 	// publishing — same data the UI and MQTT see, decoupled from broker
 	// availability. The UI keeps the labels of the configured language;

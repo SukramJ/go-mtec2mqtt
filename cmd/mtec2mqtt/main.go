@@ -106,6 +106,12 @@ func run(configPath, registersPath string, logger *slog.Logger, level *slog.Leve
 	if cfg.Debug {
 		level.Set(slog.LevelDebug)
 	}
+	for _, key := range cfg.Deprecated() {
+		logger.Warn("mtec2mqtt.config_deprecated",
+			slog.String("key", key),
+			slog.String("removed_in", "3.0.0"),
+			slog.String("action", "remove the key from the configuration"))
+	}
 	if layout := hass.NewLayout(cfg.MQTTTopic); !layout.Conformant() {
 		// Kept verbatim — refusing it would break the installation on
 		// upgrade — but said once, because a tool scanning `+/info` for
@@ -273,7 +279,7 @@ func run(configPath, registersPath string, logger *slog.Logger, level *slog.Leve
 		QoS:            coordinator.StateQoS,
 		PulseQoS:       coordinator.StateQoS,
 		Encoding:       discovery.StatusObjectEncoding,
-		CommandFilters: []string{hass.CommandFilter(cfg.MQTTTopic)},
+		CommandFilters: []string{hass.CommandFilter(cfg.MQTTTopic), hass.EVCCCommandFilter(cfg.MQTTTopic)},
 		Logger:         logger,
 	})
 
