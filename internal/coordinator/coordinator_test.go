@@ -150,9 +150,7 @@ func (s *stubModbus) IsConnected() bool { return s.connected.Load() }
 func wirePlanes(t *testing.T, deps *Deps, mqttStub *stubMQTT) {
 	t.Helper()
 	tr := hagomqtt.Split(mqttStub, mqttStub)
-	// The production composition, not a second spelling of it: dropping
-	// Config.LegacyEntityTopics at the composition root used to be caught
-	// by nothing, because the fixtures built a runtime that still had it.
+	// The production composition, not a second spelling of it.
 	haCfg := HARuntimeConfig(deps.Cfg, slog.New(slog.DiscardHandler))
 	// The one deviation: the stub broker replays its retained store inside
 	// Subscribe, so the SupersedeObserved snapshot needs no two-second
@@ -160,8 +158,7 @@ func wirePlanes(t *testing.T, deps *Deps, mqttStub *stubMQTT) {
 	// before the document goes out.
 	haCfg.SweepWindow = testSweepWindow
 	// A factory, exactly as the composition root wires it: the runtime is
-	// rebuilt on every (re)connect so nothing it remembers — least of all
-	// which per-entity configs it has already retracted — can outlive the
+	// rebuilt on every (re)connect so nothing it remembers can outlive the
 	// connection that earned it.
 	deps.NewHARuntime = func() *publisher.Runtime {
 		rt := publisher.New(tr, haCfg)
@@ -201,12 +198,7 @@ type stubMQTT struct {
 	// publishErr, when non-nil, fails every Publish (models an open
 	// circuit breaker). subscribeFailures / unsubscribeFailures count
 	// down the number of calls that fail before the first success.
-	publishErr error
-	// failPublishTo fails Publish for exactly one topic, so a test can put
-	// the daemon in the migration's dangerous window: the retractions land,
-	// the device document does not.
-	failPublishTo       string
-	failPublishToErr    error
+	publishErr          error
 	subscribeFailures   int
 	unsubscribeFailures int
 	// beforePublish, when set, runs before each Publish is recorded —
@@ -233,9 +225,6 @@ func newStubMQTT() *stubMQTT {
 func (s *stubMQTT) Publish(_ context.Context, topic string, payload []byte, qos mqtt.QoS, retain bool, _ ...mqtt.PublishOption) error {
 	s.mu.Lock()
 	hook, err := s.beforePublish, s.publishErr
-	if err == nil && s.failPublishTo != "" && s.failPublishTo == topic {
-		err = s.failPublishToErr
-	}
 	s.mu.Unlock()
 	if hook != nil {
 		hook(topic)
@@ -290,14 +279,6 @@ func (s *stubMQTT) Unsubscribe(_ context.Context, filter string) error {
 func (s *stubMQTT) setPublishErr(err error) {
 	s.mu.Lock()
 	s.publishErr = err
-	s.mu.Unlock()
-}
-
-// setFailPublishTo makes Publish fail for exactly one topic (an empty
-// topic clears it).
-func (s *stubMQTT) setFailPublishTo(topic string, err error) {
-	s.mu.Lock()
-	s.failPublishTo, s.failPublishToErr = topic, err
 	s.mu.Unlock()
 }
 
@@ -466,13 +447,9 @@ HASS_BIRTH_GRACETIME: 0
 // STATIC read: it hands the discovery builder the identity the device
 // block and the bundle node id are keyed on, and renders the document.
 //
-// The second half is not optional. Since ADR 0070 phase 6 step 6 this
-// daemon publishes ONE retained device document rather than 100 per-entity
-// configs, and publishDiscovery refuses to publish anything at all while
-// there is no document — because the publish retracts the legacy configs
-// first and a retraction with nothing to replace it is the one outcome
-// worse than not migrating. A test that skipped it would exercise that
-// refusal by accident instead of whatever it was written for.
+// The second half is not optional: publishDiscovery publishes nothing
+// while there is no document, and a test that skipped it would exercise
+// that by accident instead of whatever it was written for.
 func initDiscovery(t *testing.T, c *Coordinator) {
 	t.Helper()
 	c.deps.HASS.Initialize("MTEC-TEST-001", "V1", "model")
@@ -534,7 +511,7 @@ func buildDepsWith(t *testing.T, hassEnable bool, catalogYAML string, virtual []
 		Now:     func() time.Time { return time.Date(2026, 5, 25, 14, 30, 45, 0, time.UTC) },
 	}
 	if hassEnable {
-		deps.HASS = hass.New(cfg.HASSBaseTopic, cfg.MQTTTopic, catalog, cfg.Language, nil, cfg.DeviceName)
+		deps.HASS = hass.New(cfg.MQTTTopic, catalog, cfg.Language, nil, cfg.DeviceName)
 	}
 	wirePlanes(t, &deps, mqttStub)
 	return New(deps), reader, mqttStub, modbusStub
@@ -756,14 +733,9 @@ func TestTryInitFromStaticRejectsTopicUnsafeSerial(t *testing.T) {
 // The republisher ticks every 5s, so this test — like
 // TestModbusWatchdogReconnects — polls for several seconds.
 //
-// What it can no longer assert is a second burst of publishes ON THE
-// WIRE, and that is the point of ADR 0070 phase 6 step 5 rather than a
-// weakening of the test: configs now go out through publisher.Runtime,
-// whose dedup gate compares the bytes against what the broker accepted
-// and writes nothing when a payload is unchanged. A steady-state
-// republish of an unchanged fleet is exactly the case the gate exists
-// for — Home Assistant re-reads and re-validates every retained config it
-// is handed, and 100 of them that say nothing new is work for nobody.
+// It cannot assert a second publish on the wire: publisher.Runtime's
+// dedup gate writes nothing when the document is unchanged, which is
+// exactly the steady-state republish.
 //
 // So the assertion moves one level in, to the thing the wire used to
 // stand in for: the birth must clear discoverySent and the republish pass
@@ -873,12 +845,8 @@ func TestChangedDiscoveryPayloadIsRepublished(t *testing.T) {
 	if rewritten != 1 {
 		t.Fatalf("the changed document was written %d times, want 1", rewritten)
 	}
-	// And the per-entity retraction is NOT repeated. A superseded topic is
-	// cleared once per process: after the first round the broker holds
-	// nothing there, and a boot that rewrote the document forty times would
-	// otherwise send forty rounds of messages for nothing.
 	if retractions != 0 {
-		t.Errorf("the rewrite re-sent %d retractions; they are a once-per-process job", retractions)
+		t.Errorf("the rewrite sent %d retractions; nothing is retained to retract", retractions)
 	}
 }
 
@@ -972,12 +940,9 @@ func TestPublishDiscoveryNotMarkedSentWhenPublishFails(t *testing.T) {
 	initDiscovery(t, c)
 
 	mqttStub.setPublishErr(errInjected{})
-	published := c.publishDiscovery(context.Background())
+	c.publishDiscovery(context.Background())
 	if c.discoverySent.Load() {
 		t.Fatal("discovery marked as sent although every publish failed")
-	}
-	if len(published) == 0 {
-		t.Fatal("the advertised set must still list the topics, so reconcile keeps them")
 	}
 
 	// Broker recovers → the next pass completes and latches.
@@ -1350,62 +1315,4 @@ func summariseTopics(pubs []publishCall) string {
 		parts = append(parts, p.topic+"="+string(p.payload))
 	}
 	return strings.Join(parts, ", ")
-}
-
-// TestNewRefusesARuntimeThatDoesNotStateTheLegacyForm is the boot-time
-// guard on the one composition-root mistake that is total, silent, and
-// invisible from every direction.
-//
-// A publisher.Runtime built without Config.LegacyEntityTopics retracts the
-// five-segment per-entity form, which 0 of this fleet's 100 retained
-// configs are on. The device document is then published while all 100 are
-// still retained, Home Assistant refuses it with a single
-// "WARNING [mqtt.entity] Received a conflicting MQTT discovery message" in
-// its own log, and the entities do not appear. Nothing on the wire reports
-// it.
-//
-// A mutation pass is why this exists: dropping the field was caught by
-// nothing at all, because the daemon and the test fixture each spelled the
-// publisher.Config out and the fixture still had it. HARuntimeConfig made
-// it one spelling; this makes bypassing that spelling a failed boot rather
-// than a silent migration.
-func TestNewRefusesARuntimeThatDoesNotStateTheLegacyForm(t *testing.T) {
-	mqttStub := newStubMQTT()
-	cfg := buildConfig(t, true)
-	tr := hagomqtt.Split(mqttStub, mqttStub)
-	// The library default: LegacyEntityTopics unset.
-	rt := publisher.New(tr, publisher.Config{
-		Prefix: cfg.HASSBaseTopic,
-		Layout: hass.NewLayout(cfg.MQTTTopic),
-		QoS:    DiscoveryQoS,
-		Logger: slog.New(slog.DiscardHandler),
-	})
-	t.Cleanup(rt.Close)
-	deps := Deps{
-		Cfg:          cfg,
-		Catalog:      &registers.Map{},
-		Modbus:       &stubModbus{},
-		Reader:       newStubReader(),
-		MQTT:         mqttStub,
-		Logger:       slog.New(slog.DiscardHandler),
-		NewHARuntime: func() *publisher.Runtime { return rt },
-		StatePlane: publisher.StateFor(rt, publisher.StateConfig{
-			QoS:      StateQoS,
-			Encoding: discovery.StatusObjectEncoding,
-			Logger:   slog.New(slog.DiscardHandler),
-		}),
-	}
-
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("New accepted a runtime on the five-segment default; the migration " +
-				"would retract nothing and Home Assistant would refuse the document")
-		}
-		msg, _ := r.(string)
-		if !strings.Contains(msg, "legacy config topic forms") {
-			t.Errorf("the panic does not name the cause: %v", r)
-		}
-	}()
-	New(deps)
 }

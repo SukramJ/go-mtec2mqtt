@@ -38,9 +38,8 @@ var (
 	// coordinator, not read from the device.
 	ErrPseudoUnsupported = errors.New("modbus: pseudo-register cannot be read from device")
 	// ErrNotWritable is returned by Write* when the target register
-	// is not marked writable in the YAML catalog. Mirrors the Python
-	// guard that prevents accidentally pushing a value to a read-only
-	// address.
+	// is not marked writable in the YAML catalog, so a value is never
+	// pushed to a read-only address by accident.
 	ErrNotWritable = errors.New("modbus: register is read-only")
 	// ErrValueParse is returned when the string value passed to Write*
 	// cannot be coerced into an integer Modbus value.
@@ -55,8 +54,7 @@ func NewReader(client *Client, catalog *registers.Map) *Reader {
 
 // ReadGroup reads every Modbus register that belongs to group g and
 // returns the decoded values keyed by their MQTT suffix (falling back
-// to Register.Name when MQTT is empty — matches the Python
-// coordinator's lookup table).
+// to Register.Name when MQTT is empty).
 //
 // Partial results are returned even when some clusters or decodes
 // fail; the error is the joined view of every per-cluster /
@@ -117,7 +115,7 @@ func decodeClusterInto(out map[string]any, c registers.Cluster, raw []uint16, er
 }
 
 // outputKey returns the map key the coordinator will see — MQTT
-// suffix when set, register Name as the fallback (Python parity).
+// suffix when set, register Name as the fallback.
 func outputKey(r *registers.Register) string {
 	if r.MQTT != "" {
 		return r.MQTT
@@ -150,14 +148,13 @@ func (r *Reader) ReadRegister(ctx context.Context, key string) (any, error) {
 }
 
 // WriteRegisterByMQTT writes value to the register whose MQTT suffix
-// matches name. The value goes through the same coercion pipeline as
-// the Python coordinator:
+// matches name. The value goes through this coercion pipeline:
 //
 //  1. If the register has a value_items map and value matches one of
 //     the human-readable labels, the corresponding integer code is
 //     used instead (Home Assistant select widgets send the label).
 //  2. Numeric value strings are parsed (int wins over float; the float
-//     branch then casts to int to match Python's silent narrowing).
+//     branch then truncates to an integer).
 //  3. The configured Scale is applied as multiplication (the symmetric
 //     inverse of the read-side division).
 //  4. The final value is range-checked to fit in uint16 before being
@@ -203,9 +200,8 @@ func (r *Reader) WriteRegisterByMQTT(ctx context.Context, name, value string) er
 	return r.client.WriteSingleRegister(ctx, reg.Address, raw)
 }
 
-// ParseWriteValue mirrors the value-coercion logic from
-// AsyncModbusClient.write_register: int wins over float, dots flip to
-// float-parse, scale multiplies, final cast narrows to uint16.
+// ParseWriteValue coerces a write value: int wins over float, dots flip
+// to float-parse, scale multiplies, final cast narrows to uint16.
 // Exported so mtec-util's direct write branch applies the exact same
 // coercion as the daemon write path.
 func ParseWriteValue(s string, scale int) (uint16, error) {

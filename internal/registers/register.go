@@ -11,6 +11,8 @@
 // because they are published the same way over MQTT.
 package registers
 
+import "strconv"
+
 // DataType enumerates the Modbus-side encodings the M-TEC inverter
 // exposes. The string values are the YAML literals (case-sensitive).
 type DataType string
@@ -34,10 +36,7 @@ const (
 // downstream consumers (Home Assistant dashboards, evcc) expect.
 //
 // They are snake_case since 2.0.0 (mqtt-smarthome 2.0, openccu-loom ADR
-// 0083: segments a project coins are snake_case). Releases before 2.0.0
-// spelled the six live groups with a hyphen; [Group.Legacy] renders that
-// spelling for the one reader that still needs it, the start-up sweep of
-// the old topic layout.
+// 0083: segments a project coins are snake_case).
 type Group string
 
 // Group values used by the registers.yaml catalog.
@@ -54,35 +53,17 @@ const (
 	GroupStatic   Group = "static"
 )
 
-// legacyGroups maps the six groups 2.0.0 renamed to the spelling every
-// earlier release used in its topics and in registers.yaml.
-var legacyGroups = map[Group]string{
-	GroupBase:     "now-base",
-	GroupGrid:     "now-grid",
-	GroupInverter: "now-inverter",
-	GroupBackup:   "now-backup",
-	GroupBattery:  "now-battery",
-	GroupPV:       "now-pv",
-}
-
-// Legacy returns the group's spelling before 2.0.0: "now-base" for
-// [GroupBase], unchanged for a group that was never renamed.
-func (g Group) Legacy() string {
-	if old, ok := legacyGroups[g]; ok {
-		return old
-	}
-	return string(g)
-}
-
-// groupFromLegacy returns the current group for a pre-2.0.0 spelling, and
-// whether s was one.
-func groupFromLegacy(s Group) (Group, bool) {
-	for g, old := range legacyGroups {
-		if string(s) == old {
-			return g, true
-		}
-	}
-	return "", false
+// renamedGroups maps the hyphenated spelling releases before 2.0.0 used
+// for six groups to the current one. A catalog that still uses it is
+// refused by the loader with the rename to make: its registers would
+// otherwise be polled by nobody.
+var renamedGroups = map[Group]Group{
+	"now-base":     GroupBase,
+	"now-grid":     GroupGrid,
+	"now-inverter": GroupInverter,
+	"now-backup":   GroupBackup,
+	"now-battery":  GroupBattery,
+	"now-pv":       GroupPV,
 }
 
 // Register describes one entry from registers.yaml. The schema is
@@ -119,6 +100,10 @@ type Register struct {
 	Unit  string `yaml:"unit"`
 	Scale int    `yaml:"scale"`
 
+	// Precision is the number of decimals a float value of this register
+	// is rounded to on the wire; nil means [DefaultPrecision].
+	Precision *int `yaml:"precision"`
+
 	// MQTT is the topic-tail suffix the value is published under.
 	MQTT string `yaml:"mqtt"`
 
@@ -139,6 +124,33 @@ type Register struct {
 	HassValueItemsDE map[int]string `yaml:"hass_value_items_de"`
 	HassPayloadOn    string         `yaml:"hass_payload_on"`
 	HassPayloadOff   string         `yaml:"hass_payload_off"`
+}
+
+// DefaultPrecision is the number of decimals a float value is rounded to
+// on the wire when its register states no precision.
+const DefaultPrecision = 3
+
+// maxPrecision bounds the precision field; float64 carries ~15 decimal
+// digits.
+const maxPrecision = 10
+
+// Round rounds v to the register's precision ([DefaultPrecision] for a nil
+// register or one without a precision field). It rounds through the
+// decimal formatter, so the result is the number the decimal string
+// spells, and a negative zero becomes 0.
+func (r *Register) Round(v float64) float64 {
+	p := DefaultPrecision
+	if r != nil && r.Precision != nil {
+		p = *r.Precision
+	}
+	out, err := strconv.ParseFloat(strconv.FormatFloat(v, 'f', p, 64), 64)
+	if err != nil {
+		return v // NaN/Inf render as text; keep the value as it is
+	}
+	if out == 0 {
+		return 0
+	}
+	return out
 }
 
 // LocalizedName returns the register's friendly name in the given
@@ -199,8 +211,7 @@ func (r *Register) IsModbus() bool { return r.Address != 0 || r.Key == "0" }
 // HasHassHints reports whether the register carries enough HA-specific
 // metadata to be published via Home Assistant auto-discovery.
 //
-// Mirrors the Python `hass_keys` check in hass_int._build_devices_array:
-// any HA-related field present in the YAML opts the register in.
+// Any HA-related field present in the YAML opts the register in.
 func (r *Register) HasHassHints() bool {
 	return r.HassComponentType != "" ||
 		r.HassDeviceClass != "" ||
@@ -220,7 +231,7 @@ type Map struct {
 	ByKey  map[string]*Register
 	ByAddr map[uint16]*Register
 	// Groups holds every distinct Group seen during Load, in
-	// first-encounter order — matches the Python init_register_map.
+	// first-encounter order.
 	Groups []Group
 }
 

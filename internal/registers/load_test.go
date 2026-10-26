@@ -650,49 +650,66 @@ func TestCatalogBitRegistersHaveNoEnumDeviceClass(t *testing.T) {
 	}
 }
 
-// Groups are snake_case since 2.0.0. A catalog written for an earlier
-// release keeps working: its hyphenated group is read as the new one, and
-// the loader says so rather than leaving the group polled by nobody.
-func TestLoadAcceptsThePre2GroupSpelling(t *testing.T) {
-	m, diag, err := LoadFromString(`
+// Groups are snake_case since 2.0.0. A catalog that still uses the
+// hyphenated spelling of an earlier release is refused, naming the rename.
+func TestLoadRefusesThePre2GroupSpelling(t *testing.T) {
+	_, _, err := LoadFromString(`
 "11000":
   name: Grid power
   length: 2
   type: I32
   mqtt: grid_power
   group: now-base
-"30230":
-  name: Backup power
+`)
+	if err == nil || !strings.Contains(err.Error(), `"now-base"`) || !strings.Contains(err.Error(), `"now_base"`) {
+		t.Fatalf("err = %v, want a refusal naming now-base and now_base", err)
+	}
+	for _, g := range []Group{
+		GroupBase, GroupGrid, GroupInverter, GroupBackup, GroupBattery, GroupPV,
+		GroupDay, GroupTotal, GroupConfig, GroupStatic,
+	} {
+		if strings.Contains(string(g), "-") {
+			t.Errorf("group %q is not snake_case", g)
+		}
+	}
+}
+
+// precision overrides the default rounding of a register's floats.
+func TestPrecision(t *testing.T) {
+	m, diag, err := LoadFromString(`
+"33000":
+  name: Battery SOC
   type: U16
-  mqtt: backup_power
-  group: now-backup
+  scale: 100
+  mqtt: battery_soc
+  group: now_base
+  precision: 1
+"33001":
+  name: Bad
+  type: U16
+  mqtt: bad
+  group: now_base
+  precision: -1
 `)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := m.ByKey["11000"].Group; got != GroupBase {
-		t.Errorf("now-base read as %q, want %q", got, GroupBase)
+	if m.ByKey["33001"] != nil || len(diag) != 1 || !strings.Contains(diag[0], "precision") {
+		t.Fatalf("negative precision kept: diag %v", diag)
 	}
-	if got := m.ByKey["30230"].Group; got != GroupBackup {
-		t.Errorf("now-backup read as %q, want %q", got, GroupBackup)
-	}
-	if len(diag) != 2 || !strings.Contains(diag[0], "pre-2.0.0 spelling") {
-		t.Errorf("diagnostics: %v", diag)
-	}
-}
-
-func TestGroupLegacyIsThePre2Spelling(t *testing.T) {
-	want := map[Group]string{
-		GroupBase: "now-base", GroupGrid: "now-grid", GroupInverter: "now-inverter",
-		GroupBackup: "now-backup", GroupBattery: "now-battery", GroupPV: "now-pv",
-		GroupDay: "day", GroupTotal: "total", GroupConfig: "config", GroupStatic: "static",
-	}
-	for g, old := range want {
-		if got := g.Legacy(); got != old {
-			t.Errorf("%s.Legacy() = %q, want %q", g, got, old)
-		}
-		if strings.Contains(string(g), "-") {
-			t.Errorf("group %q is not snake_case", g)
+	soc := m.ByKey["33000"]
+	for _, tc := range []struct {
+		reg      *Register
+		in, want float64
+	}{
+		{soc, 55.56, 55.6},
+		{soc, 49.96, 50},
+		{nil, 230.12345, 230.123},
+		{nil, -0.0004, 0},
+		{&Register{}, 1.23456, 1.235},
+	} {
+		if got := tc.reg.Round(tc.in); got != tc.want {
+			t.Errorf("Round(%v) = %v, want %v", tc.in, got, tc.want)
 		}
 	}
 }

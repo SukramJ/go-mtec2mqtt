@@ -264,7 +264,6 @@ func TestProcessOnePassesThroughWhenNoTransform(t *testing.T) {
 // tokens, never a formatted or localised string (mqtt-smarthome 2.0 §5,
 // openccu-loom ADR 0083).
 func TestWireValue(t *testing.T) {
-	round2 := func(f float64) float64 { return math.Round(f*100) / 100 }
 	enum := newRegister(10105, "inverter_status", func(r *registers.Register) {
 		r.HassDeviceClass = "enum"
 		r.HassValueItems = map[int]string{2: "on-grid"}
@@ -283,6 +282,8 @@ func TestWireValue(t *testing.T) {
 		r.HassComponentType = "binary_sensor"
 	})
 	plain := newRegister(11000, "grid_power")
+	one := 1
+	soc := newRegister(33000, "battery_soc", func(r *registers.Register) { r.Precision = &one })
 	cases := []struct {
 		name           string
 		reg            *registers.Register
@@ -299,15 +300,16 @@ func TestWireValue(t *testing.T) {
 		{"switch off", sw, 0, 0, false},
 		{"switch odd value", sw, 2, 2, false},
 		{"switch without payloads", bareSwitch, 3, 3, true},
-		{"float rounded, still a number", plain, 1.005, 1.005, 1.0},
-		{"float", nil, nil, 230.126, 230.13},
+		{"float rounded to the default, still a number", plain, 1.23456, 1.23456, 1.235},
+		{"float rounded to the register's precision", soc, 5596, 55.96, 56.0},
+		{"float without a register", nil, nil, 230.1264, 230.126},
 		{"int64", plain, int64(4294967295), int64(4294967295), int64(4294967295)},
 		{"go bool (synthetic switch)", nil, nil, true, true},
 		{"string", nil, nil, "2026-05-25 14:30:45", "2026-05-25 14:30:45"},
 		{"nil", nil, nil, nil, nil},
 	}
 	for _, tc := range cases {
-		if got := wireValue(tc.reg, tc.raw, tc.processed, round2); got != tc.want {
+		if got := wireValue(tc.reg, tc.raw, tc.processed); got != tc.want {
 			t.Errorf("%s: wireValue = %#v, want %#v", tc.name, got, tc.want)
 		}
 	}

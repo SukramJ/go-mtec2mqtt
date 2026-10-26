@@ -3,7 +3,7 @@
 
 // Command mtec2mqtt is the M-TEC Energybutler → MQTT bridge daemon.
 //
-// It loads its configuration from $XDG_CONFIG_HOME/aiomtec2mqtt/config.yaml
+// It loads its configuration from $XDG_CONFIG_HOME/mtec2mqtt/config.yaml
 // (or a path supplied via --config), opens a Modbus-TCP connection to
 // the inverter, opens an MQTT session to the configured broker, and
 // publishes register values plus Home Assistant auto-discovery
@@ -106,11 +106,11 @@ func run(configPath, registersPath string, logger *slog.Logger, level *slog.Leve
 	if cfg.Debug {
 		level.Set(slog.LevelDebug)
 	}
-	for _, key := range cfg.Deprecated() {
-		logger.Warn("mtec2mqtt.config_deprecated",
+	for _, key := range cfg.Removed() {
+		logger.Warn("mtec2mqtt.config_key_removed",
 			slog.String("key", key),
 			slog.String("removed_in", "3.0.0"),
-			slog.String("action", "remove the key from the configuration"))
+			slog.String("action", "ignored; remove the key from the configuration"))
 	}
 	if layout := hass.NewLayout(cfg.MQTTTopic); !layout.Conformant() {
 		// Kept verbatim — refusing it would break the installation on
@@ -169,13 +169,9 @@ func run(configPath, registersPath string, logger *slog.Logger, level *slog.Leve
 	// The client it publishes through does not exist yet, so the transport
 	// is wired in below, before anything connects.
 	// A FACTORY, not an instance. publisher.Runtime remembers what it has
-	// published and — decisively — which per-entity configs it has already
-	// retracted to clear the way for the device document. That memory is
-	// per process, while the QoS 0 success it records is per CONNECTION, so
-	// a runtime that outlived a dropped connection would skip retractions
-	// the broker never applied and publish the document into a conflict
-	// Home Assistant refuses in silence. The coordinator therefore builds a
-	// fresh one on every (re)connect; see coordinator.Coordinator.resetHAPlane.
+	// published, which is a statement about one broker connection; the
+	// coordinator builds a fresh one on every (re)connect, see
+	// coordinator.Coordinator.resetHAPlane.
 	//
 	// Every runtime this returns answers Will() identically — the will is
 	// derived from the config and from nothing else — which is what lets
@@ -199,13 +195,6 @@ func run(configPath, registersPath string, logger *slog.Logger, level *slog.Leve
 
 	// --- mqtt ---
 	clientID := clientIDBase + cfg.MQTTTopic
-	// Releases up to 1.9.0 wrote the availability marker to
-	// "<hass_base>/status/lwt" — homeassistant/status/lwt by default,
-	// inside Home Assistant's own birth tree. Nothing read it, so nothing
-	// ever surfaced that it was in the wrong place. It moved; the retained
-	// copy an upgrading broker still holds has to be cleared, or it sits
-	// there forever claiming a daemon that no longer publishes it is
-	// online.
 
 	// TLS is opt-in via MQTT_SSL; NewClientTLSConfig always sets
 	// ServerName (tls.Client does not infer it from the dialed address)
@@ -310,7 +299,7 @@ func run(configPath, registersPath string, logger *slog.Logger, level *slog.Leve
 	virtualSwitches := hass.DefaultVirtualSwitches(cfg.ChargeActiveValue, cfg.DischargeActiveValue)
 	var hassDiscovery *hass.Discovery
 	if cfg.HASSEnable {
-		hassDiscovery = hass.New(cfg.HASSBaseTopic, cfg.MQTTTopic, catalog, cfg.Language, virtualSwitches, cfg.DeviceName)
+		hassDiscovery = hass.New(cfg.MQTTTopic, catalog, cfg.Language, virtualSwitches, cfg.DeviceName)
 		hassDiscovery.IncludeSerialInUniqueIDs(cfg.HassUniqueIDIncludeSerial)
 	}
 
@@ -361,7 +350,6 @@ func run(configPath, registersPath string, logger *slog.Logger, level *slog.Leve
 	// publish a single network blip would leave the retained availability
 	// topic stuck at "offline" for the rest of the daemon's uptime.
 	mqttLifecycle.OnConnect(func(hookCtx context.Context) {
-		retractLegacyAvailability(breaker, cfg.HASSBaseTopic, logger)(hookCtx)
 		c.PublishOnline(hookCtx)
 	})
 	if err := startMQTT(ctx, mqttLifecycle, time.Second, 30*time.Second, logger); err != nil {
@@ -446,40 +434,6 @@ func startMQTT(ctx context.Context, lc mqttStarter, backoff, maxBackoff time.Dur
 		case <-time.After(backoff):
 		}
 		backoff = min(2*backoff, maxBackoff)
-	}
-}
-
-// retractLegacyAvailability clears the retained availability marker this
-// daemon wrote before the status topic moved out of Home Assistant's
-// discovery tree ("<hass_base>/status/lwt", by default
-// homeassistant/status/lwt). An empty retained payload is MQTT's
-// retraction: the broker drops the stored message, so a subscriber that
-// connects later finds nothing rather than a stale "online" for a topic
-// this daemon no longer maintains.
-//
-// It runs on every connect rather than once at first boot: the daemon
-// keeps no state across restarts, the publish is one empty message, and a
-// broker that lost its retained set in the meantime (a restart without
-// persistence) would otherwise keep a stale copy from some other source
-// forever. Failures are logged, never fatal — like the birth publish, it
-// is best-effort.
-//
-// It takes the discovery PREFIX and derives the topic through
-// [hass.LegacyAvailabilityTopic], rather than taking the topic. The topic
-// used to be composed at the call site above, where no test reached it:
-// the test passed a literal in and asserted publication to the same
-// literal, which is argument forwarding, so mutating the production
-// spelling to "/status/LWT" left the suite green while the retraction
-// cleared a topic no release ever wrote. The arithmetic now lives inside
-// the function the test drives.
-func retractLegacyAvailability(pub coordinator.MQTTPublisher, hassBaseTopic string, logger *slog.Logger) func(context.Context) {
-	topic := hass.LegacyAvailabilityTopic(hassBaseTopic)
-	return func(ctx context.Context) {
-		if err := pub.Publish(ctx, topic, nil, mqtt.QoS0, true); err != nil {
-			logger.Warn("mtec2mqtt.legacy_lwt_retract_failed",
-				slog.String("topic", topic),
-				slog.String("err", err.Error()))
-		}
 	}
 }
 

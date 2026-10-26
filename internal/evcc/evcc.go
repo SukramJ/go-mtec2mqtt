@@ -85,6 +85,17 @@ var sources = []source{
 	{Item{RoleBattery, KeyReturnEnergy}, "battery_charge_total", 1},
 }
 
+// SourceKey is the MQTT key of the register item is derived from, or ""
+// for an item without one (the battery mode).
+func SourceKey(item Item) string {
+	for _, s := range sources {
+		if s.item == item {
+			return s.mqtt
+		}
+	}
+	return ""
+}
+
 // StatusItems lists every item the profile publishes, for the self-echo
 // guard and the documentation contract test.
 func StatusItems() []Item {

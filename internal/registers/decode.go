@@ -15,8 +15,8 @@ import (
 var ErrDecodeBounds = errors.New("registers: decode bounds exceeded")
 
 // Decode turns a raw window of holding-register values into a typed
-// Go value, applying scaling and the M-TEC-specific formatting that
-// the Python coordinator (and downstream MQTT consumers) expect.
+// Go value, applying scaling and the M-TEC-specific formatting
+// downstream MQTT consumers expect.
 //
 // The returned value is one of:
 //
@@ -77,9 +77,9 @@ func Decode(reg *Register, raw []uint16) (any, error) {
 		return nil, fmt.Errorf("registers: unknown data type %q", reg.Type)
 	}
 
-	// Scaling applies to integer-typed values only. Python uses true
-	// division (`/`) which always yields a float — match that so the
-	// MQTT_FLOAT_FORMAT path is reached for scaled registers. Both
+	// Scaling applies to integer-typed values only and always yields a
+	// float, so a scaled register is published rounded to its precision
+	// like any other float. Both
 	// integer widths the decoder produces must be covered, otherwise a
 	// scaled U32 register would silently publish its raw counter.
 	if reg.Scale > 1 {
@@ -140,7 +140,7 @@ func formatBYTE(raw []uint16, length int) (string, error) {
 }
 
 // formatBIT renders each register as a 16-bit binary string, joined
-// by single spaces (matches Python f"{r:016b}").
+// by single spaces.
 func formatBIT(raw []uint16, length int) string {
 	if length > len(raw) {
 		length = len(raw)
@@ -195,8 +195,6 @@ func decodeSTR(raw []uint16) string {
 		}
 		s = string(runes)
 	}
-	// Python does `.rstrip(" ").rstrip("\x00").rstrip(" ")` — leaving
-	// no trailing space or null. strings.TrimRight handles all three
-	// characters in one pass.
+	// No trailing space or NUL survives.
 	return strings.TrimRight(s, " \x00")
 }

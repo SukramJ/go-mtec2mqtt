@@ -148,8 +148,7 @@ func (s *session) loop() {
 }
 
 // listAll prints the entire catalog as a delimited table — easy to
-// grep / pipe into spreadsheets. Layout mirrors the Python output so
-// scripts that consume one work on the other.
+// grep / pipe into spreadsheets.
 func (s *session) listAll() {
 	s.println("-------------------------------------")
 	s.println("Reg  ; MQTT                            ; Unit ; Mode; Group           ; Name")
@@ -276,9 +275,8 @@ func (s *session) readSingle() error {
 
 // writeRegister lists every writable register's current value, then
 // prompts the user for an address + value and confirms before pushing
-// it to the device. The confirmation step matches the Python tool —
-// poking the inverter's settings without a "really?" prompt is a
-// recipe for tears.
+// it to the device. Poking the inverter's settings without a "really?"
+// prompt is a recipe for tears.
 func (s *session) writeRegister() error {
 	if s.client == nil {
 		return errNoConnection

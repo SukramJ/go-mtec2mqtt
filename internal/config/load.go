@@ -79,9 +79,9 @@ func Load(r io.Reader, env Env) (*Config, error) {
 		return nil, fmt.Errorf("config: decode merged config: %w", err)
 	}
 
-	for _, key := range deprecatedKeys {
+	for _, key := range removedKeys {
 		if rawHasKey(raw, key) {
-			cfg.deprecated = append(cfg.deprecated, key)
+			cfg.removed = append(cfg.removed, key)
 		}
 	}
 	applyDefaults(&cfg, raw)
@@ -103,12 +103,9 @@ func LoadFile(path string, env Env) (*Config, error) {
 }
 
 // Locate walks the standard search order (CWD → XDG/APPDATA →
-// ~/.config) and returns the first config.yaml that exists. Returns
-// (path, true) on hit, ("", false) when no candidate was found.
-//
-// Mirrors init_config in aiomtec2mqtt/config.py — same paths, same
-// precedence, so an existing user install can swap binaries without
-// moving files.
+// ~/.config, each first under [AppDirName], then under
+// [LegacyAppDirName]) and returns the first config.yaml that exists.
+// Returns (path, true) on hit, ("", false) when no candidate was found.
 func Locate(env Env) (string, bool) {
 	if env == nil {
 		env = OSEnv{}
@@ -119,18 +116,24 @@ func Locate(env Env) (string, bool) {
 		candidates = append(candidates, filepath.Join(cwd, ConfigFile))
 	}
 
+	var bases []string
 	switch runtime.GOOS {
 	case "windows":
 		if v, ok := env.LookupEnv("APPDATA"); ok && v != "" {
-			candidates = append(candidates, filepath.Join(v, AppDirName, ConfigFile))
+			bases = append(bases, v)
 		}
 	default:
 		if v, ok := env.LookupEnv("XDG_CONFIG_HOME"); ok && v != "" {
-			candidates = append(candidates, filepath.Join(v, AppDirName, ConfigFile))
+			bases = append(bases, v)
 		}
 	}
 	if home, err := os.UserHomeDir(); err == nil {
-		candidates = append(candidates, filepath.Join(home, ".config", AppDirName, ConfigFile))
+		bases = append(bases, filepath.Join(home, ".config"))
+	}
+	for _, base := range bases {
+		for _, dir := range []string{AppDirName, LegacyAppDirName} {
+			candidates = append(candidates, filepath.Join(base, dir, ConfigFile))
+		}
 	}
 
 	for _, p := range candidates {
@@ -168,8 +171,7 @@ var stringYAMLKeys = sync.OnceValue(func() map[string]struct{} {
 //
 // Values destined for string-typed Config fields (credentials, topics,
 // device name, ...) are stored verbatim. All other keys go through the
-// coercion ladder, whose order matches the Python helper
-// _coerce_env_value:
+// coercion ladder:
 //
 //  1. "true"/"false" (case-insensitive, surrounding whitespace ignored) → bool
 //  2. parseable as int → int

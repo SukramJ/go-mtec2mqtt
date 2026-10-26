@@ -24,31 +24,18 @@ import (
 )
 
 // This file pins the wire this daemon actually writes to: the state and
-// command topic tree, the delivery guarantee of every publish, and — the
-// point of the exercise — that the *two independent state-topic builders*
-// agree. See notes/adr0070-phase6-measurement.md, finding F5: the config
-// payload's `state_topic` is composed in internal/hass/discovery.go, the
-// value is published from a second expression in poll.go, and until now
-// nothing compared them. A divergence leaves every entity pointing at a
-// topic nobody publishes, permanently `unknown`, with nothing in the log
-// and nothing in Home Assistant's registry to notice it.
+// command topic tree, the delivery guarantee of every publish, and that the
+// state topic a config tells Home Assistant to read is the one the poll
+// loop publishes to. A divergence leaves every entity pointing at a topic
+// nobody publishes, permanently `unknown`, with nothing in the log.
 //
-// The golden is driven through the *real* builders over the real
-// registers.yaml: publishGroupOnce for the publisher side, hass.Discovery
-// for the config side. Regenerate with:
+// The golden is driven through the real builders over the real
+// registers.yaml. Regenerate with:
 //
 //	go test ./internal/coordinator -run TestTopicGolden -update-topics-golden
 //
-// # Pinned defects
-//
-//   - F3 — state is published non-retained, so a Home Assistant restart
-//     blanks every entity until the next poll (up to an hour for the
-//     `static` cadence). Pinned by TestPublishQoSAndRetain, which is also
-//     the first test in this repository to assert a QoS at all.
-//   - F10 — the state-topic tree is wider than the discovery tree: the
-//     `static` group and two unannotated `now-base` registers publish
-//     topics no entity reads. Pinned as `state_topics_without_entity` in
-//     the golden, so the later filter step shows up as that list emptying.
+// `state_topics_without_entity` lists what is published but read by no
+// entity (the `static` group and unannotated registers).
 var updateTopicsGolden = flag.Bool("update-topics-golden", false,
 	"rewrite internal/coordinator/testdata/topics.json from the current builders")
 
@@ -63,27 +50,15 @@ type topicGolden struct {
 	// StateTopics is every topic publishGroupOnce writes a value to,
 	// across all catalog groups.
 	StateTopics []string `json:"state_topics"`
-	// DiscoveryConfigTopics is every per-entity config topic this daemon
-	// RETRACTS on the migration to the device bundle.
-	//
-	// Until this release it was every config topic the daemon published.
-	// The list is byte-identical either way, and that is the point: the
-	// retraction has to name exactly the fleet the previous release left
-	// retained, or Home Assistant refuses the document over the survivor.
-	// It is now derived from the document's own components through
-	// hass.SupersededConfigTopics -- the same call publisher.Runtime makes
-	// -- rather than from the pre-migration builder, so the two cannot
-	// drift.
-	DiscoveryConfigTopics []string `json:"discovery_config_topics"`
 	// DiscoveryBundleTopic is the ONE retained discovery message this
-	// daemon now writes.
+	// daemon writes.
 	DiscoveryBundleTopic string `json:"discovery_bundle_topic"`
 	// CommandTopics is every topic an entity tells Home Assistant to
 	// write back to.
 	CommandTopics []string `json:"command_topics"`
 	// SubscribeFilters is what the daemon asks the broker for.
 	SubscribeFilters []string `json:"subscribe_filters"`
-	// StateTopicsWithoutEntity is F10: published, but no entity reads it.
+	// StateTopicsWithoutEntity is published, but no entity reads it.
 	StateTopicsWithoutEntity []string `json:"state_topics_without_entity"`
 }
 
@@ -126,7 +101,7 @@ HASS_ENABLE: true
 
 	mqttStub := newStubMQTT()
 	virtual := hass.DefaultVirtualSwitches(cfg.ChargeActiveValue, cfg.DischargeActiveValue)
-	discovery := hass.New(cfg.HASSBaseTopic, cfg.MQTTTopic, catalog, cfg.Language, virtual, cfg.DeviceName)
+	discovery := hass.New(cfg.MQTTTopic, catalog, cfg.Language, virtual, cfg.DeviceName)
 	discovery.Initialize(goldenSerial, goldenFirmware, goldenEquipment)
 
 	deps := Deps{
@@ -146,9 +121,7 @@ HASS_ENABLE: true
 	// topic is keyed on it, exactly as in production.
 	c.topicBase.Store(topicParts{root: cfg.MQTTTopic, serial: goldenSerial})
 	// The device document, exactly as run() builds it after the STATIC
-	// read. Without it publishDiscovery publishes nothing at all, which is
-	// deliberate (see buildBundle) and would make every test below silent
-	// rather than red.
+	// read; without it publishDiscovery publishes nothing.
 	c.buildBundle()
 	if c.haBundle == nil {
 		t.Fatal("the real catalogue does not render a publishable device bundle")
@@ -172,8 +145,7 @@ func publishEveryGroup(t *testing.T, c *Coordinator, catalog *registers.Map, stu
 }
 
 // discoveryStateTopics reads the state_topic out of each component of the
-// device document this daemon publishes: the *config* side of F5, keyed
-// by component key.
+// device document, keyed by component key.
 func discoveryStateTopics(t *testing.T, c *Coordinator) map[string]string {
 	t.Helper()
 	out := map[string]string{}
@@ -210,44 +182,13 @@ func sortedKeys(set map[string]bool) []string {
 }
 
 // subscribeFilters asks the production code what it subscribes to, by
-// running it: installInboundHandler for the two startup filters and one
-// real sweep pass for the snapshot window. Nothing here re-derives a
-// filter string, which would pin nothing.
-//
-// The snapshot filter MOVED in ADR 0070 phase 6 step 5, and it is the one
-// wire-visible change of that step. The hand-rolled orphan reconcile
-// subscribed "homeassistant/+/+/config"; publisher.Runtime.Sweep opens
-// its window over "homeassistant/#" so that all three discovery topic
-// forms — the four-segment one this fleet is on, the five-segment node-id
-// form, and the device document step 6 will publish — reach one parser
-// instead of a wildcard shape that only matches one of them. For the two
-// seconds the window is open this daemon therefore receives every
-// retained message under the discovery prefix rather than only the
-// four-segment configs. It acts on none of them that
-// hass.OwnsConfigTopic and Discovery.IsOwnConfig do not both claim, and
-// the pass is report-only, so the widening is what it reads, never what
-// it writes.
-//
-// The golden's subscribe_filters row was updated by hand for that one
-// string and for nothing else. It was NOT regenerated: the other four
-// rows of testdata/topics.json are byte-identical to what #49 and #50
-// pinned.
+// running installInboundHandler. Nothing here re-derives a filter string,
+// which would pin nothing.
 func subscribeFilters(t *testing.T, c *Coordinator, stub *stubMQTT) []string {
 	t.Helper()
 	if err := c.installInboundHandler(context.Background()); err != nil {
 		t.Fatalf("installInboundHandler: %v", err)
 	}
-	oldWindow := reconcileCollectWindow
-	reconcileCollectWindow = 20 * time.Millisecond
-	t.Cleanup(func() { reconcileCollectWindow = oldWindow })
-	// A real pass over an empty broker: it opens the window, judges
-	// nothing and retracts nothing, which is all this needs from it. The
-	// sweep only runs once a device document has reached the broker, so
-	// that precondition is stated here rather than reached through a
-	// publish this helper does not otherwise need.
-	c.haBundlePublished.Store(true)
-	c.sweepOrphans(context.Background(), map[string]bool{})
-
 	stub.mu.Lock()
 	got := append([]string(nil), stub.subscribes...)
 	stub.subscribes, stub.subscribeQoS = nil, nil
@@ -266,10 +207,6 @@ func TestTopicGolden(t *testing.T) {
 		stateSet[p.topic] = true
 	}
 
-	configSet := map[string]bool{}
-	for _, topic := range hass.SupersededConfigTopics(c.ha().Prefix(), c.haBundle) {
-		configSet[topic] = true
-	}
 	commandSet := discoveryCommandTopics(c)
 
 	entityStateTopics := map[string]bool{}
@@ -285,7 +222,6 @@ func TestTopicGolden(t *testing.T) {
 
 	got := topicGolden{
 		StateTopics:              sortedKeys(stateSet),
-		DiscoveryConfigTopics:    sortedKeys(configSet),
 		DiscoveryBundleTopic:     c.haBundleTopic,
 		CommandTopics:            sortedKeys(commandSet),
 		SubscribeFilters:         subscribeFilters(t, c, stub),
@@ -317,7 +253,6 @@ func TestTopicGolden(t *testing.T) {
 		t.Fatalf("golden topics.json is not valid json: %v", err)
 	}
 	diffTopicList(t, "state_topics", want.StateTopics, got.StateTopics)
-	diffTopicList(t, "discovery_config_topics", want.DiscoveryConfigTopics, got.DiscoveryConfigTopics)
 	if want.DiscoveryBundleTopic != got.DiscoveryBundleTopic {
 		t.Errorf("discovery_bundle_topic moved:\n golden: %s\n  built: %s",
 			want.DiscoveryBundleTopic, got.DiscoveryBundleTopic)
@@ -351,7 +286,7 @@ func diffTopicList(t *testing.T, name string, want, got []string) {
 	}
 }
 
-// TestStateTopicBuildersAgree is F5's pin. Every entity's advertised
+// TestStateTopicBuildersAgree: every entity's advertised
 // state_topic must be one the poll loop actually publishes to — checked
 // against the real publish path, not against the golden file, so a change
 // to either builder alone fails here even after a regeneration.
@@ -382,7 +317,7 @@ func TestStateTopicBuildersAgree(t *testing.T) {
 
 // TestCommandTopicsAreSubscribed proves the wildcard the daemon
 // subscribes to covers every command topic it advertises — the same
-// class of divergence as F5, on the inbound half.
+// class of divergence, on the inbound half.
 func TestCommandTopicsAreSubscribed(t *testing.T) {
 	c, _, _, _ := realTopicCoordinator(t)
 	filter := "MTEC/set/+/+/+"
@@ -405,13 +340,9 @@ func TestCommandTopicsAreSubscribed(t *testing.T) {
 // this daemon makes. Before this test, every MQTT stub in the repository
 // discarded the QoS argument, so the guarantee was asserted nowhere.
 //
-// The state row was F3's pin — QoS 0 and retain=false, so a Home
-// Assistant restart found no value for any entity. Step 2a fixed it, and
-// the row now asserts the fixed contract: every state publish is retained
-// and stays at QoS 0. The QoS half is as load-bearing as the retain half:
-// the ADR 0070 migration moves this plane onto a library whose default is
-// QoS 1, and the installed base's delivery guarantee must not move with
-// it.
+// Every state publish is retained (a Home Assistant restart must find the
+// last value) and stays at QoS 0, which has to be stated because the
+// library's default is QoS 1.
 func TestPublishQoSAndRetain(t *testing.T) {
 	c, _, stub, catalog := realTopicCoordinator(t)
 
@@ -421,68 +352,36 @@ func TestPublishQoSAndRetain(t *testing.T) {
 		}
 		if !p.retain {
 			t.Errorf("state publish %s: retain = false, want true — a late "+
-				"subscriber must get the last value, not `unknown` (F3)", p.topic)
+				"subscriber must get the last value, not `unknown`", p.topic)
 		}
 	}
 
-	// Discovery: retained, QoS 0 — the device document and the 100
-	// retractions that clear the per-entity form it replaces.
-	//
-	// The retraction half is as load-bearing as the document: an empty
-	// payload published NON-retained clears nothing, so the old config
-	// stays on the broker and Home Assistant refuses the document with one
-	// WARNING and no entities. The count is asserted too, because a
-	// retraction that silently covers 99 of 100 topics fails exactly the
-	// same way as one that covers none.
+	// Discovery: the one device document, retained, QoS 0, and nothing
+	// else against a broker that retains no per-entity config.
 	stub.mu.Lock()
 	stub.publishes = nil
 	stub.mu.Unlock()
-	retainLegacyConfigs(c, stub)
 	c.publishDiscovery(context.Background())
 	discoveryPubs := stub.snapshotPublishes()
-	if len(discoveryPubs) != 101 {
-		t.Fatalf("discovery publishes = %d, want 101 (100 retractions + 1 device document)",
-			len(discoveryPubs))
+	if len(discoveryPubs) != 1 || discoveryPubs[0].topic != c.haBundleTopic {
+		t.Fatalf("discovery publishes = %v, want the device document alone", summariseTopics(discoveryPubs))
 	}
-	documents, retractions := 0, 0
-	for _, p := range discoveryPubs {
-		if p.qos != mqtt.QoS0 {
-			t.Errorf("discovery publish %s: qos = %v, want QoS0", p.topic, p.qos)
-		}
-		if !p.retain {
-			t.Errorf("discovery publish %s: retain = false, want true", p.topic)
-		}
-		if len(p.payload) == 0 {
-			retractions++
-		} else {
-			documents++
-		}
-	}
-	if documents != 1 || retractions != 100 {
-		t.Errorf("discovery pass wrote %d documents and %d retractions, want 1 and 100",
-			documents, retractions)
+	if p := discoveryPubs[0]; p.qos != mqtt.QoS0 || !p.retain || len(p.payload) == 0 {
+		t.Errorf("device document: qos %v retain %v %d bytes, want QoS0, retained, non-empty",
+			p.qos, p.retain, len(p.payload))
 	}
 }
 
-// TestSubscribeQoS pins the QoS of all THREE subscriptions this daemon
-// opens, for the same reason as above: nothing asserted them.
-//
-// The third one is the orphan sweep's snapshot window. Its doc comment
-// used to claim it was pinned here while the assertion only ever held the
-// two startup filters and the sweep never ran in this fixture — so
-// "homeassistant/#" was pinned nowhere, and its QoS is not the daemon's
-// choice but publisher.Config's, which also governs every discovery
-// publish. It runs here now.
+// TestSubscribeQoS pins the QoS of the subscriptions this daemon opens:
+// the birth topic, the command plane and the maintenance commands, and the
+// supersede snapshot over the discovery prefix, whose QoS is
+// publisher.Config's (DiscoveryQoS).
 func TestSubscribeQoS(t *testing.T) {
 	c, _, stub, _ := realTopicCoordinator(t)
 	if err := c.installInboundHandler(context.Background()); err != nil {
 		t.Fatalf("installInboundHandler: %v", err)
 	}
-	oldWindow := reconcileCollectWindow
-	reconcileCollectWindow = 20 * time.Millisecond
-	t.Cleanup(func() { reconcileCollectWindow = oldWindow })
-	c.haBundlePublished.Store(true)
-	c.sweepOrphans(context.Background(), map[string]bool{})
+	c.publishDiscovery(context.Background())
 
 	stub.mu.Lock()
 	filters, qoss := append([]string(nil), stub.subscribes...), append([]mqtt.QoS(nil), stub.subscribeQoS...)
@@ -494,7 +393,7 @@ func TestSubscribeQoS(t *testing.T) {
 		// mqtt-smarthome §7 maintenance, routed by the same router.
 		"MTEC/maintenance/set/#": mqtt.QoS1,
 		// DiscoveryQoS — publisher.Config's QoS, which the library applies
-		// to the sweep's window as well as to the discovery publishes.
+		// to the SupersedeObserved snapshot as well as to the publishes.
 		"homeassistant/#": mqtt.QoS0,
 	}
 	if len(filters) != len(want) {
@@ -515,17 +414,17 @@ func TestSubscribeQoS(t *testing.T) {
 // TestStatePayloadsAreCanonical pins that no state publish carries an
 // empty payload. On the now-retained state plane an empty payload is
 // MQTT's retraction — it deletes the stored value rather than blanking
-// it — which is F8, and is why F3 was not fixed by flipping a boolean.
+// it, which is why retain is not just a boolean.
 func TestStatePayloadsAreCanonical(t *testing.T) {
 	c, _, stub, catalog := realTopicCoordinator(t)
 	for _, p := range publishEveryGroup(t, c, catalog, stub) {
 		if len(bytes.TrimSpace(p.payload)) == 0 {
-			t.Errorf("%s published an empty payload — on the retained state plane this is a retraction (F8)", p.topic)
+			t.Errorf("%s published an empty payload — on the retained state plane this is a retraction", p.topic)
 		}
 	}
 }
 
-// TestNilValueIsNotPublished is F8's fixed contract, driven end to end
+// TestNilValueIsNotPublished is the empty-payload contract, driven end to end
 // through the production path: a nil reaching publishGroupOnce must
 // produce *no publish at all* on that topic, not a retained empty payload
 // that retracts the entity's last known value.
@@ -563,7 +462,7 @@ func TestNilValueIsNotPublished(t *testing.T) {
 	for _, p := range pubs {
 		if p.topic == nilTopic {
 			t.Errorf("%s was published with payload %q retain=%v — an empty retained "+
-				"payload retracts the entity's stored value (F8)", p.topic, p.payload, p.retain)
+				"payload retracts the entity's stored value", p.topic, p.payload, p.retain)
 		}
 		if len(bytes.TrimSpace(p.payload)) == 0 {
 			t.Errorf("%s published an empty payload", p.topic)

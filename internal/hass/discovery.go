@@ -1,29 +1,26 @@
 // SPDX-License-Identifier: MIT
 // Copyright (C) 2026 SukramJ
 
-// Package hass builds Home Assistant MQTT auto-discovery payloads
-// from the M-TEC register catalog.
+// Package hass builds the Home Assistant MQTT discovery document from the
+// M-TEC register catalog and owns every topic this bridge derives.
 //
-// Discovery turns each Modbus register that carries HA-specific
-// metadata in registers.yaml into one or more entity definitions —
-// sensors expose values, number/select/switch entities also send
-// commands back through MQTT. The package owns no I/O: it produces a
-// slice of [Entry] values that the coordinator publishes via its MQTT
-// client and (for the writable entities) subscribes to.
+// Each register that carries HA metadata in registers.yaml becomes one or
+// more entities — sensors expose values, number/select/switch entities
+// also send commands back through MQTT. They are rendered through
+// github.com/SukramJ/go-hamqtt into ONE retained device document
+// ([RenderBundle]). The package owns no I/O: the coordinator publishes.
 package hass
 
 import (
-	"encoding/json"
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/SukramJ/go-mtec2mqtt/internal/registers"
 )
 
-// Manufacturer/model strings the inverter is announced under. These
-// match aiomtec2mqtt so an upgrading user's existing entities keep
-// the same provenance in HA's device registry.
+// Manufacturer/model strings the inverter is announced under, and the
+// unique_id namespace. Home Assistant has no migration path for an
+// identity, so these are API.
 const (
 	manufacturer   = "M-TEC"
 	model          = "Energy-Butler"
@@ -31,42 +28,7 @@ const (
 	uniqueIDPrefix = "MTEC_"
 )
 
-// Availability payloads of the pre-2.0 marker, the two words releases
-// 1.10 and 1.11 wrote to [LegacyBridgeStatusTopic] and the frozen
-// per-entity builder below still tells its record to read there.
-const (
-	PayloadAvailable    = "online"
-	PayloadNotAvailable = "offline"
-)
-
-// LegacyBridgeStatusTopic is the daemon's availability topic before 2.0.0:
-// "<root>/bridge/status", e.g. "MTEC/bridge/status", carrying
-// online/offline. 2.0.0 replaced it with `<name>/connected` (0/1/2,
-// [ConnectedTopic]); the start-up sweep clears the retained copy an
-// upgrading broker still holds, and the frozen per-entity builder below
-// keeps naming it because that builder is the record of what such a broker
-// holds.
-func LegacyBridgeStatusTopic(mqttTopic string) string {
-	return mqttTopic + "/bridge/status"
-}
-
-// LegacyStateTopic is where a release before 2.0.0 published a register's
-// value: "<root>/<serial>/<group>/<key>/state", with the group in its
-// pre-2.0.0 spelling ("now-base"). Read by the start-up sweep, which clears
-// exactly these topics for the serial and keys this instance owns, and by
-// the frozen per-entity builder.
-func LegacyStateTopic(root, serial string, group registers.Group, key string) string {
-	return root + "/" + serial + "/" + group.Legacy() + "/" + key + "/state"
-}
-
-// LegacyCommandTopic is [LegacyStateTopic]'s command twin,
-// "<root>/<serial>/<group>/<key>/set".
-func LegacyCommandTopic(root, serial string, group registers.Group, key string) string {
-	return root + "/" + serial + "/" + group.Legacy() + "/" + key + "/set"
-}
-
-// Platform is the HA discovery platform — used as the second path
-// segment of the discovery topic and as a switch in the builder.
+// Platform is the HA discovery platform of an entity.
 type Platform string
 
 // Platform values.
@@ -77,16 +39,6 @@ const (
 	PlatformSelect       Platform = "select"
 	PlatformSwitch       Platform = "switch"
 )
-
-// Entry is one discovery payload ready for MQTT publication. The
-// coordinator publishes Payload to ConfigTopic (retained), and if
-// CommandTopic is non-empty also subscribes to it to handle inbound
-// writes from HA.
-type Entry struct {
-	ConfigTopic  string
-	Payload      []byte
-	CommandTopic string
-}
 
 // VirtualSwitch describes a synthetic HA switch entity that is not
 // backed by its own Modbus register but instead toggles another
@@ -143,72 +95,65 @@ func DefaultVirtualSwitches(chargeOnValue, dischargeOnValue int) []VirtualSwitch
 	}
 }
 
-// Discovery walks the register catalog and emits HA discovery entries.
-// Zero-value is not usable — construct with [New], then call
-// [Discovery.Initialize] once the inverter's serial number and
-// firmware are known (those come from the STATIC register read).
+// Discovery holds the inputs of the device document: the catalog, the
+// language, the synthetic switches and — after [Discovery.Initialize] —
+// the inverter's identity. Zero value is not usable; construct with [New].
 type Discovery struct {
-	hassBaseTopic string
-	mqttTopic     string
-	catalog       *registers.Map
-	lang          string
-	virtual       []VirtualSwitch
+	mqttTopic string
+	catalog   *registers.Map
+	lang      string
+	virtual   []VirtualSwitch
 
 	// deviceName is the operator-chosen HA device name (empty = use the
 	// generic deviceName constant). deviceSlug is its slugged form, folded
-	// into the entity_id seed (default_entity_id) but never
-	// unique_id; empty when no name is configured, preserving the identity.
+	// into the entity_id seed (default_entity_id) but never unique_id;
+	// empty when no name is configured.
 	deviceName string
 	deviceSlug string
 
 	serialNo      string
 	firmware      string
 	equipmentInfo string
-	device        map[string]any
-	entries       []Entry
 	diagnostics   []string
 	initialized   bool
 
-	// serialInUniqueID scopes every unique_id (and thus every discovery
-	// config topic) by the inverter serial so several daemon instances —
-	// one per inverter — can share a single HA installation without
-	// overwriting each other's retained discovery configs. Off by
-	// default: enabling it changes every unique_id, which orphans the
-	// entities an existing installation already tracks (MQTT discovery
-	// has no unique_id migration), so it is a deliberate operator opt-in
-	// via HASS_UNIQUE_ID_INCLUDE_SERIAL.
+	// serialInUniqueID scopes every unique_id by the inverter serial so
+	// several daemon instances — one per inverter — can share a single HA
+	// installation. Off by default: enabling it changes every unique_id,
+	// which orphans the entities an existing installation already tracks,
+	// so it is a deliberate operator opt-in via HASS_UNIQUE_ID_INCLUDE_SERIAL.
 	serialInUniqueID bool
 }
 
-// New constructs a Discovery for the given topic roots and catalog.
-// hassBaseTopic is usually "homeassistant"; mqttTopic is the MTEC
-// publish root (e.g. "MTEC"). lang ("en"/"de") localises entity friendly
-// names; virtual adds synthetic switch entities (may be nil). deviceName
-// is the optional operator-chosen HA device name — when non-empty it
-// replaces the generic device name and its slug is folded into every
-// entity_id seed (default_entity_id; unique_id stays stable);
-// pass "" to keep the previous generic identity.
-func New(hassBaseTopic, mqttTopic string, catalog *registers.Map, lang string, virtual []VirtualSwitch, deviceName string) *Discovery {
+// New constructs a Discovery. mqttTopic is the instance name (the topic
+// root), lang ("en"/"de") localises entity friendly names, virtual adds
+// synthetic switch entities (may be nil). deviceName is the optional
+// operator-chosen HA device name — when non-empty it replaces the generic
+// device name and its slug is folded into every entity_id seed
+// (default_entity_id; unique_id stays stable).
+func New(mqttTopic string, catalog *registers.Map, lang string, virtual []VirtualSwitch, deviceName string) *Discovery {
 	if lang == "" {
 		lang = "en"
 	}
 	deviceName = strings.TrimSpace(deviceName)
 	return &Discovery{
-		hassBaseTopic: hassBaseTopic,
-		mqttTopic:     mqttTopic,
-		catalog:       catalog,
-		lang:          lang,
-		virtual:       virtual,
-		deviceName:    deviceName,
-		deviceSlug:    slugify(deviceName),
+		mqttTopic:  mqttTopic,
+		catalog:    catalog,
+		lang:       lang,
+		virtual:    virtual,
+		deviceName: deviceName,
+		deviceSlug: slugify(deviceName),
 	}
 }
 
-// slugify reduces a free-text device name to a lower-case
-// [a-z0-9_] token usable inside an HA entity_id. Runs of non-alphanumeric
-// characters collapse to a single underscore and leading/trailing
-// underscores are trimmed. Returns "" for input that carries no usable
-// characters, so callers fall back to the generic identity.
+// slugify reduces a free-text name to a lower-case [a-z0-9_] token usable
+// inside an HA entity_id. Runs of non-alphanumeric characters collapse to a
+// single underscore and leading/trailing underscores are trimmed. Returns ""
+// for input that carries no usable characters.
+//
+// Deliberately not go-hamqtt's topic.Slug: the two disagree on the hyphen
+// and on an input that reduces to nothing, and every installed entity_id
+// was seeded by this one.
 func slugify(s string) string {
 	var b strings.Builder
 	lastUnderscore := false
@@ -227,216 +172,30 @@ func slugify(s string) string {
 	return strings.Trim(b.String(), "_")
 }
 
-// entityIDBase returns the language-independent object part of the
-// entity_id, derived from a register's ENGLISH name (never the localised
-// display name): slug(name), or "<device>_<slug(name)>" when a device
-// name is configured. Seeding from the English name — rather than the
-// short mqtt topic key — mirrors the Python aiomtec2mqtt reference, which
-// sets no entity_id seed and lets HA build it from the name, so the
-// Go port stays a drop-in replacement (same entity_ids). Pinning to the
-// English name keeps the id stable across LANGUAGE; only the display
-// "name" carries translations. Example: "Grid power phase A" (device
-// "MrBurns") → "mrburns_grid_power_phase_a".
-func (d *Discovery) entityIDBase(englishName string) string {
-	seed := slugify(englishName)
-	if d.deviceSlug == "" {
-		return seed
-	}
-	return d.deviceSlug + "_" + seed
-}
-
-// defaultEntityID builds the HA "default_entity_id" discovery option:
-// "<domain>.<id>", where <domain> is the platform (sensor, number, …) and
-// <id> is [Discovery.entityIDBase]. It is the forward-looking replacement
-// for the long-removed object_id option, which Home Assistant's discovery
-// schemas no longer declare (and therefore silently drop): it is accepted
-// by 0 of the 32 MQTT platforms, default_entity_id by 28. This is the only
-// entity_id seed we publish. Like object_id it only seeds the initial
-// entity_id: HA tracks entities
-// by unique_id, so it never renames an entity that already exists —
-// enabling a device name later gives new entities the nicer id without
-// disturbing established ones.
-func (d *Discovery) defaultEntityID(p Platform, englishName string) string {
-	return string(p) + "." + d.entityIDBase(englishName)
-}
-
 // IncludeSerialInUniqueIDs opts into serial-scoped unique_ids
-// ("MTEC_<serial>_<key>" instead of "MTEC_<key>"). Must be called
-// before [Discovery.Initialize]; the serial itself only becomes part of
-// the ids once Initialize has supplied it.
+// ("MTEC_<serial>_<key>" instead of "MTEC_<key>"). Must be called before
+// [Discovery.Initialize].
 func (d *Discovery) IncludeSerialInUniqueIDs(on bool) {
 	d.serialInUniqueID = on
 }
 
-// uniqueID returns the entity unique_id: the "MTEC_" namespace prefix
-// plus the entity key. It deliberately never folds in the device slug —
-// unique_id is the identity Home Assistant tracks an entity by, so
-// changing it would orphan the old entity and drop all its history,
-// customisations and dashboard/automation references (MQTT discovery has
-// no clean unique_id migration). A configured device name therefore only
-// affects the display name and entity_id seed, never this value. The
-// inverter serial is folded in only under the explicit
-// HASS_UNIQUE_ID_INCLUDE_SERIAL opt-in (see [Discovery.IncludeSerialInUniqueIDs]).
-func (d *Discovery) uniqueID(key string) string {
-	if d.serialInUniqueID && d.serialNo != "" {
-		return uniqueIDPrefix + d.serialNo + "_" + key
-	}
-	return uniqueIDPrefix + key
-}
-
-// IsInitialized reports whether [Initialize] has been called.
+// IsInitialized reports whether [Discovery.Initialize] has been called.
 func (d *Discovery) IsInitialized() bool { return d.initialized }
 
-// Initialize stores the device-identifying values and builds the
-// entry list. Safe to call again on reconnect — the entry list is
-// rebuilt from scratch so any catalog change since the last call
-// is reflected.
+// Initialize stores the device-identifying values from the STATIC read
+// and checks the catalog. Safe to call again.
 func (d *Discovery) Initialize(serialNo, firmware, equipmentInfo string) {
 	d.serialNo = serialNo
 	d.firmware = firmware
 	d.equipmentInfo = equipmentInfo
-	// The HA device name is the operator-chosen one when configured,
-	// otherwise the generic constant. Identifiers/serial_number stay
-	// keyed on the serial so the device registry entry is stable
-	// regardless of any display-name change.
-	name := deviceName
-	if d.deviceName != "" {
-		name = d.deviceName
-	}
-	d.device = map[string]any{
-		"identifiers":   []string{serialNo},
-		"manufacturer":  manufacturer,
-		"model":         model,
-		"model_id":      equipmentInfo,
-		"name":          name,
-		"serial_number": serialNo,
-		"sw_version":    firmware,
-	}
-	d.entries = d.entries[:0]
 	d.diagnostics = d.diagnostics[:0]
-	d.buildEntries()
-	d.initialized = true
-}
-
-// Diagnostics returns the catalog complaints [Initialize] collected while
-// building the entry list — today, registers whose hass_component_type
-// names a platform this builder cannot emit. They are returned rather than
-// logged because the package owns no I/O; the coordinator logs them, the
-// same way cmd/mtec2mqtt logs registers.Load's diagnostics.
-//
-// The slice is shared and is rebuilt by every Initialize call.
-func (d *Discovery) Diagnostics() []string { return d.diagnostics }
-
-// Entries returns the discovery payloads built by [Initialize]. The
-// slice is shared — callers should iterate, not mutate.
-//
-// They are the pre-2.0.0 per-entity payloads, byte for byte, old topics
-// included ([LegacyStateTopic], [LegacyBridgeStatusTopic]): this builder
-// is a record of what an upgrading broker holds, not of what this release
-// publishes.
-//
-// Since ADR 0070 phase 6 step 6 this daemon PUBLISHES none of them: it
-// writes one retained device document (see [RenderBundle] and
-// [BundleConfigTopic]) and retracts these 100 per-entity configs first.
-// The builder is kept, and kept exercised, because it is the frozen record
-// of what every installed broker holds at upgrade time — the set the
-// retraction has to cover exactly — and because
-// testdata/discovery_{en,de}.json pins it byte for byte. Comparing the
-// document against a record this build does not also produce is what keeps
-// the two sides from agreeing on a wrong answer.
-//
-// CommandTopic is the pre-2.0.0 command topic and is subscribed by
-// nothing; the command plane routes [CommandFilter].
-func (d *Discovery) Entries() []Entry { return d.entries }
-
-// IsOwnConfig reports whether a retained HA discovery config payload was
-// published by THIS daemon for THIS inverter: its unique_id sits in our
-// "MTEC_" namespace and its state_topic sits under "<root>/<serial>/".
-// The orphan sweep uses it as its second, decisive ownership check, after
-// [OwnsConfigTopic] has judged the topic.
-//
-// # Why the serial is required unconditionally
-//
-// It used to be required only under HASS_UNIQUE_ID_INCLUDE_SERIAL; with the
-// shipped default it was enough for the state topic to sit under the MQTT
-// root, which two instances against two inverters share. Two such instances
-// therefore claimed each other's configs, and #52 recorded that as harmless
-// because both published the SAME 100 config topics — so neither could ever
-// judge the other's orphaned.
-//
-// #53 falsified that and nothing revisited it. An upgraded instance
-// publishes a device document and no per-entity config at all, so its
-// published set no longer names those 100 topics — and every one of the
-// not-yet-upgraded sibling's retained configs becomes an orphan by this
-// daemon's own rule. A staggered two-instance upgrade (which is what an
-// upgrade of two containers, two add-ons or two systemd units IS) then has
-// the upgraded instance retract the sibling's entire fleet, permanently:
-// the sibling has no reason to republish, so its entities are simply gone.
-//
-// Requiring the serial closes that, and it costs nothing that was working:
-// every config this daemon has ever published, in either unique_id format,
-// carries a state_topic under its own inverter's serial — all 100 of them,
-// asserted by TestEveryPublishedConfigIsClaimedByItsOwnInstance. A payload
-// with no state_topic at all, or one under another serial, is now declined,
-// which is the safe direction for a predicate whose only use is deciding
-// what to delete from a tree this daemon shares.
-//
-// It returns false before [Discovery.Initialize] has supplied the serial:
-// ownership that cannot be proven is not claimed.
-func (d *Discovery) IsOwnConfig(payload []byte) bool {
-	if d.serialNo == "" {
-		return false
-	}
-	var cfg struct {
-		UniqueID   string `json:"unique_id"`
-		StateTopic string `json:"state_topic"`
-	}
-	if json.Unmarshal(payload, &cfg) != nil {
-		return false
-	}
-	if !strings.HasPrefix(cfg.UniqueID, uniqueIDPrefix) {
-		return false
-	}
-	return strings.HasPrefix(cfg.StateTopic, d.mqttTopic+"/"+d.serialNo+"/")
-}
-
-// buildEntries iterates the catalog and dispatches each
-// HA-annotated register to its platform-specific builder. Iteration
-// follows YAML order (registers.Map.All) so the output is
-// deterministic across runs.
-func (d *Discovery) buildEntries() {
 	for _, r := range d.catalog.All {
-		if r.Group == "" || !r.HasHassHints() {
+		if r.Group == "" || !r.HasHassHints() || r.HassComponentType == "" {
 			continue
 		}
-		// Default platform is sensor — matches the Python fallback
-		// when hass_component_type is omitted.
-		platform := PlatformSensor
-		if r.HassComponentType != "" {
-			platform = Platform(r.HassComponentType)
-		}
-		switch platform {
-		case PlatformSensor:
-			d.appendSensor(r)
-		case PlatformBinarySensor:
-			d.appendBinarySensor(r)
-		case PlatformNumber:
-			d.appendNumber(r)
-			d.appendSensor(r) // also publish a read-only sensor view
-		case PlatformSelect:
-			d.appendSelect(r)
-			d.appendSensor(r)
-		case PlatformSwitch:
-			d.appendSwitch(r)
-			d.appendBinarySensor(r)
+		switch Platform(r.HassComponentType) {
+		case PlatformSensor, PlatformBinarySensor, PlatformNumber, PlatformSelect, PlatformSwitch:
 		default:
-			// An hass_component_type this builder cannot emit. "button"
-			// used to be declared as a Platform and dispatched to an empty
-			// case, so a register that asked for one was polled, had its
-			// state published, and produced no entity and no diagnostic —
-			// a trap for the next person editing registers.yaml rather
-			// than a live defect (no catalog entry declares it). The empty
-			// case is gone; an unsupported type is now loud.
 			d.diagnostics = append(d.diagnostics, fmt.Sprintf(
 				"skip %q: hass_component_type %q is not a platform this builder emits "+
 					"(supported: binary_sensor, number, select, sensor, switch)",
@@ -444,247 +203,12 @@ func (d *Discovery) buildEntries() {
 			))
 		}
 	}
-	// Synthetic switches come after the catalog so their output stays
-	// deterministic and grouped at the tail.
-	for _, v := range d.virtual {
-		d.appendVirtualSwitch(v)
-	}
+	d.initialized = true
 }
 
-// appendVirtualSwitch emits a switch entity for a [VirtualSwitch]. Its
-// state/command topics live under the configured group keyed by the
-// stable Key (also the entity_id seed), and its friendly name is localised.
-// payload_on/off are "1"/"0" to match the coordinator-published state.
-func (d *Discovery) appendVirtualSwitch(v VirtualSwitch) {
-	uid := d.uniqueID(v.Key)
-	// Through the shared [CommandTopic]/[StateTopic] like every real
-	// register: these two lines were the FOURTH and FIFTH independent
-	// spelling of this bridge's topic schema, and a synthetic switch whose
-	// topics drift is the least visible kind — no register backs it, so
-	// nothing else ever writes there to reveal the mismatch.
-	command := LegacyCommandTopic(d.mqttTopic, d.serialNo, registers.Group(v.Group), v.Key)
-	payload := map[string]any{
-		"command_topic":      command,
-		"device":             d.device,
-		"enabled_by_default": true,
-		"default_entity_id":  d.defaultEntityID(PlatformSwitch, v.Name),
-		"name":               v.LocalizedName(d.lang),
-		"payload_off":        "0",
-		"payload_on":         "1",
-		"state_topic":        LegacyStateTopic(d.mqttTopic, d.serialNo, registers.Group(v.Group), v.Key),
-		"unique_id":          uid,
-	}
-	d.appendEntry(PlatformSwitch, uid, payload, command)
-}
-
-// --- per-platform builders --------------------------------------------------
-
-func (d *Discovery) appendSensor(r *registers.Register) {
-	uid := d.uniqueID(r.MQTT)
-	payload := map[string]any{
-		"default_entity_id":   d.defaultEntityID(PlatformSensor, r.Name),
-		"device":              d.device,
-		"enabled_by_default":  true,
-		"name":                r.LocalizedName(d.lang),
-		"state_topic":         d.stateTopic(r),
-		"unique_id":           uid,
-		"unit_of_measurement": r.Unit,
-	}
-	if r.HassDeviceClass != "" {
-		payload["device_class"] = r.HassDeviceClass
-	}
-	// HA requires the full state-value list for enum sensors and rejects
-	// the entity without it. The coordinator publishes the localized
-	// labels plus "Unknown" for unmapped codes, so the option list is
-	// exactly that set. options excludes unit_of_measurement, so the
-	// (always empty for enums) unit key is dropped alongside.
-	if r.HassDeviceClass == "enum" && len(r.HassValueItems) > 0 {
-		payload["options"] = append(valueItemsValues(r.LocalizedValueItems(d.lang)), "Unknown")
-		if r.Unit == "" {
-			delete(payload, "unit_of_measurement")
-		}
-	}
-	if r.HassValueTemplate != "" {
-		payload["value_template"] = r.HassValueTemplate
-	}
-	if r.HassStateClass != "" {
-		payload["state_class"] = r.HassStateClass
-	}
-	d.appendEntry(PlatformSensor, uid, payload, "")
-}
-
-func (d *Discovery) appendBinarySensor(r *registers.Register) {
-	uid := d.uniqueID(r.MQTT)
-	payload := map[string]any{
-		"default_entity_id":  d.defaultEntityID(PlatformBinarySensor, r.Name),
-		"device":             d.device,
-		"enabled_by_default": true,
-		"name":               r.LocalizedName(d.lang),
-		"state_topic":        d.stateTopic(r),
-		"unique_id":          uid,
-	}
-	if r.HassDeviceClass != "" {
-		payload["device_class"] = r.HassDeviceClass
-	}
-	if r.HassPayloadOn != "" {
-		payload["payload_on"] = r.HassPayloadOn
-	}
-	if r.HassPayloadOff != "" {
-		payload["payload_off"] = r.HassPayloadOff
-	}
-	d.appendEntry(PlatformBinarySensor, uid, payload, "")
-}
-
-func (d *Discovery) appendNumber(r *registers.Register) {
-	uid := d.uniqueID(r.MQTT)
-	command := d.commandTopic(r)
-	payload := map[string]any{
-		"command_topic":       command,
-		"device":              d.device,
-		"enabled_by_default":  false,
-		"mode":                "box",
-		"name":                r.LocalizedName(d.lang),
-		"default_entity_id":   d.defaultEntityID(PlatformNumber, r.Name),
-		"state_topic":         d.stateTopic(r),
-		"unique_id":           uid,
-		"unit_of_measurement": r.Unit,
-	}
-	if r.HassDeviceClass != "" {
-		payload["device_class"] = r.HassDeviceClass
-	}
-	d.appendEntry(PlatformNumber, uid, payload, command)
-}
-
-func (d *Discovery) appendSelect(r *registers.Register) {
-	uid := d.uniqueID(r.MQTT)
-	command := d.commandTopic(r)
-	payload := map[string]any{
-		"command_topic":      command,
-		"device":             d.device,
-		"enabled_by_default": false,
-		"default_entity_id":  d.defaultEntityID(PlatformSelect, r.Name),
-		"name":               r.LocalizedName(d.lang),
-		"options":            valueItemsValues(r.LocalizedValueItems(d.lang)),
-		"state_topic":        d.stateTopic(r),
-		"unique_id":          uid,
-	}
-	d.appendEntry(PlatformSelect, uid, payload, command)
-}
-
-func (d *Discovery) appendSwitch(r *registers.Register) {
-	uid := d.uniqueID(r.MQTT)
-	command := d.commandTopic(r)
-	payload := map[string]any{
-		"command_topic":      command,
-		"device":             d.device,
-		"enabled_by_default": false,
-		"default_entity_id":  d.defaultEntityID(PlatformSwitch, r.Name),
-		"name":               r.LocalizedName(d.lang),
-		"state_topic":        d.stateTopic(r),
-		"unique_id":          uid,
-	}
-	if r.HassDeviceClass != "" {
-		payload["device_class"] = r.HassDeviceClass
-	}
-	if r.HassPayloadOn != "" {
-		payload["payload_on"] = r.HassPayloadOn
-	}
-	if r.HassPayloadOff != "" {
-		payload["payload_off"] = r.HassPayloadOff
-	}
-	d.appendEntry(PlatformSwitch, uid, payload, command)
-}
-
-// appendEntry attaches the availability source, marshals payload and
-// pushes a new Entry. Marshal errors would only happen for
-// non-JSON-serialisable values that the static catalog cannot produce —
-// we surface them as a panic to flag a programming mistake during
-// development rather than silently dropping the entity at runtime.
-//
-// Availability is attached here, in the one place every platform builder
-// funnels through, rather than in each of the six: an entity whose
-// availability was forgotten is indistinguishable from a healthy one
-// until the daemon dies, which is the failure mode this key exists to
-// close.
-func (d *Discovery) appendEntry(platform Platform, uid string, payload map[string]any, commandTopic string) {
-	payload["availability"] = d.availability()
-	// Only one source is declared, so `all` and `any` are the same
-	// function; it is written out because Home Assistant's default is
-	// `latest`, and because the go-hamqtt model this plane migrates onto
-	// emits the mode alongside the list.
-	payload["availability_mode"] = "all"
-	bs, err := json.Marshal(payload)
-	if err != nil {
-		panic(fmt.Sprintf("hass: marshal %s payload for %s: %v", platform, uid, err))
-	}
-	d.entries = append(d.entries, Entry{
-		ConfigTopic:  d.configTopic(platform, uid),
-		Payload:      bs,
-		CommandTopic: commandTopic,
-	})
-}
-
-// configTopic returns "<hass_base>/<platform>/<unique_id>/config" —
-// HA's auto-discovery topic.
-//
-// Rendered through [LegacyConfigTopic] rather than by concatenation, so
-// the topic this builder publishes to, the topic the orphan sweep
-// retracts through and the form step 6's bundle must supersede are one
-// function. They were three spellings, and the cost of a disagreement is
-// total and silent: a bundle published while the per-entity configs it
-// failed to retract are still retained is refused by Home Assistant with
-// one WARNING and no entities.
-func (d *Discovery) configTopic(p Platform, uniqueID string) string {
-	return LegacyConfigTopic(d.hassBaseTopic, p, uniqueID)
-}
-
-// availability returns the entity's availability list: one bridge-level
-// source, the daemon's own retained status topic.
-//
-// Bridge level only, deliberately. A device-level source would be the more
-// precise answer — it would grey the entities out when the *inverter* goes
-// unreachable rather than when the daemon does — but nothing in this
-// bridge publishes one, and under `availability_mode: all` an availability
-// source that is never published is not neutral: the entity stays
-// unavailable forever, with nothing in the log to say why. Declaring only
-// what is actually published is the whole point of the key.
-func (d *Discovery) availability() []map[string]any {
-	return []map[string]any{{
-		"topic":                 LegacyBridgeStatusTopic(d.mqttTopic),
-		"payload_available":     PayloadAvailable,
-		"payload_not_available": PayloadNotAvailable,
-	}}
-}
-
-// stateTopic returns the pre-2.0.0 state topic of a register,
-// "<mqtt_topic>/<serial>/<group>/<mqtt_key>/state" ([LegacyStateTopic]).
-func (d *Discovery) stateTopic(r *registers.Register) string {
-	return LegacyStateTopic(d.mqttTopic, d.serialNo, r.Group, r.MQTT)
-}
-
-// commandTopic returns the pre-2.0.0 command topic of a writable
-// register, "<mqtt_topic>/<serial>/<group>/<mqtt_key>/set".
-func (d *Discovery) commandTopic(r *registers.Register) string {
-	return LegacyCommandTopic(d.mqttTopic, d.serialNo, r.Group, r.MQTT)
-}
-
-// valueItemsValues returns the HA select options derived from
-// hass_value_items. The map iteration order in Go is randomised; we
-// sort by the integer code (the Modbus side) so the option list is
-// stable across builds — important for snapshot tests and for
-// debouncing config-topic republishes.
-func valueItemsValues(items map[int]string) []string {
-	if len(items) == 0 {
-		return []string{}
-	}
-	codes := make([]int, 0, len(items))
-	for c := range items {
-		codes = append(codes, c)
-	}
-	sort.Ints(codes)
-	out := make([]string, len(codes))
-	for i, c := range codes {
-		out[i] = items[c]
-	}
-	return out
-}
+// Diagnostics returns the catalog complaints [Discovery.Initialize]
+// collected — registers whose hass_component_type names a platform this
+// builder cannot emit, which would otherwise be polled and published with
+// no entity and nothing in the log. Returned rather than logged because
+// the package owns no I/O.
+func (d *Discovery) Diagnostics() []string { return d.diagnostics }

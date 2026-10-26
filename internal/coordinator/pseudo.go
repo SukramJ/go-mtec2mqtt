@@ -51,9 +51,8 @@ const (
 	keyOwnConsumptionTotal = "own_consumption_total"
 )
 
-// apiDateLayout matches the Python `strftime("%Y-%m-%d %H:%M:%S")`
-// used for the api_date pseudo-register. Lowercase day-of-month +
-// 24h clock; no timezone marker (publishes local wall-clock time).
+// apiDateLayout is the api_date pseudo-register's format: "YYYY-MM-DD
+// hh:mm:ss", 24h clock, no timezone marker (local wall-clock time).
 const apiDateLayout = "2006-01-02 15:04:05"
 
 // PseudoRegisters computes the calculated registers for a group and
@@ -120,7 +119,7 @@ func basePseudos(data map[string]any, now time.Time) (values map[string]any, ski
 // only the input/output key names differ — passing them in keeps the
 // function single-purpose without duplicating the formulas.
 //
-// Formulas mirror the Python coordinator:
+// Formulas:
 //
 //	consumption = pv + grid_purchase + battery_discharge
 //	              - grid_feed - battery_charge

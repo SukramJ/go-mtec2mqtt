@@ -8,12 +8,11 @@ auto-discovery. It reads register data via Modbus TCP and publishes the
 values for consumption by Home Assistant, evcc, or any other MQTT
 consumer.
 
-Port of [`aiomtec2mqtt`](https://github.com/sukramj/aiomtec2mqtt)
-(Python / asyncio) — same YAML config, same Home Assistant entities.
-Since 2.0.0 its MQTT topics follow the
+It started as a Go port of the Python
+[`aiomtec2mqtt`](https://github.com/sukramj/aiomtec2mqtt) and keeps its
+Home Assistant entities; its MQTT topics follow the
 [mqtt-smarthome 2.0](https://github.com/mqtt-smarthome/mqtt-smarthome/blob/master/SPEC.md)
-convention instead of the Python daemon's layout (see
-[MQTT topic layout](#mqtt-topic-layout)).
+convention (see [MQTT topic layout](#mqtt-topic-layout)).
 
 ## Features
 
@@ -27,7 +26,7 @@ convention instead of the Python daemon's layout (see
   number / select / switch entities.
 - Writes back to the inverter on HA select / number / switch
   interactions — value\_items reverse-lookup, scaling and integer
-  narrowing all match the Python coordinator.
+  narrowing.
 - Watchdog-driven Modbus reconnect; exponential-backoff MQTT
   reconnect with subscription replay.
 - [mqtt-smarthome 2.0](https://github.com/mqtt-smarthome/mqtt-smarthome/blob/master/SPEC.md)
@@ -79,8 +78,9 @@ docker run --rm -d \
   ghcr.io/sukramj/go-mtec2mqtt:latest
 ```
 
-The container expects a `config.yaml` at `/config/aiomtec2mqtt/config.yaml`
-(matches the XDG path the daemon walks). Start from
+The container expects a `config.yaml` at `/config/mtec2mqtt/config.yaml`
+(the XDG path the daemon walks; `/config/aiomtec2mqtt/config.yaml`, the
+path up to 2.x, is still found). Start from
 [`config-template.yaml`](./config-template.yaml). Alternatively, supply
 every setting via `MTEC_*` env vars and mount no file — the daemon falls
 back to an environment-only config when no `config.yaml` is found.
@@ -109,9 +109,12 @@ The daemon walks the following paths for `config.yaml` when `--config`
 is omitted:
 
 1. `./config.yaml`
-2. `$XDG_CONFIG_HOME/aiomtec2mqtt/config.yaml` (or `$APPDATA/...` on
+2. `$XDG_CONFIG_HOME/mtec2mqtt/config.yaml` (or `$APPDATA/...` on
    Windows)
-3. `~/.config/aiomtec2mqtt/config.yaml`
+3. `~/.config/mtec2mqtt/config.yaml`
+
+In 2 and 3 the directory of releases up to 2.x, `aiomtec2mqtt`, is still
+searched after `mtec2mqtt`.
 
 `registers.yaml` defaults to the directory of the binary, then the
 current working directory.
@@ -165,8 +168,8 @@ Set `DEVICE_NAME` to give the inverter a friendly name: it becomes the
 Home Assistant device name (instead of the generic "MTEC EnergyButler")
 and is slugged into every entity's entity-id seed, so HA seeds fresh
 entity ids like `sensor.<device_name>_grid_power` — handy to tell multiple
-inverters apart. The seed is the slugified English register name (matching
-the Python `aiomtec2mqtt` entity ids), never the localised display name,
+inverters apart. The seed is the slugified English register name, never
+the localised display name,
 so entity ids stay language-independent; only the display name follows
 `LANGUAGE`. The entity `unique_id` is left unchanged, so
 enabling this on an existing install does not orphan established entities
@@ -177,8 +180,7 @@ stays keyed on the inverter serial regardless.
 Running **several daemon instances against one Home Assistant
 installation** (one per inverter) additionally needs
 `HASS_UNIQUE_ID_INCLUDE_SERIAL: true` on every instance: by default the
-HA `unique_id`s are serial-less (`MTEC_grid_power`, matching
-`aiomtec2mqtt`), and the collision is **total** rather than partial — two
+HA `unique_id`s are serial-less (`MTEC_grid_power`), and the collision is **total** rather than partial — two
 default-configured instances render the same 100 entity identities. Since
 1.10.0 they at least publish to two different discovery topics (the
 document is keyed on the serial), so neither overwrites or retracts the
@@ -190,16 +192,15 @@ install: enabling it changes every `unique_id`, which creates fresh HA
 entities and orphans the established ones together with their history —
 MQTT discovery has no `unique_id` migration.
 
-`MQTT_FLOAT_FORMAT` (default `.3f`) no longer formats anything on the
-wire: since 2.0.0 values are JSON numbers, and the option survives as
-their **rounding precision** — `.3f` rounds to three decimals, `.4g` to
-four significant digits, exactly the number the old string payload spelled.
+Float values are rounded to **three decimals**; a register in
+`registers.yaml` can state its own `precision` (decimals, e.g.
+`precision: 1`).
 
-**Deprecated, removed in 3.0.0:** `MQTT_FLOAT_FORMAT`, `MODBUS_FRAMER` and
-`MODBUS_RETRIES`. The daemon logs `mtec2mqtt.config_deprecated` for each one
-it finds; `MODBUS_FRAMER` and `MODBUS_RETRIES` were never read (the bridge
-speaks Modbus TCP and does not retry a transaction). Remove them from your
-configuration.
+**Removed in 3.0.0:** `MQTT_FLOAT_FORMAT` (replaced by `precision`),
+`MODBUS_FRAMER` and `MODBUS_RETRIES` (never read: the bridge speaks Modbus
+TCP and does not retry a transaction). A configuration that still sets one
+starts normally; the key is ignored and logged once as
+`mtec2mqtt.config_key_removed`. Remove it.
 
 ### evcc
 
@@ -308,7 +309,8 @@ Every status item is a JSON object: `val` is the value, `ts` the time of
 the reading that produced it and `lc` the time the value last changed,
 both in milliseconds since the epoch.
 
-- Numbers are JSON numbers, rounded to `MQTT_FLOAT_FORMAT`'s precision.
+- Numbers are JSON numbers, rounded to the register's `precision` (three
+  decimals by default).
 - Switches are JSON booleans (`true` / `false`), not `1` / `0`.
 - Enumerations carry their stable **English token** (`"on-grid"`,
   `"General mode"`; fault registers `"OK"` or the comma-joined English
@@ -354,33 +356,25 @@ answering, instead of showing stale readings.
 `started`, `maintenance`, plus `modbus` (the inverter's address) and
 `ha_discovery`.
 
-### Upgrading to 2.0.0
+### Upgrading to 3.0.0
 
-2.0.0 is a clean break, with no compatibility switch:
+3.0.0 removes the code that carried installations across the 1.10
+(device document) and 2.0 (topic layout) transitions:
 
-- **Home Assistant users** need to do nothing. Every `unique_id`, entity
-  id, device identifier and the discovery topic are unchanged, and the
-  entities follow the new topics on their own; history is kept.
-- **Everything else that reads raw topics** — Node-RED flows, Telegraf,
-  dashboards, `mosquitto_sub` scripts, evcc — must move to the new topics
-  and parse the JSON `val` (see the table above).
-- On every start the daemon **clears what the old layout left retained**
-  for *its own* inverter: the old `…/<group>/<key>/state` (and any
-  retained `…/set`) of every register it publishes, under its own name and
-  its own serial, and `<name>/bridge/status`. It clears exact topics only:
-  another inverter's topics on the same name, another name, and anything
-  under `<name>/status/…`, `<name>/connected` and the other new functions
-  are never touched. It is harmless to run repeatedly and also cleans up
-  after a rollback and re-upgrade.
-- Kept your name? Then nothing else changes. Running **two instances on
-  one broker** under the same name worked before only because the serial
-  separated the state topics; since `connected` and `info` are per name,
-  give each instance its own `MQTT_TOPIC` now.
+- **Coming from 2.x:** nothing to do. Remove `MQTT_FLOAT_FORMAT`,
+  `MODBUS_FRAMER` and `MODBUS_RETRIES` from the configuration (they are
+  ignored and logged), and rename a hyphenated group (`now-base` …) in a
+  customised `registers.yaml` to its snake_case spelling (`now_base`) —
+  the daemon refuses to start on one and names the rename.
+- **Coming from a release before 2.0:** run **2.2.0** once first. It clears
+  the retained topics of the old layout and the per-entity discovery
+  configs; 3.0.0 no longer does, and Home Assistant refuses the device
+  document while a per-entity config for one of its entities is still
+  retained.
 
-> **Upgrading from ≤ 1.9.0:** the availability marker once lived at
-> `<hass_base>/status/lwt` (`homeassistant/status/lwt` by default), inside
-> Home Assistant's own birth tree. The daemon still clears that old
-> retained copy itself on every connect.
+2.0.0 moved every topic to mqtt-smarthome 2.0; anything that reads raw
+topics (Node-RED, Telegraf, `mosquitto_sub`, evcc) reads `<name>/status/…`
+and parses the JSON `val`.
 
 ### Home Assistant discovery: one document per device
 
@@ -389,65 +383,24 @@ Discovery is published as a **single retained device document** at
 an `origin` block, and all 100 entities as components. Home Assistant
 **2024.11 or newer** is required.
 
-Earlier releases published one retained message per entity at
-`homeassistant/<platform>/MTEC_<key>/config` — 100 messages, each
-repeating the whole `device` block. On the first start after upgrading the
-daemon **retracts all 100 of them and then publishes the document, in that
-order**. It has to be that order: Home Assistant refuses a device document
-while a per-entity config for the same `unique_id` is still retained, and
-it refuses the per-entity config while the document is retained. The
-refusal is silent — one `WARNING [mqtt.entity] Received a conflicting MQTT
-discovery message` in Home Assistant's log, and the entities simply do not
-appear.
+**Nothing is re-keyed** across releases: every `unique_id` is what it has
+always been, and `unique_id` is what Home Assistant's entity registry is
+keyed on, so history, renames, icons, areas and automation references
+survive upgrades. `MQTT_TOPIC` namespaces nothing in a `unique_id`, but it
+keys every state topic: changing it later moves the entities to the new
+topics and leaves the old ones retained.
 
-**Nothing is re-keyed.** Every `unique_id` is byte-identical, and
-`unique_id` is what Home Assistant's entity registry is keyed on, so
-history, renames, icons, areas, hidden flags and automation references all
-survive the move untouched. `MQTT_TOPIC` namespaces nothing in a
-`unique_id`, but it keys every state topic: changing it later moves the
-entities to the new topics and leaves the old ones retained.
+> **Two daemons against two inverters** own two different documents,
+> because the topic is keyed on the serial. The entity `unique_id`s are
+> still shared by default, though, and Home Assistant binds each one to
+> whichever device declared it first. Set
+> `HASS_UNIQUE_ID_INCLUDE_SERIAL: true` on **both** instances if you run
+> more than one. (It is a deliberate one-way change: it rewrites every
+> `unique_id` and orphans the existing entities.)
 
-> **Downgrading to ≤ 1.9.x needs one manual step.** The document stays
-> retained on the broker, and the older release republishing per-entity
-> configs is refused for exactly the same reason, in the same silence.
-> Clear it first:
->
-> ```bash
-> mosquitto_pub -h <broker> -u <user> -P <password> \
->   -t <hass_base>/device/<node-id>/config -r -n
-> ```
->
-> Take `<hass_base>/device/<node-id>/config` **verbatim from the daemon's
-> own start-up log line** `coordinator.discovery_bundle_built` — the node
-> id is the serial slugged (lower-cased, anything outside `a-z0-9-` folded
-> to `_`), not the raw serial, and `<hass_base>` is `HASS_BASE_TOPIC`.
-> `-u`/`-P` are required on an authenticated broker, which the Home
-> Assistant Mosquitto add-on is. The old release then re-adopts the same
-> entities with their history intact.
-
-> **If the daemon dies between the two steps** — retractions out, document
-> not — the device has no discovery config at all and its entities are
-> *absent* rather than unavailable. Restarting repairs it: a fresh process
-> re-sends the retractions (a no-op against topics the broker has already
-> cleared) and then publishes the document. No manual step is needed.
-
-> **Upgrade both instances together, or accept a gap.** Until 1.10.0 an
-> upgraded instance's orphan sweep judged a not-yet-upgraded sibling's
-> retained per-entity configs by the MQTT root alone, which two instances
-> share by default — so a staggered upgrade could retract the sibling's
-> entire fleet, permanently. Fixed in 1.10.0: ownership now requires the
-> retained config's `state_topic` to sit under *this* inverter's serial,
-> so an instance never retracts another's entities. The reverse direction
-> was always safe — an old instance's sweep declines a device document,
-> because a bundle payload carries no top-level `unique_id`.
-
-> **Two daemons against two inverters** now own two different documents,
-> because the topic is keyed on the serial where the per-entity topics were
-> not. The entity `unique_id`s are still shared by default, though, and
-> Home Assistant will bind each one to whichever device declared it first.
-> Set `HASS_UNIQUE_ID_INCLUDE_SERIAL: true` on **both** instances before
-> upgrading if you run more than one. (It is a deliberate one-way change:
-> it rewrites every `unique_id` and orphans the existing entities.)
+> **A register removed from `registers.yaml`** leaves its entity behind in
+> Home Assistant: a document that no longer names a component does not
+> remove it. Delete the entity in Home Assistant.
 
 ## Development
 

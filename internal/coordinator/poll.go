@@ -23,8 +23,8 @@ import (
 // per-cycle error never aborts the goroutine — only ctx cancellation
 // does.
 //
-// Group → cadence mapping mirrors the Python coordinator exactly so
-// the on-the-wire request pattern is unchanged.
+// Each group polls on its REFRESH_* cadence; the now_* secondary groups
+// share one rotating loop.
 func (c *Coordinator) spawnPolls(ctx context.Context, g *errgroup.Group) {
 	cfg := c.deps.Cfg
 	g.Go(func() error {
@@ -55,9 +55,8 @@ func (c *Coordinator) pollLoop(ctx context.Context, name string, group registers
 	log := c.deps.Logger.With(slog.String("group", name))
 	log.Info("coordinator.poll_start", slog.Duration("every", every))
 
-	// One immediate cycle on startup — matches the Python coordinator,
-	// which calls read_register_group before the first sleep so HA
-	// has values to show within seconds of boot.
+	// One immediate cycle on startup, so HA has values to show within
+	// seconds of boot.
 	c.publishGroupOnce(ctx, log, group)
 
 	ticker := time.NewTicker(every)
@@ -73,9 +72,8 @@ func (c *Coordinator) pollLoop(ctx context.Context, name string, group registers
 }
 
 // pollSecondary cycles GRID → INVERTER → BACKUP → BATTERY → PV on
-// every tick, one group per cycle. The Python coordinator does the
-// same; the round-robin spreads the read load across the slow
-// inverter Modbus stack without flooding it.
+// every tick, one group per cycle. The round-robin spreads the read load
+// across the slow inverter Modbus stack without flooding it.
 func (c *Coordinator) pollSecondary(ctx context.Context, every time.Duration) error {
 	log := c.deps.Logger.With(slog.String("group", "secondary"))
 	log.Info("coordinator.poll_start",
@@ -155,13 +153,11 @@ func (c *Coordinator) publishGroupOnce(ctx context.Context, log *slog.Logger, gr
 	published, written := 0, 0
 	for key, val := range processed {
 		// One function, not a second fmt.Sprintf: hass.StateTopic is the
-		// same call internal/hass makes for the config's `state_topic`.
-		// Two independent expressions for it once drifted (F5 of the
-		// phase-6 measurement); a divergence points every entity at a topic
-		// nobody writes to, permanently `unknown`, with nothing in the log.
+		// same call the device document's `state_topic` is rendered from;
+		// a divergence points every entity at a topic nobody writes to.
 		topic := hass.StateTopic(topicBase.root, topicBase.serial, string(group), key)
 		reg := findRegisterByOutputKey(c.deps.Catalog, key)
-		wire := wireValue(reg, raw[key], val, c.deps.Cfg.RoundFloat)
+		wire := wireValue(reg, raw[key], val)
 		c.noteUnmapped(log, reg, raw[key], wire)
 		// An empty payload on a *retained* topic is MQTT's retraction, so a
 		// value that is not there is skipped rather than published; the

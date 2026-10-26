@@ -45,38 +45,26 @@ func TestLoadHappyPathAppliesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.ModbusFramer != DefaultModbusFramer {
-		t.Errorf("framer default not applied: %q", c.ModbusFramer)
-	}
 	if c.RefreshNow != DefaultRefreshNow {
 		t.Errorf("REFRESH_NOW default not applied: %d", c.RefreshNow)
 	}
 	if c.HASSBaseTopic != DefaultHASSBaseTopic {
 		t.Errorf("HASS_BASE_TOPIC default not applied: %q", c.HASSBaseTopic)
 	}
-	if c.GoFloatVerb() != "%.3f" {
-		t.Errorf("MQTT_FLOAT_FORMAT default not translated: %q", c.GoFloatVerb())
-	}
-	if c.ModbusRetries != DefaultModbusRetries {
-		t.Errorf("MODBUS_RETRIES default not applied: %d", c.ModbusRetries)
-	}
 	if c.HASSBirthGracetime != DefaultHASSBirthGracetime {
 		t.Errorf("HASS_BIRTH_GRACETIME default not applied: %d", c.HASSBirthGracetime)
 	}
 }
 
-// Validate documents 0 as a legal value for MODBUS_RETRIES and
-// HASS_BIRTH_GRACETIME, so an explicit 0 must not be replaced by the
-// nonzero defaults — key presence, not the zero value, decides.
-func TestLoadKeepsExplicitZeroRetriesAndGracetime(t *testing.T) {
+// Validate documents 0 as a legal value for HASS_BIRTH_GRACETIME, so an
+// explicit 0 must not be replaced by the nonzero default — key presence,
+// not the zero value, decides.
+func TestLoadKeepsExplicitZeroGracetime(t *testing.T) {
 	t.Run("yaml", func(t *testing.T) {
-		yaml := minimumYAML + "MODBUS_RETRIES: 0\nHASS_BIRTH_GRACETIME: 0\n"
+		yaml := minimumYAML + "HASS_BIRTH_GRACETIME: 0\n"
 		c, err := Load(strings.NewReader(yaml), nil)
 		if err != nil {
 			t.Fatal(err)
-		}
-		if c.ModbusRetries != 0 {
-			t.Errorf("explicit MODBUS_RETRIES: 0 overwritten, got %d", c.ModbusRetries)
 		}
 		if c.HASSBirthGracetime != 0 {
 			t.Errorf("explicit HASS_BIRTH_GRACETIME: 0 overwritten, got %d", c.HASSBirthGracetime)
@@ -84,15 +72,11 @@ func TestLoadKeepsExplicitZeroRetriesAndGracetime(t *testing.T) {
 	})
 	t.Run("env", func(t *testing.T) {
 		env := fakeEnv{vars: map[string]string{
-			"MTEC_MODBUS_RETRIES":       "0",
 			"MTEC_HASS_BIRTH_GRACETIME": "0",
 		}}
 		c, err := Load(strings.NewReader(minimumYAML), env)
 		if err != nil {
 			t.Fatal(err)
-		}
-		if c.ModbusRetries != 0 {
-			t.Errorf("MTEC_MODBUS_RETRIES=0 overwritten, got %d", c.ModbusRetries)
 		}
 		if c.HASSBirthGracetime != 0 {
 			t.Errorf("MTEC_HASS_BIRTH_GRACETIME=0 overwritten, got %d", c.HASSBirthGracetime)
@@ -131,23 +115,6 @@ func TestLoadExplicitZeroRefreshNowIsValidationError(t *testing.T) {
 			t.Errorf("expected REFRESH_NOW in error, got %v", err)
 		}
 	})
-}
-
-// Reproduction for the case-sensitivity finding on the existing
-// MODBUS_RETRIES presence check: MODBUS_RETRIES allows 0 (see
-// validate.go, range 0..20), so a lower-case "modbus_retries: 0" must
-// survive as 0 without triggering a validation error — proving the
-// case-insensitive presence check, not just the zero-value check,
-// is what keeps the explicit value from being overwritten.
-func TestLoadLowercaseModbusRetriesZeroSurvives(t *testing.T) {
-	yaml := minimumYAML + "modbus_retries: 0\n"
-	c, err := Load(strings.NewReader(yaml), nil)
-	if err != nil {
-		t.Fatalf("expected no validation error (0 is a legal MODBUS_RETRIES value), got %v", err)
-	}
-	if c.ModbusRetries != 0 {
-		t.Errorf("lowercase modbus_retries: 0 overwritten, got %d", c.ModbusRetries)
-	}
 }
 
 // Reproduction for the zero-value finding on CHARGE_ACTIVE_VALUE /
@@ -345,41 +312,6 @@ func TestHassUniqueIDIncludeSerialEnvOverride(t *testing.T) {
 	}
 }
 
-func TestFloatFormatTranslation(t *testing.T) {
-	cases := map[string]string{
-		"{:.3f}": "%.3f",
-		":.3f":   "%.3f",
-		".3f":    "%.3f",
-		".5g":    "%.5g",
-		"8.2f":   "%8.2f",
-		"5e":     "%5e",
-	}
-	for in, want := range cases {
-		got, err := translateFloatFormat(in)
-		if err != nil || got != want {
-			t.Errorf("translate %q: got %q / %v, want %q", in, got, err, want)
-		}
-	}
-
-	rejected := []string{"", "x", ".3", "abc", ",.2f", "{0:.3f}"}
-	for _, in := range rejected {
-		if _, err := translateFloatFormat(in); err == nil {
-			t.Errorf("translate %q: expected error, got nil", in)
-		}
-	}
-}
-
-func TestFormatFloatUsesTranslatedVerb(t *testing.T) {
-	yaml := minimumYAML + "MQTT_FLOAT_FORMAT: \"{:.2f}\"\n"
-	c, err := Load(strings.NewReader(yaml), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := c.FormatFloat(1.2345); got != "1.23" {
-		t.Errorf("FormatFloat: got %q, want 1.23", got)
-	}
-}
-
 func TestLocateFindsCWDFirst(t *testing.T) {
 	dir := t.TempDir()
 	// Drop a config.yaml into the temp CWD, then chdir there.
@@ -432,7 +364,7 @@ func TestLocateMissReturnsFalse(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 	// Point HOME at the empty temp dir too — otherwise the
-	// ~/.config/aiomtec2mqtt/config.yaml branch may hit a real
+	// ~/.config/<app dir>/config.yaml branches may hit a real
 	// install on the developer's machine.
 	t.Setenv("HOME", dir)
 	env := fakeEnv{vars: map[string]string{
@@ -518,16 +450,6 @@ func TestMQTTSSLEnvOverride(t *testing.T) {
 	if !c.MQTTSSLInsecure {
 		t.Error("MTEC_MQTT_SSL_INSECURE override failed")
 	}
-}
-
-func TestFormatFloatPanicsBeforeValidate(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("expected panic when goFloatVerb is empty")
-		}
-	}()
-	var c Config
-	_ = c.FormatFloat(1.0)
 }
 
 // TestHASSBaseTopicIsNormalisedAtTheBoundary pins the fix for a defect
@@ -646,28 +568,5 @@ func TestMaintenanceDefaultsAndExplicitValues(t *testing.T) {
 	}
 	if _, err := Load(strings.NewReader(minimumYAML+"MQTT_STATS_INTERVAL: -1\n"), nil); err == nil {
 		t.Error("negative MQTT_STATS_INTERVAL accepted")
-	}
-}
-
-// MQTT_FLOAT_FORMAT survives as numeric rounding: the number a value is
-// published as is the one the old string payload spelled.
-func TestRoundFloatKeepsTheConfiguredPrecision(t *testing.T) {
-	for _, tc := range []struct {
-		spec string
-		in   float64
-		want float64
-	}{
-		{".3f", 230.12345, 230.123},
-		{"{:.1f}", 49.96, 50},
-		{".2f", -0.004, -0},
-		{".4g", 12345.678, 12350},
-	} {
-		c, err := Load(strings.NewReader(minimumYAML+"MQTT_FLOAT_FORMAT: \""+tc.spec+"\"\n"), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got := c.RoundFloat(tc.in); got != tc.want {
-			t.Errorf("%s: RoundFloat(%v) = %v, want %v", tc.spec, tc.in, got, tc.want)
-		}
 	}
 }
