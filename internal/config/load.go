@@ -59,6 +59,9 @@ func Load(r io.Reader, env Env) (*Config, error) {
 	if env != nil {
 		appliedEnv = applyEnvOverrides(raw, env)
 	}
+	if err := checkRenamedKeys(raw); err != nil {
+		return nil, err
+	}
 
 	// Round-trip through yaml.v3 so the typed Config sees the merged
 	// view (file + env). Marshal cannot fail on a sanitised dict.
@@ -89,6 +92,23 @@ func Load(r io.Reader, env Env) (*Config, error) {
 		return nil, err
 	}
 	return &cfg, nil
+}
+
+// checkRenamedKeys refuses a configuration that still sets one of the
+// [renamedKeys], in the file or as an MTEC_* env override (both end up
+// in raw), naming the new key for each.
+func checkRenamedKeys(raw map[string]any) error {
+	var issues []string
+	for _, k := range renamedKeys {
+		if rawHasKey(raw, k[0]) {
+			issues = append(issues, fmt.Sprintf("%s was renamed to %s; rename the key (env: %s%s → %s%s)",
+				k[0], k[1], EnvPrefix, k[0], EnvPrefix, k[1]))
+		}
+	}
+	if len(issues) > 0 {
+		return &ValidationError{Issues: issues}
+	}
+	return nil
 }
 
 // LoadFile is a convenience wrapper around [Load] that opens path

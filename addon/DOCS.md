@@ -26,6 +26,9 @@ Everything else has sensible defaults; use the reference below to fine-tune.
 | `mqtt_port` | int | `1883` | MQTT broker port. Only used when `mqtt_server` is set; the auto-detected broker brings its own port. |
 | `mqtt_login` | str | `""` | MQTT username. Only used when `mqtt_server` is set (auto-detect supplies credentials). |
 | `mqtt_password` | password | `""` | MQTT password. Only used when `mqtt_server` is set. |
+| `mqtt_tls` | bool | `false` | Connect to `mqtt_server` via TLS (`tls://`). Set `mqtt_port` to the broker's TLS port as well (usually `8883`). The auto-detected Home Assistant broker switches TLS on by itself when it reports it. |
+| `mqtt_tls_ca` | str | `""` | Path of a PEM CA bundle to verify the broker against, for a broker whose certificate your own CA issued — e.g. `/ssl/ca.crt` or `/share/mqtt/ca.crt` (`/ssl` and `/share` are mapped read-only). Applies to an explicit and to the auto-detected broker. Empty = system roots. |
+| `mqtt_tls_insecure` | bool | `false` | **Dangerous**: do not verify the broker certificate at all. Prefer `mqtt_tls_ca`; the two cannot be combined. |
 | `mqtt_topic` | str | `MTEC` | Instance name, the first level of every MQTT topic (`<name>/status/…`, `<name>/connected`, …). **The name is the only thing that keeps two instances on one broker apart**: two add-on instances (two inverters) need two different names. |
 | `mqtt_maintenance` | bool | `true` | mqtt-smarthome maintenance topics: `<name>/maintenance/set/loglevel` and the retained `<name>/maintenance/stats`. Anyone who may publish on the broker can change the log level — see *MQTT topics* below. The restart command is refused in the add-on; restart the add-on from Home Assistant. |
 | `mqtt_stats_interval` | int | `60` | Seconds between `<name>/maintenance/stats`; `0` switches them off. |
@@ -118,14 +121,25 @@ inverter serial.
 
 ## TLS / secure MQTT
 
-The **daemon** does speak TLS: `MQTT_SSL: true` dials `tls://` (port 8883 by
-default) with full certificate verification, and `MQTT_SSL_INSECURE` disables
-that verification for a self-signed broker. The protocol is MQTT 5.0 by
-default.
+The add-on speaks TLS to the broker (MQTT 5.0 by default):
 
-The **add-on** does not expose either setting — it is wired to the
-Supervisor's MQTT service on the internal network, where the traffic does not
-leave the host. If you need TLS, run the standalone binary or the Docker image
-and set `MTEC_MQTT_SSL=true`. (A previous revision of this page claimed the
-daemon had no native TLS at all. It does; only the add-on's option list
-omits it.)
+- **Own broker:** set `mqtt_server`, `mqtt_tls: true` and `mqtt_port` to the
+  TLS port (usually `8883`). The certificate is verified against the system
+  roots.
+- **Private CA:** copy the CA certificate (PEM) to `/ssl` or `/share` — for
+  example with the Samba or File editor add-on — and set `mqtt_tls_ca` to its
+  path, e.g. `/ssl/ca.crt`. A missing or unusable file stops the add-on at
+  start with the file named in the log.
+- **Auto-detected broker:** with `mqtt_server` empty the add-on uses the Home
+  Assistant MQTT service and connects via TLS when that service reports it;
+  `mqtt_tls_ca` / `mqtt_tls_insecure` apply to it too. The Supervisor's
+  Mosquitto add-on is reached on the internal network, where the traffic does
+  not leave the host.
+- `mqtt_tls_insecure` skips certificate verification entirely. Use it only for
+  a broker you control and only when a CA file is not an option; it cannot be
+  combined with `mqtt_tls_ca`.
+
+The standalone binary and the Docker image use the same settings as
+`MQTT_TLS`, `MQTT_TLS_CA` and `MQTT_TLS_INSECURE` (env `MTEC_MQTT_TLS…`).
+`MQTT_SSL` / `MQTT_SSL_INSECURE` were renamed; a configuration that still sets
+them is refused at start.

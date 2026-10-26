@@ -158,11 +158,23 @@ level (no `/`): a multi-level name still works, but runs outside
 mqtt-smarthome §3 and is invisible to a tool scanning `+/info`, which the
 daemon logs once at start (`mtec2mqtt.mqtt_topic_multi_level`).
 
-To connect over TLS instead of plain TCP, set `MQTT_SSL: true` (the
+To connect over TLS instead of plain TCP, set `MQTT_TLS: true` (the
 daemon then dials `tls://` and defaults to port 8883 unless
-`MQTT_PORT` is set explicitly). `MQTT_SSL_INSECURE: true` disables
-broker certificate verification — only for a self-signed certificate
-on a broker you control; never enable it against an untrusted broker.
+`MQTT_PORT` is set explicitly). The broker certificate is verified
+against the system roots; for a broker whose certificate your own CA
+issued, point `MQTT_TLS_CA` at that CA's PEM file. An unusable CA file
+stops the daemon at start-up with the file named.
+`MQTT_TLS_INSECURE: true` disables broker certificate verification —
+only for a broker you control, and only when a CA file is not an
+option; never enable it against an untrusted broker. `MQTT_TLS_CA` and
+`MQTT_TLS_INSECURE` are mutually exclusive. `MQTT_TLS_CA` /
+`MQTT_TLS_INSECURE` without `MQTT_TLS` have no effect and are warned
+about.
+
+`MQTT_SSL` / `MQTT_SSL_INSECURE` (releases up to 3.2.0) were renamed to
+`MQTT_TLS` / `MQTT_TLS_INSECURE`. A configuration that still sets an old
+key — in the file or as `MTEC_MQTT_SSL*` — is refused at start, because
+silently ignoring `MQTT_SSL: true` would fall back to plain TCP.
 
 Set `DEVICE_NAME` to give the inverter a friendly name: it becomes the
 Home Assistant device name (instead of the generic "MTEC EnergyButler")
@@ -449,7 +461,7 @@ welcome under the [AI contribution policy](./AI_POLICY.md).
 |------------|-----------------------------------------------------------------|
 | Inverter   | M-TEC Energybutler GEN3. Potentially Wattsonic / Sunways / Daxtromn. |
 | Firmware   | V27.52.4.0 and newer (Modbus TCP on port **502**). Older firmware speaks Modbus RTU framing on port 5743, which this bridge does not. |
-| MQTT       | MQTT 5.0 by default (3.1.1 selectable via `TCPConfig.ProtocolVersion` for brokers that don't speak 5.0 yet), plain TCP (port 1883) or TLS (port 8883, `MQTT_SSL: true`). |
+| MQTT       | MQTT 5.0 by default (3.1.1 selectable via `TCPConfig.ProtocolVersion` for brokers that don't speak 5.0 yet), plain TCP (port 1883) or TLS (port 8883, `MQTT_TLS: true`, optional private CA via `MQTT_TLS_CA`). |
 | Go         | 1.27+                                                           |
 
 ## Credit
