@@ -25,6 +25,12 @@
   MQTT service switches TLS on when it reports it.
 - go-mqtt 1.7.0.
 
+### Changed
+
+- go-bridgeui v0.3.0: the dashboard translates value names and problem
+  events through the bridge's labels, and a wide card no longer pushes the
+  page past the window.
+
 # Version 3.2.0 (2026-10-26)
 
 ## What's Changed
