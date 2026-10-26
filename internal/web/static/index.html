@@ -31,6 +31,7 @@
           <a href="#sec-status" class="nav-item active" data-target="sec-status" data-i18n="nav.status">Status</a>
           <a href="#sec-live" class="nav-item" data-target="sec-live" data-i18n="nav.live">Live</a>
           <a href="#sec-energy" class="nav-item" data-target="sec-energy" data-i18n="nav.energy">Energy</a>
+          <a href="#sec-evcc" class="nav-item" data-target="sec-evcc" data-i18n="nav.evcc" hidden>evcc</a>
           <a href="#sec-control" class="nav-item" data-target="sec-control" data-i18n="nav.control">Control</a>
           <a href="#sec-system" class="nav-item" data-target="sec-system" data-i18n="nav.system">System</a>
         </nav>
@@ -73,6 +74,12 @@
         <section id="sec-energy" class="section">
           <h2 class="section-title" data-i18n="section.energy">Energy (day / total)</h2>
           <div id="energy-groups" class="group-stack"></div>
+        </section>
+
+        <!-- evcc profile (EVCC_ENABLE) -->
+        <section id="sec-evcc" class="section" hidden>
+          <h2 class="section-title" data-i18n="section.evcc">evcc profile</h2>
+          <div id="evcc-groups" class="group-stack"></div>
         </section>
 
         <!-- Control (writable registers) -->

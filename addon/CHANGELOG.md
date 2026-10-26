@@ -1,3 +1,15 @@
+# Version 3.1.0 (2026-10-26)
+
+## What's Changed
+
+### Added
+
+- **The web UI shows the evcc profile.** With `EVCC_ENABLE` on, a new
+  "evcc profile" section lists what the bridge publishes below
+  `<name>/status/<serial>/evcc/` (grid, PV and battery power, energy,
+  SOC and the battery mode), labelled and with units. The system card
+  shows whether the profile is on. Off, the section stays hidden.
+
 # Version 3.0.0 (2026-10-26)
 
 ## Upgrade note

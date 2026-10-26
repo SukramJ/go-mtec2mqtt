@@ -57,6 +57,48 @@ func (i Item) String() string { return i.Role + "/" + i.Key }
 // BatteryMode is the profile's one command.
 var BatteryMode = Item{RoleBattery, KeyBatteryMode}
 
+// Unit is the item's unit: W, kWh, % or none (the battery mode).
+func (i Item) Unit() string {
+	switch i.Key {
+	case KeyPower, KeyPowerL1, KeyPowerL2, KeyPowerL3:
+		return "W"
+	case KeyEnergy, KeyReturnEnergy:
+		return "kWh"
+	case KeySoC:
+		return "%"
+	}
+	return ""
+}
+
+// names labels each item for the web UI, English and German.
+var names = map[Item][2]string{
+	{RoleGrid, KeyPower}:           {"Grid power", "Netz Leistung"},
+	{RoleGrid, KeyPowerL1}:         {"Grid power L1", "Netz Leistung L1"},
+	{RoleGrid, KeyPowerL2}:         {"Grid power L2", "Netz Leistung L2"},
+	{RoleGrid, KeyPowerL3}:         {"Grid power L3", "Netz Leistung L3"},
+	{RoleGrid, KeyEnergy}:          {"Grid import", "Netz Bezug"},
+	{RoleGrid, KeyReturnEnergy}:    {"Grid export", "Netz Einspeisung"},
+	{RolePV, KeyPower}:             {"PV power", "PV Leistung"},
+	{RolePV, KeyEnergy}:            {"PV energy", "PV Energie"},
+	{RoleBattery, KeyPower}:        {"Battery power", "Batterie Leistung"},
+	{RoleBattery, KeySoC}:          {"Battery SOC", "Batterie SOC"},
+	{RoleBattery, KeyEnergy}:       {"Battery discharged", "Batterie entladen"},
+	{RoleBattery, KeyReturnEnergy}: {"Battery charged", "Batterie geladen"},
+	BatteryMode:                    {"Battery mode", "Batteriemodus"},
+}
+
+// Name is the item's label in lang ("de", otherwise English).
+func (i Item) Name(lang string) string {
+	n, ok := names[i]
+	if !ok {
+		return i.String()
+	}
+	if lang == "de" {
+		return n[1]
+	}
+	return n[0]
+}
+
 // source maps a profile item onto the register it is derived from. sign
 // turns the inverter's convention into evcc's.
 type source struct {

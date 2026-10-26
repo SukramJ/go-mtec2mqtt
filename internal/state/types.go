@@ -92,6 +92,7 @@ type ConfigView struct {
 	RefreshDay    int    `json:"refresh_day"`
 	RefreshStatic int    `json:"refresh_static"`
 	RefreshTotal  int    `json:"refresh_total"`
+	EVCCEnable    bool   `json:"evcc_enable"`
 	Debug         bool   `json:"debug"`
 	// Language is the UI / HA display language ("en"/"de"). The SPA reads
 	// it to pick its translation bundle and locale.

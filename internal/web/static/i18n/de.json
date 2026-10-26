@@ -4,11 +4,13 @@
   "nav.energy": "Energie",
   "nav.control": "Steuerung",
   "nav.system": "System",
+  "nav.evcc": "evcc",
   "section.status": "Status & Health",
   "section.live": "Aktuelle Werte",
   "section.energy": "Energie (Tag / Gesamt)",
   "section.control": "Steuerung",
   "section.system": "System & Konfiguration",
+  "section.evcc": "evcc-Profil",
   "theme.toggle": "Hell/Dunkel umschalten",
   "theme.label": "Theme",
   "badge.connecting": "verbinde…",
@@ -43,6 +45,7 @@
   "cfg.refresh_total": "Aktualisierung Gesamt",
   "cfg.refresh_static": "Aktualisierung statisch",
   "cfg.debug": "Debug",
+  "cfg.evcc": "evcc-Profil",
   "btn.set": "Setzen",
   "ctl.current": "aktuell: ",
   "ctl.none": "Keine schreibbaren Register im Katalog.",
@@ -65,5 +68,6 @@
   "group.day": "Heute",
   "group.total": "Gesamt",
   "group.config": "Geräte-Konfiguration",
-  "group.static": "Geräte-Info"
+  "group.static": "Geräte-Info",
+  "group.evcc": "evcc"
 }

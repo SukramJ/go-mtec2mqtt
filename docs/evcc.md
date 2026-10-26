@@ -60,6 +60,10 @@ the `watchdog` in the snippet below repeats it every half `timeout`. Set
 `EVCC_BATTERYMODE_TIMEOUT` to at least twice the watchdog `timeout`, e.g.
 `120`.
 
+The web UI (and the add-on's Ingress panel) shows every value above in
+its "evcc profile" section, so you can check what evcc will read without
+an MQTT client.
+
 ## evcc.yaml
 
 Replace `MTEC0123456789` with your inverter serial and `mtec` with your

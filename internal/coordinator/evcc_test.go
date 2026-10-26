@@ -11,7 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/SukramJ/go-mtec2mqtt/internal/evcc"
 	"github.com/SukramJ/go-mtec2mqtt/internal/registers"
+	"github.com/SukramJ/go-mtec2mqtt/internal/state"
 )
 
 const evccBase = "MTEC/status/MTEC-TEST-001/evcc/"
@@ -107,6 +109,42 @@ func TestEVCCPublishesMetersWithEVCCSigns(t *testing.T) {
 	}
 	if !hasStatus(mqttStub.snapshotPublishes(), evccBase+"battery/batterymode", "normal") {
 		t.Errorf("batterymode not published as normal at start: %s", summariseTopics(mqttStub.snapshotPublishes()))
+	}
+}
+
+// The web UI shows the profile as its own group, labelled and with units
+// through /api/registers.
+func TestEVCCInWebUI(t *testing.T) {
+	c, _, mqttStub, _ := buildEVCC(t, 257)
+	c.deps.Store = state.New()
+	c.deps.Cfg.Language = "de"
+	stop := startRun(t, c, mqttStub)
+	defer stop()
+	waitFor(t, "evcc group in the web store", func() bool {
+		v := c.Snapshot().Groups[evcc.Group].Values
+		return v["grid/power"] == 500.0 && v["battery/batterymode"] == "normal"
+	})
+	if !c.Config().EVCCEnable {
+		t.Error("config view: evcc_enable false")
+	}
+	var found bool
+	for _, r := range c.Registers() {
+		if r.MQTT == "grid/power" {
+			found = true
+			if r.Group != evcc.Group || r.Unit != "W" || r.Name != "Netz Leistung" || r.Writable {
+				t.Errorf("grid/power register info: %+v", r)
+			}
+		}
+	}
+	if !found {
+		t.Error("evcc items missing from Registers()")
+	}
+
+	off, _, _, _ := buildDeps(t, false)
+	for _, r := range off.Registers() {
+		if r.Group == evcc.Group {
+			t.Fatalf("evcc item %s listed with EVCC_ENABLE off", r.MQTT)
+		}
 	}
 }
 

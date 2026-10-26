@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"maps"
 
+	"github.com/SukramJ/go-mtec2mqtt/internal/evcc"
 	"github.com/SukramJ/go-mtec2mqtt/internal/hass"
 	"github.com/SukramJ/go-mtec2mqtt/internal/state"
 	"github.com/SukramJ/go-mtec2mqtt/internal/version"
@@ -86,6 +87,7 @@ func (c *Coordinator) Config() state.ConfigView {
 		RefreshDay:    cfg.RefreshDay,
 		RefreshStatic: cfg.RefreshStatic,
 		RefreshTotal:  cfg.RefreshTotal,
+		EVCCEnable:    cfg.EVCCEnable,
 		Debug:         cfg.Debug,
 		Language:      cfg.Language,
 	}
@@ -94,11 +96,13 @@ func (c *Coordinator) Config() state.ConfigView {
 // Registers returns catalog metadata so the SPA can label values and
 // render edit controls for writable registers. Names and enum labels are
 // localised to the configured language; the synthetic charge/discharge
-// "active" switches are appended so the UI can render them too. Order
-// matches the YAML, virtual switches last.
+// "active" switches are appended so the UI can render them too, and with
+// EVCC_ENABLE the evcc profile's values (read-only, keyed "role/key" as
+// in the "evcc" group). Order matches the YAML, virtual switches and the
+// profile last.
 func (c *Coordinator) Registers() []state.RegisterInfo {
 	lang := c.deps.Cfg.Language
-	out := make([]state.RegisterInfo, 0, len(c.deps.Catalog.All)+len(c.deps.Virtual))
+	out := make([]state.RegisterInfo, 0, len(c.deps.Catalog.All)+len(c.deps.Virtual)+len(evcc.StatusItems()))
 	for _, r := range c.deps.Catalog.All {
 		out = append(out, state.RegisterInfo{
 			Key:        r.Key,
@@ -121,6 +125,17 @@ func (c *Coordinator) Registers() []state.RegisterInfo {
 			Writable:  true,
 			Component: string(hass.PlatformSwitch),
 		})
+	}
+	if c.deps.Cfg.EVCCEnable {
+		for _, it := range evcc.StatusItems() {
+			out = append(out, state.RegisterInfo{
+				Key:   evcc.Group + "/" + it.String(),
+				Name:  it.Name(lang),
+				MQTT:  it.String(),
+				Group: evcc.Group,
+				Unit:  it.Unit(),
+			})
+		}
 	}
 	return out
 }
