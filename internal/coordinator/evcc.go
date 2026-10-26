@@ -67,11 +67,15 @@ func (c *Coordinator) publishEVCC(ctx context.Context, log *slog.Logger, tp topi
 	if !c.deps.Cfg.EVCCEnable {
 		return
 	}
-	for item, v := range evcc.Derive(processed) {
+	derived := evcc.Derive(processed)
+	values := make(map[string]any, len(derived))
+	for item, v := range derived {
 		// Rounded like the source register's own value.
 		reg := c.deps.Catalog.FindByMQTT(evcc.SourceKey(item))
-		c.publishEVCCValue(ctx, log, tp, item, reg.Round(v), now)
+		values[item.String()] = reg.Round(v)
+		c.publishEVCCValue(ctx, log, tp, item, values[item.String()], now)
 	}
+	c.storeEVCC(values, now)
 }
 
 func (c *Coordinator) publishEVCCValue(ctx context.Context, log *slog.Logger, tp topicParts, item evcc.Item, v any, now time.Time) {
@@ -81,13 +85,23 @@ func (c *Coordinator) publishEVCCValue(ctx context.Context, log *slog.Logger, tp
 	}
 }
 
+// storeEVCC mirrors profile values into the web UI as the group "evcc",
+// keyed "role/key" (the topic path below evcc/).
+func (c *Coordinator) storeEVCC(values map[string]any, now time.Time) {
+	if c.deps.Store != nil && len(values) > 0 {
+		c.deps.Store.UpdateGroup(evcc.Group, values, now)
+	}
+}
+
 // publishBatteryMode publishes the battery mode in force.
 func (c *Coordinator) publishBatteryMode(ctx context.Context) {
 	tp, ok := c.loadTopicParts()
 	if !ok || !c.deps.Cfg.EVCCEnable {
 		return
 	}
-	c.publishEVCCValue(ctx, c.deps.Logger, tp, evcc.BatteryMode, string(c.evcc.current()), c.deps.Now())
+	mode, now := string(c.evcc.current()), c.deps.Now()
+	c.publishEVCCValue(ctx, c.deps.Logger, tp, evcc.BatteryMode, mode, now)
+	c.storeEVCC(map[string]any{evcc.BatteryMode.String(): mode}, now)
 }
 
 // evccStatusTopics lists every topic the profile publishes, for the

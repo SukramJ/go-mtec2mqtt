@@ -115,3 +115,20 @@ func TestSourceKey(t *testing.T) {
 		t.Errorf("batterymode source = %q, want none", got)
 	}
 }
+
+// Every published item carries a web UI label in both languages, and a
+// unit wherever it is a number.
+func TestStatusItemsAreLabelled(t *testing.T) {
+	t.Parallel()
+	for _, it := range StatusItems() {
+		if _, ok := names[it]; !ok {
+			t.Errorf("%s has no label", it)
+		}
+		if it.Name("de") == it.Name("en") {
+			t.Errorf("%s: German label %q not translated", it, it.Name("de"))
+		}
+		if (it.Unit() == "") != (it == BatteryMode) {
+			t.Errorf("%s: unit %q", it, it.Unit())
+		}
+	}
+}

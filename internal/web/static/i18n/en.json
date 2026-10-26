@@ -4,11 +4,13 @@
   "nav.energy": "Energy",
   "nav.control": "Control",
   "nav.system": "System",
+  "nav.evcc": "evcc",
   "section.status": "Status & Health",
   "section.live": "Live values",
   "section.energy": "Energy (day / total)",
   "section.control": "Control",
   "section.system": "System & configuration",
+  "section.evcc": "evcc profile",
   "theme.toggle": "Toggle light/dark",
   "theme.label": "Theme",
   "badge.connecting": "connecting…",
@@ -43,6 +45,7 @@
   "cfg.refresh_total": "Refresh total",
   "cfg.refresh_static": "Refresh static",
   "cfg.debug": "Debug",
+  "cfg.evcc": "evcc profile",
   "btn.set": "Set",
   "ctl.current": "current: ",
   "ctl.none": "No writable registers in the catalog.",
@@ -65,5 +68,6 @@
   "group.day": "Today",
   "group.total": "Total",
   "group.config": "Device configuration",
-  "group.static": "Device info"
+  "group.static": "Device info",
+  "group.evcc": "evcc"
 }

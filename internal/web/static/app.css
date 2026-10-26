@@ -151,6 +151,7 @@ html, body {
 }
 
 /* ---------- sections / cards ---------- */
+[hidden] { display: none !important; }
 .section { margin-bottom: 30px; scroll-margin-top: 78px; }
 .section-title { font-size: 15px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-soft); margin: 0 0 12px; }
 

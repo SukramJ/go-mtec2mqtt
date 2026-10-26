@@ -24,6 +24,7 @@ const GROUPS = {
   now_pv: "live",
   day: "energy",
   total: "energy",
+  evcc: "evcc",
   config: "system",
   static: "system",
 };
@@ -31,6 +32,7 @@ const GROUPS = {
 const SECTION_EL = {
   live: () => document.getElementById("live-groups"),
   energy: () => document.getElementById("energy-groups"),
+  evcc: () => document.getElementById("evcc-groups"),
   system: () => document.getElementById("system-groups"),
 };
 
@@ -387,9 +389,13 @@ function renderConfig(c) {
     tile(t("cfg.refresh_day"), c.refresh_day + " " + t("unit.seconds"), null),
     tile(t("cfg.refresh_total"), c.refresh_total + " " + t("unit.seconds"), null),
     tile(t("cfg.refresh_static"), c.refresh_static + " " + t("unit.seconds"), null),
+    tile(t("cfg.evcc"), c.evcc_enable ? t("val.active") : t("val.off"), null),
     tile(t("cfg.debug"), c.debug ? t("val.on") : t("val.off"), null),
   ];
   setGrid("config-grid", items);
+  // The evcc section only exists with the profile on.
+  document.getElementById("sec-evcc").hidden = !c.evcc_enable;
+  document.querySelector('.nav-item[data-target="sec-evcc"]').hidden = !c.evcc_enable;
 }
 
 // ---------- small helpers ----------
