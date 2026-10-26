@@ -45,7 +45,10 @@ reference for behaviour.
   The Modbus-TCP transport (MBAP codec + client) is the shared
   `github.com/SukramJ/go-modbus` module (MIT, zero dependencies), also
   used by go-keba2mqtt; `internal/modbus` keeps only the catalog-aware
-  `Reader` and type aliases for the transport.
+  `Reader` and type aliases for the transport. The web UI is the shared
+  `github.com/SukramJ/go-bridgeui` module (MIT, zero dependencies), also
+  used by go-keba2mqtt and go-zendure2mqtt; `internal/web` is only the
+  adapter, the layout and the bridge's labels.
 - **Config**: YAML (`config-template.yaml` is the annotated reference),
   overridable per-key via `MTEC_<KEY>` env vars. Loaded from
   `--config`, then `./config.yaml`, `$XDG_CONFIG_HOME/mtec2mqtt/config.yaml`
@@ -68,7 +71,7 @@ internal/hass/         Home Assistant discovery payload builder + topic function
 internal/evcc/         the shared evcc profile: Derive (grid/pv/battery, evcc signs), battery modes, docs contract test
 internal/coordinator/  orchestration: poll loops, pseudo-registers, write queue, virtual/equipment logic, evcc battery mode, discovery publish
 internal/state/        thread-safe live-value cache (Store) shared between coordinator writers and web readers
-internal/web/          optional diagnostic web UI / HA add-on Ingress panel (embedded static assets, no build step)
+internal/web/          go-bridgeui adapter: the coordinator's state as the shared dashboard's contract, page layout + labels (i18n/)
 internal/version/      build-info package (Version/Commit/BuildDate, set via ldflags)
 addon/                 Home Assistant add-on packaging (Dockerfile, config.yaml, DOCS.md)
 script/                install.sh (curl|bash installer), run.sh, extract-release-notes.sh

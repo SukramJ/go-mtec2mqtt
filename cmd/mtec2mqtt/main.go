@@ -382,6 +382,7 @@ func run(configPath, registersPath string, logger *slog.Logger, level *slog.Leve
 		Bind:     cfg.WebBind,
 		User:     cfg.WebUser,
 		Password: cfg.WebPassword,
+		Language: cfg.Language,
 		Logger:   logger,
 	}, c)
 

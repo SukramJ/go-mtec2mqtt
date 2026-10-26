@@ -1,14 +1,11 @@
 // SPDX-License-Identifier: MIT
 // Copyright (C) 2026 SukramJ
 
-// Package web serves the optional embedded status/health dashboard.
-//
-// It is a thin HTTP layer over a [Backend] (implemented by the
-// coordinator): a small REST API plus a Server-Sent-Events stream feed a
-// single-page app that is compiled into the binary via go:embed. The
-// package depends only on the standard library and the shared
-// internal/state DTOs, so enabling the UI adds no third-party
-// dependencies and keeps the daemon a single static binary.
+// Package web is this bridge's side of go-bridgeui, the dashboard every
+// go-*2mqtt bridge embeds: it presents the coordinator's state ([Backend],
+// in this bridge's own DTOs) as go-bridgeui's contract, and names the
+// page's layout and labels. The server, the API, the hardening and the
+// single-page app are go-bridgeui's.
 package web
 
 import (
