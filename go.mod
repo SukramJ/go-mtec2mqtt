@@ -3,7 +3,7 @@ module github.com/SukramJ/go-mtec2mqtt
 go 1.27.3
 
 require (
-	github.com/SukramJ/go-bridgeui v0.3.0
+	github.com/SukramJ/go-bridgeui v0.4.0
 	github.com/SukramJ/go-ha-catalog v0.3.1
 	github.com/SukramJ/go-hamqtt v0.38.0
 	github.com/SukramJ/go-modbus v0.1.0
