@@ -31,7 +31,7 @@ init: false
 ingress: true
 ingress_port: 8080
 panel_icon: mdi:solar-power-variant
-panel_title: go-mtec2mqtt
+panel_title: M-TEC
 
 # Optional host-port exposure (disabled by default — `null` publishes no port,
 # Ingress stays the primary path). Assign a host port in the add-on's Network
