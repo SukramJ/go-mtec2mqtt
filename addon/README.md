@@ -57,9 +57,9 @@ on the Home Assistant host.
 
 ### Fallback: local build from source
 
-If you want the add-on built on the host instead, remove (or comment out) the
-`image:` key in `addon/config.yaml`. The Supervisor will then build
-`addon/Dockerfile` using the base images from `addon/build.yaml`.
+The add-on is distributed as the pre-built image above. The Supervisor no
+longer reads `addon/build.yaml` and, since Supervisor 2026.04.0, no longer
+supplies `BUILD_FROM`, so it cannot build `addon/Dockerfile` on the host.
 
 > **Caveat:** the Go sources live at the **repository root**, not inside
 > `addon/`. Home Assistant's local add-on builder normally uses the add-on
