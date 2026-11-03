@@ -90,7 +90,8 @@ back to an environment-only config when no `config.yaml` is found.
 Run the daemon as a Home Assistant add-on with a dedicated config UI and a
 sidebar panel for the diagnostic dashboard (served via Ingress):
 
-1. **Settings → Add-ons → Add-on Store → ⋮ → Repositories** and add
+1. **Settings → Apps → Install app → ⋮ → Repositories** (formerly
+   *Settings → Add-ons → Add-on Store*) and add
    `https://github.com/SukramJ/go-mtec2mqtt`.
 2. Install **go-mtec2mqtt**, set `modbus_ip` (leave `mqtt_server` empty to
    auto-use the HA MQTT broker), and **Start**.
