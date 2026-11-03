@@ -7,7 +7,8 @@ Assistant MQTT discovery and a diagnostic web UI.
 
 ## Installation
 
-1. In Home Assistant go to **Settings → Add-ons → Add-on Store**.
+1. In Home Assistant go to **Settings → Apps → Install app** (formerly
+   *Settings → Add-ons → Add-on Store*).
 2. Click the **⋮** menu (top right) → **Repositories** and add:
    `https://github.com/SukramJ/go-mtec2mqtt`
 3. The **go-mtec2mqtt** add-on now appears in the store. Open it and
@@ -57,9 +58,9 @@ on the Home Assistant host.
 
 ### Fallback: local build from source
 
-If you want the add-on built on the host instead, remove (or comment out) the
-`image:` key in `addon/config.yaml`. The Supervisor will then build
-`addon/Dockerfile` using the base images from `addon/build.yaml`.
+The add-on is distributed as the pre-built image above. The Supervisor no
+longer reads `addon/build.yaml` and, since Supervisor 2026.04.0, no longer
+supplies `BUILD_FROM`, so it cannot build `addon/Dockerfile` on the host.
 
 > **Caveat:** the Go sources live at the **repository root**, not inside
 > `addon/`. Home Assistant's local add-on builder normally uses the add-on
