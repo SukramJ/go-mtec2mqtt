@@ -99,6 +99,8 @@ jobs:
         run: make build
       - name: version banner
         run: ./bin/mtec2mqtt --version
+      - name: version check (internal/version, addon/config.yaml, changelog.md)
+        run: make version-check
 
   audit:
     name: audit (vuln + licenses)
