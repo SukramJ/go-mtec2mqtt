@@ -690,7 +690,7 @@ unchanged. **Updating needs no other action.**
   now render through one function, and the pinned payloads and topic tree
   are byte-identical across the change.
 
-- **Added `sukramj.dev/go-hamqtt` v0.31.0 (MIT) as a dependency**,
+- **Added `github.com/SukramJ/go-hamqtt` v0.31.0 (MIT) as a dependency**,
   for a parallel Home Assistant discovery rendering path that is not yet
   wired to anything (ADR 0070 phase 6, step 3). The shipped builder still
   produces every published byte; the new path exists so the migration's
@@ -844,7 +844,7 @@ unchanged. **Updating needs no other action.**
 
 ### Changed
 
-- **MQTT client updated to `sukramj.dev/go-mqtt` v1.3.0**, an
+- **MQTT client updated to `github.com/SukramJ/go-mqtt` v1.3.0**, an
   audit release fixing 42 findings in the transport. No API changes
   were needed on this side — `TCPConfig`, `Lifecycle`, and `Breaker`
   usage here compiles and behaves unchanged.
@@ -887,7 +887,7 @@ unchanged. **Updating needs no other action.**
 
 ### Changed
 
-- **MQTT client updated to `sukramj.dev/go-mqtt` v1.2.0**, a
+- **MQTT client updated to `github.com/SukramJ/go-mqtt` v1.2.0**, a
   hardening release fixing 28 audit findings in the transport:
   serialised connect/disconnect, generation-counted send quota and
   packet-id allocator (no cross-reconnect leaks), typed ack waiters
@@ -1054,7 +1054,7 @@ input and anchors the transport with fuzz targets and poison-path tests.
 ### Docs
 
 - Updated stale `internal/mqtt` documentation references to point at the
-  extracted `sukramj.dev/go-mqtt` module (no functional change).
+  extracted `github.com/SukramJ/go-mqtt` module (no functional change).
 
 # Version 1.3.0 (2026-07-02)
 
@@ -1098,7 +1098,7 @@ client into a shared module.
 
 ### Changed
 
-- **MQTT client extracted to `sukramj.dev/go-mqtt`.** The hand-rolled
+- **MQTT client extracted to `github.com/SukramJ/go-mqtt`.** The hand-rolled
   MQTT 3.1.1 client that lived under `internal/mqtt` is now the shared
   `go-mqtt` module (v0.1.0), used by all four `go-*2mqtt` bridges, so a fix
   lands once instead of drifting across four copies. No behavioural change for
