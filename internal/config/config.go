@@ -14,7 +14,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/SukramJ/go-mqtt"
+	"sukramj.dev/go-mqtt"
 )
 
 // Daemon-wide constants: the env-var prefix and the config file lookup.

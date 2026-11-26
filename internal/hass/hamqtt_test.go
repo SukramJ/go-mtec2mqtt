@@ -9,9 +9,9 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/SukramJ/go-hamqtt/discovery"
-	hamodel "github.com/SukramJ/go-hamqtt/model"
-	"github.com/SukramJ/go-hamqtt/publisher"
+	"sukramj.dev/go-hamqtt/discovery"
+	hamodel "sukramj.dev/go-hamqtt/model"
+	"sukramj.dev/go-hamqtt/publisher"
 )
 
 // TestRenderedBundleAcceptsTheDuplicatedUniqueIDs: nine unique_ids are

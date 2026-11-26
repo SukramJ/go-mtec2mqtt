@@ -438,7 +438,7 @@ internal/version/    build-info package
 ```
 
 The MQTT transport is no longer part of this tree: it is the external
-[`github.com/SukramJ/go-mqtt`](https://github.com/SukramJ/go-mqtt) module
+[`sukramj.dev/go-mqtt`](https://github.com/SukramJ/go-mqtt) module
 (MIT-licensed, `openccu-loom` provenance — see [Credit](#credit)), pulled in
 as a regular `go.mod` dependency.
 

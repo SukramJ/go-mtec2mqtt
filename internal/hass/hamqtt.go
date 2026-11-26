@@ -8,16 +8,16 @@ import (
 	"sort"
 	"strings"
 
-	hacatalog "github.com/SukramJ/go-ha-catalog"
-	"github.com/SukramJ/go-hamqtt/discovery"
-	hamodel "github.com/SukramJ/go-hamqtt/model"
-	"github.com/SukramJ/go-hamqtt/publisher"
-	"github.com/SukramJ/go-hamqtt/topic"
+	hacatalog "sukramj.dev/go-ha-catalog"
+	"sukramj.dev/go-hamqtt/discovery"
+	hamodel "sukramj.dev/go-hamqtt/model"
+	"sukramj.dev/go-hamqtt/publisher"
+	"sukramj.dev/go-hamqtt/topic"
 
 	"github.com/SukramJ/go-mtec2mqtt/internal/registers"
 )
 
-// This file renders the device document through github.com/SukramJ/go-hamqtt
+// This file renders the device document through sukramj.dev/go-hamqtt
 // and owns the topic functions every publisher, router and config in this
 // bridge derives its topics from.
 //
