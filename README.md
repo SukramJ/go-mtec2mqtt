@@ -431,7 +431,7 @@ cmd/mtec2mqtt/       daemon entry point
 cmd/mtec-util/       interactive register CLI
 internal/config/     YAML loader + MTEC_* env overlay + validation
 internal/registers/  catalog loader, type-aware decoders, address clustering
-internal/modbus/     catalog-aware Reader over github.com/SukramJ/go-modbus
+internal/modbus/     catalog-aware Reader over sukramj.dev/go-modbus
 internal/hass/       Home Assistant discovery payload builder
 internal/coordinator/orchestration: poll loops, pseudo-registers, write queue
 internal/version/    build-info package
@@ -443,7 +443,7 @@ The MQTT transport is no longer part of this tree: it is the external
 as a regular `go.mod` dependency.
 
 The Modbus-TCP transport is the shared
-[`github.com/SukramJ/go-modbus`](https://github.com/SukramJ/go-modbus) module
+[`sukramj.dev/go-modbus`](https://github.com/SukramJ/go-modbus) module
 (MIT, also used by go-keba2mqtt). Its MBAP codec ships with byte-for-byte
 goldenfile vectors generated from `pymodbus 3.13`, so wire-format
 correctness is anchored to a battle-tested reference.

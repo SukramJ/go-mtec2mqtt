@@ -11,8 +11,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/SukramJ/go-modbus/modbustest"
-	"github.com/SukramJ/go-modbus/protocol"
+	"sukramj.dev/go-modbus/modbustest"
+	"sukramj.dev/go-modbus/protocol"
 
 	"github.com/SukramJ/go-mtec2mqtt/internal/registers"
 )

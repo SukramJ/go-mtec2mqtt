@@ -16,7 +16,7 @@ const gapThreshold = 10
 
 // maxReadWords is the FC03 read limit (Modbus spec: 125 holding
 // registers per request). It mirrors the unexported maxReadCount in
-// github.com/SukramJ/go-modbus/protocol — duplicated here because the
+// sukramj.dev/go-modbus/protocol — duplicated here because the
 // registers package must stay below the modbus layer in the dependency
 // graph.
 // The loader rejects longer registers and the clusterer refuses to

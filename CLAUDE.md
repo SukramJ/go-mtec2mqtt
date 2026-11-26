@@ -43,7 +43,7 @@ reference for behaviour.
   (the shared MQTT client extracted from `openccu-loom`, MIT — MQTT 5.0
   by default, 3.1.1 selectable via `TCPConfig.ProtocolVersion`).
   The Modbus-TCP transport (MBAP codec + client) is the shared
-  `github.com/SukramJ/go-modbus` module (MIT, zero dependencies), also
+  `sukramj.dev/go-modbus` module (MIT, zero dependencies), also
   used by go-keba2mqtt; `internal/modbus` keeps only the catalog-aware
   `Reader` and type aliases for the transport. The web UI is the shared
   `github.com/SukramJ/go-bridgeui` module (MIT, zero dependencies), also
@@ -240,7 +240,7 @@ cmd/mtec2mqtt/         daemon entry point (main.go)
 cmd/mtec-util/         interactive register CLI (list/read/write registers)
 internal/config/       YAML loader + MTEC_* env overlay + validation
 internal/registers/    register catalog loader, type-aware decoders, address clustering
-internal/modbus/       catalog-aware Reader over github.com/SukramJ/go-modbus (transport aliases in client.go)
+internal/modbus/       catalog-aware Reader over sukramj.dev/go-modbus (transport aliases in client.go)
 internal/hass/         Home Assistant discovery payload builder + topic functions
 internal/evcc/         the shared evcc profile: Derive (grid/pv/battery, evcc signs), battery modes, docs contract test
 internal/coordinator/  orchestration: poll loops, pseudo-registers, write queue, virtual/equipment logic, evcc battery mode, discovery publish
