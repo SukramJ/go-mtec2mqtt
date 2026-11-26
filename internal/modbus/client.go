@@ -3,14 +3,14 @@
 
 // Package modbus is the Modbus-TCP layer for the M-TEC Energybutler: the
 // catalog-aware [Reader] on top of the shared transport in
-// github.com/SukramJ/go-modbus.
+// sukramj.dev/go-modbus.
 //
 // The transport (MBAP codec, sequential client, deadline handling) moved
 // to go-modbus so go-mtec2mqtt and go-keba2mqtt share one implementation.
 // The aliases below keep this package's call sites unchanged.
 package modbus
 
-import gomodbus "github.com/SukramJ/go-modbus"
+import gomodbus "sukramj.dev/go-modbus"
 
 // Client is the go-modbus transport.
 type Client = gomodbus.Client

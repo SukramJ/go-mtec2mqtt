@@ -4,8 +4,6 @@ github.com/SukramJ/go-ha-catalog v0.3.1 h1:wo8CN+r4QHFCIBftSJMCHzYzmnkbs2FjEbnfj
 github.com/SukramJ/go-ha-catalog v0.3.1/go.mod h1:GWdkU683HaEB23e2RWabRZinYPIbWq6wyRQ+iBbMP5s=
 github.com/SukramJ/go-hamqtt v0.40.0 h1:d4M8OZlhbByIOJkVYYxEjFWMJ+6PwBtan21IhaQ2qDg=
 github.com/SukramJ/go-hamqtt v0.40.0/go.mod h1:7rtxzUbuNpOpi0IXJWHwjxJSBXVLPOkcBCrglJAgI4k=
-github.com/SukramJ/go-modbus v0.1.0 h1:C92W5krSNDmjXmirECdKn7MfpyywT4qjq8QkzVYA+DY=
-github.com/SukramJ/go-modbus v0.1.0/go.mod h1:iUyAS5TUPZL70mz0nSyHD2v0uhb9EeX3d45VkljGAPQ=
 github.com/SukramJ/go-mqtt v1.7.0 h1:7yjVrUrlWD3u2hjqQkT3gEGoE+YMIUiSmQ+vU/7Ouxc=
 github.com/SukramJ/go-mqtt v1.7.0/go.mod h1:aZERJuvzn/l627LZUkbZaGh8zhZnfIDcI2tbYM9oxzY=
 golang.org/x/sync v0.25.0 h1:dJnifr0nMV8/SBnBvdo4eSGGnrc3O4FFx6IqvtLcmRs=
@@ -14,3 +12,5 @@ gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405 h1:yhCVgyC4o1eVCa2tZl7eS0r+
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
 gopkg.in/yaml.v3 v3.0.1 h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=
 gopkg.in/yaml.v3 v3.0.1/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=
+sukramj.dev/go-modbus v0.2.0 h1:9Uw+hkFCTWEitbbu5l3Tv84nLzbcMv8W7TakHRkfYoU=
+sukramj.dev/go-modbus v0.2.0/go.mod h1:D2QhUE17f0V2bXO456Vrm/1mH04lA70QZ9DfFQwksyU=

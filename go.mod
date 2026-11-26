@@ -6,8 +6,8 @@ require (
 	github.com/SukramJ/go-bridgeui v0.4.0
 	github.com/SukramJ/go-ha-catalog v0.3.1
 	github.com/SukramJ/go-hamqtt v0.40.0
-	github.com/SukramJ/go-modbus v0.1.0
 	github.com/SukramJ/go-mqtt v1.7.0
 	golang.org/x/sync v0.25.0
 	gopkg.in/yaml.v3 v3.0.1
+	sukramj.dev/go-modbus v0.2.0
 )
