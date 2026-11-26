@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/SukramJ/go-mqtt"
+	"sukramj.dev/go-mqtt"
 )
 
 // minimumYAMLNoPort is minimumYAML without MQTT_PORT, so the

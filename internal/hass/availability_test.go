@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SukramJ/go-hamqtt/discovery"
-	hamodel "github.com/SukramJ/go-hamqtt/model"
+	"sukramj.dev/go-hamqtt/discovery"
+	hamodel "sukramj.dev/go-hamqtt/model"
 
 	"github.com/SukramJ/go-mtec2mqtt/internal/registers"
 )

@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/SukramJ/go-hamqtt/topic"
+	"sukramj.dev/go-hamqtt/topic"
 )
 
 // ValidationError is returned by [Validate] when the loaded config

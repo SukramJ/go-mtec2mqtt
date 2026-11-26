@@ -39,7 +39,7 @@ reference for behaviour.
   Docker image (distroless runtime) and a Home Assistant add-on
   (`addon/`).
 - **Dependencies are deliberately minimal**: `golang.org/x/sync`
-  (errgroup), `gopkg.in/yaml.v3`, and `github.com/SukramJ/go-mqtt`
+  (errgroup), `gopkg.in/yaml.v3`, and `sukramj.dev/go-mqtt`
   (the shared MQTT client extracted from `openccu-loom`, MIT — MQTT 5.0
   by default, 3.1.1 selectable via `TCPConfig.ProtocolVersion`).
   The Modbus-TCP transport (MBAP codec + client) is the shared
@@ -256,7 +256,7 @@ config-template.yaml     annotated reference config
 ```
 
 The MQTT transport is not part of this tree: it comes from the external
-`github.com/SukramJ/go-mqtt` module (MIT, `openccu-loom` provenance) as a
+`sukramj.dev/go-mqtt` module (MIT, `openccu-loom` provenance) as a
 regular `go.mod` dependency, not an `internal/` package.
 
 ## Development Commands

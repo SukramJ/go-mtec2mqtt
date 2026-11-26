@@ -7,7 +7,7 @@
 // Each register that carries HA metadata in registers.yaml becomes one or
 // more entities — sensors expose values, number/select/switch entities
 // also send commands back through MQTT. They are rendered through
-// github.com/SukramJ/go-hamqtt into ONE retained device document
+// sukramj.dev/go-hamqtt into ONE retained device document
 // ([RenderBundle]). The package owns no I/O: the coordinator publishes.
 package hass
 

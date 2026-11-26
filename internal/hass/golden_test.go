@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/SukramJ/go-hamqtt/discovery"
+	"sukramj.dev/go-hamqtt/discovery"
 
 	"github.com/SukramJ/go-mtec2mqtt/internal/registers"
 	"github.com/SukramJ/go-mtec2mqtt/internal/version"
